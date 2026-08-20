@@ -1,0 +1,21 @@
+{
+  "name": "care-yu-project-hub",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,green \"npm run dev -w backend\" \"npm run dev -w frontend\"",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:backend": "npm run dev -w backend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "start": "concurrently -n backend,frontend -c cyan,green \"npm run start -w backend\" \"npm run start -w frontend\"",
+    "lint": "npm run lint -w frontend",
+    "demo:record": "npm run demo:record -w frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
