@@ -1,25 +1,23 @@
-'use me';
-import { User, Role } from './types';
+'use client';
+
+import { User } from './types';
 
 export interface NavItem {
   name: string;
   href: string;
   iconName: string;
   badge?: string;
-  allowedRoles?: string[]; // Empty means all roles
+  allowedRoles?: string[];
   category: 'main' | 'pre_sales' | 'projects' | 'team_work' | 'system';
 }
 
 export const NAVIGATION_ITEMS: NavItem[] = [
-  // Dashboard
   {
     name: 'Dashboard',
     href: '/dashboard',
     iconName: 'LayoutDashboard',
     category: 'main'
   },
-
-  // Pre-Sales
   {
     name: 'Leads & Pipeline',
     href: '/pre-sales/leads',
@@ -41,13 +39,10 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'pre_sales',
     allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'PROCUREMENT', 'SYSTEM_ADMIN']
   },
-
-  // Projects
   {
     name: 'Active Projects',
     href: '/projects/active',
     iconName: 'Bot',
-    badge: 'Phase 1 Shell',
     category: 'projects',
     allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'PROJECT_ENGINEER', 'TEAM_LEAD', 'EMPLOYEE', 'EXECUTION', 'SYSTEM_ADMIN']
   },
@@ -58,8 +53,6 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'projects',
     allowedRoles: ['CEO', 'CTO', 'PROJECT_MANAGER', 'PROJECT_ENGINEER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN']
   },
-
-  // Team & Work
   {
     name: 'My Assigned Work',
     href: '/my-work',
@@ -85,8 +78,6 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'team_work',
     allowedRoles: ['CEO', 'CTO', 'PROJECT_MANAGER', 'PROCUREMENT', 'SYSTEM_ADMIN']
   },
-
-  // System & Governance
   {
     name: 'Organization Management',
     href: '/org',
@@ -116,14 +107,54 @@ export const NAVIGATION_ITEMS: NavItem[] = [
   }
 ];
 
+const CEO_HIDDEN_HREFS = new Set([
+  '/my-work',
+  '/daily-updates',
+  '/users',
+  '/roles',
+]);
+
+export function isCeoViewOnly(user: User | null | undefined): boolean {
+  return user?.role_code === 'CEO';
+}
+
+export function canCreateLead(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canPerformPmOperations(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
 export function hasPermission(user: User, requiredPermission: string): boolean {
-  if (user.role_code === 'CEO' || user.role_code === 'CTO' || user.role_code === 'SYSTEM_ADMIN') return true;
+  if (user.role_code === 'SYSTEM_ADMIN') return true;
+  if (user.role_code === 'CEO') {
+    return [
+      'view:financials',
+      'view:all_projects',
+      'view:audit_logs',
+      'view:pipeline',
+      'decide:ceo_escalation',
+    ].includes(requiredPermission);
+  }
+  if (user.role_code === 'CTO') return true;
   return true;
 }
 
 export function filterNavForUser(user: User): NavItem[] {
-  return NAVIGATION_ITEMS.filter(item => {
+  return NAVIGATION_ITEMS.filter((item) => {
+    if (isCeoViewOnly(user) && CEO_HIDDEN_HREFS.has(item.href)) return false;
     if (!item.allowedRoles || item.allowedRoles.length === 0) return true;
     return item.allowedRoles.includes(user.role_code);
   });
 }
+
+export const CEO_NAV_CATEGORY_LABELS: Record<NavItem['category'], string> = {
+  main: 'Overview',
+  pre_sales: 'Pre-Sales Visibility',
+  projects: 'Project Visibility',
+  team_work: 'Execution & Workload',
+  system: 'Governance',
+};

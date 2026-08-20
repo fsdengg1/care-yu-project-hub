@@ -1,10 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
-import { User } from '@/lib/types';
+import React, { useEffect, useState } from 'react';
+import { User, NotificationItem } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
-import { Bell, Search, UserCircle, LogOut, ChevronDown, CheckCircle2 } from 'lucide-react';
+import { apiRequest } from '@/lib/api';
+import { formatRelativeTime } from '@/lib/format';
+import { Bell, Search, LogOut, ChevronDown, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
+import AppearanceToggle from '@/components/theme/AppearanceToggle';
 
 interface NavbarProps {
   user: User;
@@ -14,13 +17,40 @@ interface NavbarProps {
 export default function Navbar({ user, onUserChange }: NavbarProps) {
   const [showRoleSelector, setShowRoleSelector] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
-  const notifications = StorageService.getNotifications(user.id);
   const unreadCount = notifications.filter(n => !n.read_status).length;
   const allUsers = StorageService.getUsers();
 
-  const handleSelectRoleAccount = (targetUser: User) => {
-    StorageService.setCurrentUser(targetUser);
+  const loadNotifications = async () => {
+    const result = await apiRequest<{ notifications: NotificationItem[] }>('/api/notifications');
+    if (result.ok) {
+      setNotifications(result.data.notifications);
+      return;
+    }
+    setNotifications(StorageService.getNotifications(user.id));
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, [user.id]);
+
+  const markRead = async (id: string) => {
+    await apiRequest(`/api/notifications/${id}/read`, { method: 'PATCH' });
+    setNotifications((current) => current.map((item) => item.id === id ? { ...item, read_status: true } : item));
+  };
+
+  const handleSelectRoleAccount = async (targetUser: User) => {
+    const result = await apiRequest<{ token: string; user: User }>('/api/auth/impersonate', {
+      method: 'POST',
+      body: JSON.stringify({ userId: targetUser.id }),
+    });
+    if (result.ok) {
+      StorageService.setAuthToken(result.data.token);
+      StorageService.setCurrentUser(result.data.user);
+    } else {
+      StorageService.setCurrentUser(targetUser);
+    }
     StorageService.logAudit({
       user_id: targetUser.id,
       user_name: targetUser.name,
@@ -31,7 +61,7 @@ export default function Navbar({ user, onUserChange }: NavbarProps) {
       description: `Switched active session view to ${targetUser.name} (${targetUser.role_name})`
     });
     setShowRoleSelector(false);
-    if (onUserChange) onUserChange(targetUser);
+    if (onUserChange) onUserChange(result.ok ? result.data.user : targetUser);
     window.location.href = '/dashboard';
   };
 
@@ -103,6 +133,8 @@ export default function Navbar({ user, onUserChange }: NavbarProps) {
           )}
         </div>
 
+        <AppearanceToggle />
+
         {/* Notifications Icon */}
         <div className="relative">
           <button
@@ -111,7 +143,9 @@ export default function Navbar({ user, onUserChange }: NavbarProps) {
           >
             <Bell className="w-4 h-4" />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-cyan-400 ring-2 ring-slate-900" />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-[10px] font-bold text-white flex items-center justify-center">
+                {unreadCount}
+              </span>
             )}
           </button>
 
@@ -125,13 +159,18 @@ export default function Navbar({ user, onUserChange }: NavbarProps) {
               </div>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-2 text-center">No unread notifications</p>
+                  <p className="text-xs text-slate-500 py-2 text-center">No notifications</p>
                 ) : (
-                  notifications.map(n => (
-                    <div key={n.id} className="p-2 rounded bg-slate-950/50 border border-slate-800 text-xs">
+                  notifications.slice(0, 6).map(n => (
+                    <button
+                      key={n.id}
+                      onClick={() => markRead(n.id)}
+                      className={`w-full text-left p-2 rounded bg-slate-950/50 border text-xs ${n.read_status ? 'border-slate-800' : 'border-cyan-800'}`}
+                    >
                       <div className="font-semibold text-cyan-300">{n.title}</div>
                       <div className="text-slate-400 mt-0.5">{n.message}</div>
-                    </div>
+                      <div className="text-[10px] text-slate-500 mt-1">{formatRelativeTime(n.created_at)}</div>
+                    </button>
                   ))
                 )}
               </div>

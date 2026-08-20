@@ -30,16 +30,42 @@ router.post('/login', (req, res) => {
     return res.status(403).json({ message: 'This account is inactive. Contact Admin for assistance.' });
   }
 
-  const token = jwt.sign(
+  return res.json({
+    token: issueToken(user),
+    user,
+  });
+});
+
+function issueToken(user: { id: string; role_code: string; email: string }) {
+  return jwt.sign(
     { sub: user.id, role: user.role_code, email: user.email },
     env.jwtSecret,
     { expiresIn: env.jwtExpiresIn as jwt.SignOptions['expiresIn'] }
   );
+}
 
-  return res.json({
-    token,
-    user,
-  });
+router.post('/restore-session', (req, res) => {
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  const target = userId ? store.findUserById(userId) : email ? store.findUserByEmail(email) : undefined;
+  if (!target || target.status !== 'ACTIVE') {
+    return res.status(401).json({ message: 'Not authenticated.' });
+  }
+  return res.json({ token: issueToken(target), user: target });
+});
+
+router.post('/impersonate', (req, res) => {
+  if (env.nodeEnv === 'production') {
+    return res.status(403).json({ message: 'Forbidden. This action is not permitted for your role.' });
+  }
+
+  const userId = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  const target = store.findUserById(userId);
+  if (!target || target.status !== 'ACTIVE') {
+    return res.status(404).json({ message: 'User not found.' });
+  }
+
+  return res.json({ token: issueToken(target), user: target });
 });
 
 router.get('/me', (req, res) => {

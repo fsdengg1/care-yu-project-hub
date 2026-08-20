@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { User } from '@/lib/types';
-import { filterNavForUser, NavItem } from '@/lib/rbac';
+import { filterNavForUser, isCeoViewOnly, CEO_NAV_CATEGORY_LABELS } from '@/lib/rbac';
 import { 
   LayoutDashboard, 
   Building2, 
@@ -48,13 +48,14 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 export default function Sidebar({ user }: SidebarProps) {
   const pathname = usePathname();
   const navItems = filterNavForUser(user);
+  const ceoView = isCeoViewOnly(user);
 
   const categories = [
-    { key: 'main', label: 'Overview' },
-    { key: 'pre_sales', label: 'Pre-Sales Opportunities' },
-    { key: 'projects', label: 'Project Operations' },
-    { key: 'team_work', label: 'Execution & Workload' },
-    { key: 'system', label: 'System & Governance' },
+    { key: 'main', label: ceoView ? CEO_NAV_CATEGORY_LABELS.main : 'Overview' },
+    { key: 'pre_sales', label: ceoView ? CEO_NAV_CATEGORY_LABELS.pre_sales : 'Pre-Sales Opportunities' },
+    { key: 'projects', label: ceoView ? CEO_NAV_CATEGORY_LABELS.projects : 'Project Operations' },
+    { key: 'team_work', label: ceoView ? CEO_NAV_CATEGORY_LABELS.team_work : 'Execution & Workload' },
+    { key: 'system', label: ceoView ? CEO_NAV_CATEGORY_LABELS.system : 'System & Governance' },
   ];
 
   return (

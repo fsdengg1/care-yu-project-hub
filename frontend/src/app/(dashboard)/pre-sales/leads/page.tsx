@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { Lead, LeadStatus, User } from '@/lib/types';
+import { canCreateLead, isCeoViewOnly } from '@/lib/rbac';
+import { apiRequest } from '@/lib/api';
+import { formatInrCompact, PIPELINE_STAGE_LABELS } from '@/lib/format';
 import { 
   Building2, 
   Plus, 
@@ -41,25 +44,35 @@ export default function LeadsListPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [verticalFilter, setVerticalFilter] = useState<string>('ALL');
   const [priorityFilter, setPriorityFilter] = useState<string>('ALL');
+  const [stageFilter, setStageFilter] = useState<string>('ALL');
 
   useEffect(() => {
     const user = StorageService.getCurrentUser();
     setCurrentUser(user);
-    setLeads(StorageService.getLeads());
+    const localLeads = StorageService.getLeads();
+    if (isCeoViewOnly(user)) {
+      (async () => {
+        const result = await apiRequest<{ leads: Lead[] }>('/api/leads');
+        setLeads(result.ok ? result.data.leads : localLeads);
+      })();
+      return;
+    }
+    setLeads(localLeads);
   }, []);
 
   if (!currentUser) return null;
 
   // Role visibility filtration
-  const isCEO = currentUser.role_code === 'CEO' || currentUser.role_code === 'SYSTEM_ADMIN';
+  const isCEO = isCeoViewOnly(currentUser);
+  const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
   const isPM = currentUser.role_code === 'PROJECT_MANAGER';
   const isBH = currentUser.role_code === 'BUSINESS_HEAD';
   const isED = currentUser.role_code === 'ENG_DIRECTOR';
 
   const visibleLeads = leads.filter(lead => {
     // Role level check
-    if (isCEO || isPM) {
-      // CEO and PM see all leads
+    if (isCEO || isAdmin || isPM) {
+      // CEO/Admin/PM see all leads
     } else if (isBH) {
       if (lead.business_vertical !== 'Business Head' && lead.created_by_id !== currentUser.id) return false;
     } else if (isED) {
@@ -81,9 +94,14 @@ export default function LeadsListPage() {
     const matchesStatus = statusFilter === 'ALL' || lead.status === statusFilter;
     const matchesVertical = verticalFilter === 'ALL' || lead.business_vertical === verticalFilter;
     const matchesPriority = priorityFilter === 'ALL' || lead.priority === priorityFilter;
+    const matchesStage = stageFilter === 'ALL' || lead.pipeline_stage === stageFilter;
 
-    return matchesSearch && matchesStatus && matchesVertical && matchesPriority;
+    return matchesSearch && matchesStatus && matchesVertical && matchesPriority && matchesStage;
   });
+
+  const ceoPipelineValue = visibleLeads
+    .filter((lead) => lead.pipeline_stage !== 'CONVERTED' && lead.pipeline_stage !== 'REJECTED' && lead.status !== 'LOST')
+    .reduce((sum, lead) => sum + (lead.expected_value ?? 0), 0);
 
   // PM Review Queue (Submitted or Under PM review)
   const pmReviewQueue = leads.filter(l => 
@@ -95,7 +113,7 @@ export default function LeadsListPage() {
   // Sales Action Required Queue (Returned to Sales)
   const salesReturnedQueue = leads.filter(l => 
     (l.status === 'RETURNED_TO_SALES' || l.status === 'ADDITIONAL_INFORMATION_REQUIRED') &&
-    (isCEO || l.created_by_id === currentUser.id || l.sales_owner_id === currentUser.id)
+    (l.created_by_id === currentUser.id || l.sales_owner_id === currentUser.id)
   );
 
   return (
@@ -106,13 +124,15 @@ export default function LeadsListPage() {
           <div className="flex items-center gap-2 text-cyan-400 font-semibold text-xs uppercase tracking-wider">
             <Building2 className="w-4 h-4" /> Pre-Sales Module
           </div>
-          <h1 className="text-xl font-bold text-slate-100 mt-1">Leads & Pipeline Management</h1>
+          <h1 className="text-xl font-bold text-slate-100 mt-1">{isCEO ? 'Leads & Pipeline' : 'Leads & Pipeline Management'}</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Care Yu Automation Pre-Sales lead tracking, PM review workflow, and feasibility approvals.
+            {isCEO
+              ? 'Management view of the pre-sales pipeline. Operational actions are handled by Business Head, Engineering Director, and Project Manager.'
+              : 'Care Yu Automation Pre-Sales lead tracking, PM review workflow, and feasibility approvals.'}
           </p>
         </div>
 
-        {(isCEO || isBH || isED || currentUser.role_code === 'SALES') && (
+        {canCreateLead(currentUser) && (
           <Link
             href="/pre-sales/leads/create"
             className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs rounded-lg shadow-md flex items-center gap-2 transition-all"
@@ -121,6 +141,19 @@ export default function LeadsListPage() {
           </Link>
         )}
       </div>
+
+      {isCEO && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Active Opportunities</div>
+            <div className="mt-1 text-2xl font-bold text-slate-100">{visibleLeads.filter((l) => l.pipeline_stage !== 'CONVERTED' && l.status !== 'LOST').length}</div>
+          </div>
+          <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Pipeline Value</div>
+            <div className="mt-1 text-2xl font-bold text-slate-100">{formatInrCompact(ceoPipelineValue)}</div>
+          </div>
+        </div>
+      )}
 
       {/* Action Required Banner for PM */}
       {isPM && pmReviewQueue.length > 0 && (
@@ -208,7 +241,30 @@ export default function LeadsListPage() {
 
         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
           <Filter className="w-3.5 h-3.5 text-slate-500" />
-          
+
+          {isCEO ? (
+            <>
+              <select
+                value={stageFilter}
+                onChange={(e) => setStageFilter(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-md text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="ALL">Stage</option>
+                {Object.entries(PIPELINE_STAGE_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-950 border border-slate-800 rounded-md text-xs text-slate-300 focus:outline-none"
+              >
+                <option value="ALL">Date</option>
+                <option value="DRAFT">Newest first (default)</option>
+              </select>
+            </>
+          ) : (
+            <>
           <select
             value={verticalFilter}
             onChange={(e) => setVerticalFilter(e.target.value)}
@@ -244,6 +300,8 @@ export default function LeadsListPage() {
             <option value="High">High</option>
             <option value="Critical">Critical</option>
           </select>
+            </>
+          )}
         </div>
       </div>
 
@@ -254,12 +312,13 @@ export default function LeadsListPage() {
             <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
               <tr>
                 <th className="p-3">Lead ID</th>
-                <th className="p-3">Lead Title & Customer</th>
-                <th className="p-3">Business Vertical</th>
-                <th className="p-3">Sales Owner</th>
-                <th className="p-3">Priority</th>
-                <th className="p-3">Status</th>
-                <th className="p-3">Lead Date</th>
+                <th className="p-3">Customer</th>
+                {isCEO ? <th className="p-3">Project</th> : <th className="p-3">Lead Title & Customer</th>}
+                {isCEO ? <th className="p-3">Value</th> : <th className="p-3">Business Vertical</th>}
+                {isCEO ? <th className="p-3">Stage</th> : <th className="p-3">Sales Owner</th>}
+                {isCEO ? <th className="p-3">Owner</th> : <th className="p-3">Priority</th>}
+                {!isCEO && <th className="p-3">Status</th>}
+                {!isCEO && <th className="p-3">Lead Date</th>}
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -278,6 +337,16 @@ export default function LeadsListPage() {
                   return (
                     <tr key={lead.id} className="hover:bg-slate-800/40 transition-colors">
                       <td className="p-3 font-mono font-bold text-cyan-400">{lead.lead_number}</td>
+                      {isCEO ? (
+                        <>
+                          <td className="p-3 text-slate-100">{lead.customer_name}</td>
+                          <td className="p-3 font-semibold text-slate-200">{lead.title}</td>
+                          <td className="p-3">{formatInrCompact(lead.expected_value ?? 0)}</td>
+                          <td className="p-3">{PIPELINE_STAGE_LABELS[lead.pipeline_stage || ''] || lead.status}</td>
+                          <td className="p-3 text-slate-400">{lead.sales_owner}</td>
+                        </>
+                      ) : (
+                        <>
                       <td className="p-3">
                         <div className="font-bold text-slate-100">{lead.title}</div>
                         <div className="text-[11px] text-slate-400">{lead.customer_name} • <span className="text-slate-500">{lead.customer_type}</span></div>
@@ -301,6 +370,8 @@ export default function LeadsListPage() {
                       <td className="p-3 text-slate-400 font-mono text-[11px]">
                         {new Date(lead.created_at).toLocaleDateString()}
                       </td>
+                        </>
+                      )}
                       <td className="p-3 text-right">
                         <Link
                           href={`/pre-sales/leads/${lead.id}`}

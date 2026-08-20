@@ -3,38 +3,88 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
-import { FeasibilityTeamAssignment, Lead, User } from '@/lib/types';
-import { Scan, ArrowRight, ShieldAlert, Inbox, Clock, CheckCircle2 } from 'lucide-react';
+import { FeasibilityTeamAssignment, Lead, Project, User } from '@/lib/types';
+import { apiRequest } from '@/lib/api';
+import { PIPELINE_STAGE_LABELS } from '@/lib/format';
+import { Scan, ArrowRight, ShieldAlert, Inbox, Clock } from 'lucide-react';
+
+const TEAM_LABELS: Record<string, string> = {
+  't-sw': 'Software',
+  't-vision': 'Vision',
+  't-robotics': 'Robotics & Solutions',
+  't-procurement': 'Procurement / Costing',
+  't-execution': 'Execution',
+};
 
 export default function FeasibilityStudiesPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [assignments, setAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [leadsMap, setLeadsMap] = useState<Record<string, Lead>>({});
+  const [projects, setProjects] = useState<Project[]>([]);
 
   useEffect(() => {
     const u = StorageService.getCurrentUser();
     setCurrentUser(u);
     const all = StorageService.getFeasibilityTeamAssignments();
     setAssignments(all);
-    const leads = StorageService.getLeads();
+    const localLeads = StorageService.getLeads();
     const map: Record<string, Lead> = {};
-    leads.forEach(l => { map[l.id] = l; });
+    localLeads.forEach(l => { map[l.id] = l; });
     setLeadsMap(map);
+    if (u?.role_code === 'CEO') {
+      (async () => {
+        const [leadsResult, projectsResult] = await Promise.all([
+          apiRequest<{ leads: Lead[] }>('/api/leads'),
+          apiRequest<{ projects: Project[] }>('/api/projects'),
+        ]);
+        if (leadsResult.ok) {
+          const apiMap: Record<string, Lead> = { ...map };
+          leadsResult.data.leads.forEach((lead) => { apiMap[lead.id] = lead; });
+          setLeadsMap(apiMap);
+        }
+        if (projectsResult.ok) {
+          setProjects(projectsResult.data.projects);
+        }
+      })();
+    }
   }, []);
 
   if (!currentUser) return null;
 
-  const isPM = currentUser.role_code === 'PROJECT_MANAGER' || currentUser.role_code === 'CEO' || currentUser.role_code === 'SYSTEM_ADMIN';
+  const isPM = currentUser.role_code === 'PROJECT_MANAGER' || currentUser.role_code === 'SYSTEM_ADMIN';
+  const isViewer = currentUser.role_code === 'CEO' || isPM;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
 
   const visible = assignments.filter(a => {
-    if (isPM) return true;
+    if (isViewer) return true;
     if (isTL) return a.team_lead_id === currentUser.id || a.team_id === currentUser.team_id;
     // Employee: show allocations via my-work page
     return false;
   });
+  const tlPending = visible.filter((a) => a.status === 'PENDING_TEAM_LEAD_REVIEW');
+  const isCEO = currentUser.role_code === 'CEO';
 
-  const tlPending = visible.filter(a => a.status === 'PENDING_TEAM_LEAD_REVIEW' || a.status === 'CLARIFICATION_REQUIRED');
+  const ceoStudies = Object.values(leadsMap)
+    .filter(
+      (lead) =>
+        lead.pipeline_stage === 'FEASIBILITY' ||
+        lead.status === 'ACCEPTED_FOR_FEASIBILITY' ||
+        lead.status === 'FEASIBILITY_IN_PROGRESS'
+    )
+    .map((lead) => {
+      const project = projects.find((item) => item.lead_id === lead.id);
+      const teams = (project?.team_ids ?? [])
+        .map((id) => TEAM_LABELS[id])
+        .filter(Boolean);
+      return {
+        lead,
+        teams: teams.length ? teams.join(', ') : 'Unassigned',
+        owner: project?.pm_name || lead.sales_owner || 'Arivan',
+      };
+    });
+
+  const showCeoStudies = isCEO && visible.length === 0;
+  const tableCount = showCeoStudies ? ceoStudies.length : visible.length;
 
   const statusColor = (s: string) => {
     if (s === 'PENDING_TEAM_LEAD_REVIEW') return 'text-amber-300 bg-amber-950 border-amber-800';
@@ -85,29 +135,71 @@ export default function FeasibilityStudiesPage() {
       {/* Main Table */}
       <div className="bg-slate-900/90 rounded-xl border border-slate-800 overflow-hidden">
         <div className="p-4 border-b border-slate-800 flex items-center justify-between">
-          <h2 className="font-bold text-slate-200 text-xs">All Team Assignments ({visible.length})</h2>
-          <p className="text-[11px] text-slate-400">Assignments are created from Lead → Feasibility Teams tab.</p>
+          <h2 className="font-bold text-slate-200 text-xs">
+            {isCEO ? `Feasibility Studies (${tableCount})` : `All Team Assignments (${tableCount})`}
+          </h2>
+          <p className="text-[11px] text-slate-400">
+            {currentUser.role_code === 'CEO'
+              ? 'Read-only visibility of feasibility work. Assignments are created by Project Manager.'
+              : 'Assignments are created from Lead → Feasibility Teams tab.'}
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-950/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
               <tr>
-                <th className="p-3">Lead</th>
-                <th className="p-3">Team</th>
-                <th className="p-3">Type</th>
-                <th className="p-3">Team Lead</th>
-                <th className="p-3">Priority / Due</th>
-                <th className="p-3">Employees</th>
+                <th className="p-3">{isCEO ? 'Opportunity' : 'Lead'}</th>
+                <th className="p-3">{isCEO ? 'Functional Team' : 'Team'}</th>
+                {isCEO ? <th className="p-3">Owner</th> : <th className="p-3">Type</th>}
+                {isCEO ? <th className="p-3">Stage</th> : <th className="p-3">Team Lead</th>}
+                {isCEO ? null : <th className="p-3">Priority / Due</th>}
+                {isCEO ? null : <th className="p-3">Employees</th>}
                 <th className="p-3">Status</th>
                 <th className="p-3 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
-              {visible.length === 0 ? (
+              {showCeoStudies ? (
+                ceoStudies.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-12 text-center text-slate-500">
+                      <Inbox className="w-8 h-8 mx-auto mb-2 text-slate-600" />
+                      No feasibility studies in the pipeline yet.
+                    </td>
+                  </tr>
+                ) : (
+                  ceoStudies.map(({ lead, teams, owner }) => (
+                    <tr key={lead.id} className="hover:bg-slate-800/30">
+                      <td className="p-3">
+                        <div className="font-mono font-bold text-cyan-400">{lead.lead_number}</div>
+                        <div className="text-[11px] text-slate-200">{lead.title}</div>
+                        <div className="text-[11px] text-slate-500">{lead.customer_name}</div>
+                      </td>
+                      <td className="p-3 font-semibold text-slate-100">{teams}</td>
+                      <td className="p-3 text-slate-200">{owner}</td>
+                      <td className="p-3 text-slate-300">
+                        {PIPELINE_STAGE_LABELS[lead.pipeline_stage || ''] || lead.pipeline_stage || '—'}
+                      </td>
+                      <td className="p-3">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold border text-cyan-300 bg-cyan-950 border-cyan-800">
+                          {lead.status.replace(/_/g, ' ')}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right">
+                        <Link href={`/pre-sales/leads/${lead.id}`} className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded text-[11px] font-medium inline-flex items-center gap-1">
+                          View <ArrowRight className="w-3 h-3" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))
+                )
+              ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-500">
                     <Inbox className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-                    No feasibility assignments yet. Open a Lead and use + ADD TEAM.
+                    {isCEO
+                      ? 'No feasibility studies in the pipeline yet.'
+                      : 'No feasibility assignments yet. Open a Lead and use + ADD TEAM.'}
                   </td>
                 </tr>
               ) : (

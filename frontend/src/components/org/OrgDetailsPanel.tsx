@@ -16,11 +16,13 @@ import {
   CircleDot,
 } from 'lucide-react';
 import { Team, User } from '@/lib/types';
-import { ACCESS_SCOPES, ROLE_LABELS, getAccessScope, getDepartment } from './orgHierarchy';
+import { getAccessScope, getDepartment } from './orgHierarchy';
 
 interface PersonDetails {
   user: User;
   managerName: string;
+  directReports: User[];
+  teamMembers: User[];
 }
 
 interface TeamDetails {
@@ -28,6 +30,7 @@ interface TeamDetails {
   leadName: string;
   members: User[];
   memberCount: number;
+  reportsThrough: string;
   activeProjects: number;
   pendingTasks: number;
   completedTasks: number;
@@ -53,29 +56,6 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function AccessLegend() {
-  return (
-    <div className="space-y-3">
-      <div>
-        <h3 className="text-sm font-semibold text-[#0B1F3A]">Role-based access</h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Select an employee or team in the hierarchy to review reporting lines, membership and access scope.
-        </p>
-      </div>
-      <div className="space-y-2">
-        {Object.entries(ACCESS_SCOPES).map(([role, scope]) => (
-          <div key={role} className="rounded-lg border border-slate-100 bg-white px-3 py-2">
-            <div className="text-[11px] font-semibold text-blue-700">
-              {ROLE_LABELS[role] || role.replace(/_/g, ' ')}
-            </div>
-            <div className="text-xs text-slate-600">{scope}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 export default function OrgDetailsPanel({
   person,
   team,
@@ -93,7 +73,9 @@ export default function OrgDetailsPanel({
           <Network className="h-4 w-4" />
           <h2 className="text-sm font-bold">Details</h2>
         </div>
-        <AccessLegend />
+        <p className="text-xs text-slate-500">
+          Select an employee or team in the hierarchy to review reporting lines and membership.
+        </p>
       </aside>
     );
   }
@@ -114,6 +96,7 @@ export default function OrgDetailsPanel({
           <div className="grid grid-cols-2 gap-2">
             <Field label="Team name" value={team.team.name} />
             <Field label="Team lead" value={team.leadName} />
+            <Field label="Reports through" value={team.reportsThrough} />
             <Field label="Number of members" value={team.memberCount} />
             <Field
               label="Active projects"
@@ -183,7 +166,7 @@ export default function OrgDetailsPanel({
   }
 
   if (!person) return null;
-  const { user, managerName } = person;
+  const { user, managerName, directReports, teamMembers } = person;
 
   return (
     <aside className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -235,6 +218,41 @@ export default function OrgDetailsPanel({
             }
           />
         </div>
+
+        <div>
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Direct reports</div>
+          {directReports.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
+              No direct reports.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {directReports.map((report) => (
+                <div key={report.id} className="rounded-lg border border-slate-100 px-3 py-2">
+                  <div className="text-sm font-semibold text-[#0B1F3A]">{report.name}</div>
+                  <div className="text-[11px] text-slate-500">
+                    {report.role_name}
+                    {report.team_name ? ` · ${report.team_name}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {teamMembers.length > 0 && (
+          <div>
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Team members</div>
+            <div className="space-y-2">
+              {teamMembers.map((member) => (
+                <div key={member.id} className="rounded-lg border border-slate-100 px-3 py-2">
+                  <div className="text-sm font-semibold text-[#0B1F3A]">{member.name}</div>
+                  <div className="text-[11px] text-slate-500">{member.role_name}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {canManage && (
           <div className="space-y-2 border-t border-slate-100 pt-4">

@@ -1,31 +1,22 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Building2,
   Plus,
-  Search,
   Users,
   FolderKanban,
   UserCheck,
-  Filter,
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 import { Role, Team, User } from '@/lib/types';
-import OrgTree from '@/components/org/OrgTree';
+import OrgChart from '@/components/org/OrgChart';
 import OrgDetailsPanel from '@/components/org/OrgDetailsPanel';
 import EmployeeActionModal, {
   EmployeeForm,
   EmployeeModalMode,
 } from '@/components/org/EmployeeActionModal';
-import {
-  OrgNode,
-  ORG_ADMIN_ROLES,
-  buildOrganizationTree,
-  collectExpandableIds,
-  defaultExpandedIds,
-  filterOrganizationTree,
-} from '@/components/org/orgHierarchy';
+import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports } from '@/components/org/orgHierarchy';
 
 type Selection =
   | { kind: 'person'; nodeId: string; userId: string; reportingContextId?: string }
@@ -46,10 +37,6 @@ export default function OrganizationManagementPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('ALL');
-  const [teamFilter, setTeamFilter] = useState('ALL');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selection, setSelection] = useState<Selection>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<EmployeeModalMode>('add');
@@ -93,23 +80,6 @@ export default function OrganizationManagementPage() {
     reload();
   }, []);
 
-  const fullTree = useMemo(() => buildOrganizationTree(users, teams), [users, teams]);
-  const filteredTree = useMemo(
-    () => filterOrganizationTree(fullTree, search, roleFilter, teamFilter, users),
-    [fullTree, search, roleFilter, teamFilter, users]
-  );
-
-  useEffect(() => {
-    if (fullTree.length === 0) return;
-    if (search || roleFilter !== 'ALL' || teamFilter !== 'ALL') {
-      setExpandedIds(collectExpandableIds(filteredTree));
-      return;
-    }
-    setExpandedIds(defaultExpandedIds(fullTree));
-    // Keep manual expand/collapse unless search or filters change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, roleFilter, teamFilter, fullTree.length]);
-
   const canManage = Boolean(currentUser && ORG_ADMIN_ROLES.has(currentUser.role_code));
   const selectedUser = selection?.kind === 'person' ? users.find((u) => u.id === selection.userId) : undefined;
   const selectedTeam = selection?.kind === 'team' ? teams.find((t) => t.id === selection.teamId) : undefined;
@@ -120,30 +90,6 @@ export default function OrganizationManagementPage() {
     const manager = users.find((u) => u.id === (contextId || selectedUser.reporting_manager_id));
     return manager?.name || '—';
   })();
-
-  const handleToggle = (id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const handleSelect = (node: OrgNode) => {
-    if (node.kind === 'person' && node.userId) {
-      setSelection({
-        kind: 'person',
-        nodeId: node.id,
-        userId: node.userId,
-        reportingContextId: node.reportingContextId,
-      });
-      return;
-    }
-    if (node.kind === 'team' && node.teamId) {
-      setSelection({ kind: 'team', nodeId: node.id, teamId: node.teamId });
-    }
-  };
 
   const openModal = (mode: EmployeeModalMode) => {
     setModalMode(mode);
@@ -285,19 +231,35 @@ export default function OrganizationManagementPage() {
   };
 
   const teamMembers = selectedTeam ? users.filter((u) => u.team_id === selectedTeam.id) : [];
+  const selectedDirectReports = selectedUser ? getDirectReports(selectedUser.id, users) : [];
+  const selectedTeamMembers = selectedUser?.team_id
+    ? users.filter((u) => u.team_id === selectedUser.team_id)
+    : [];
+  const teamReportsThrough = (() => {
+    if (!selectedTeam) return '—';
+    const lead = users.find((u) => u.id === selectedTeam.team_lead_id) || teamMembers.find((u) => u.role_code === 'TEAM_LEAD');
+    const manager = users.find((u) => u.id === lead?.reporting_manager_id);
+    return manager ? `${manager.name} (${manager.role_name})` : '—';
+  })();
   const stats = selectedTeam ? teamStats[selectedTeam.id] : undefined;
+  const functionalHeadcount = users.filter(
+    (u) => u.team_id && u.status === 'ACTIVE' && u.role_code !== 'SYSTEM_ADMIN'
+  ).length;
+  const managementHeadcount = users.filter(
+    (u) => MANAGEMENT_ROLES.has(u.role_code) && u.status === 'ACTIVE'
+  ).length;
 
   return (
-    <div className="-m-6 min-h-full bg-[#F4F7FB] p-6 text-slate-800">
-      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="-m-6 min-h-full bg-[#F4F7FB] p-4 text-slate-800">
+      <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-blue-700">
             <Building2 className="h-4 w-4" />
             Careyu Automation
           </div>
-          <h1 className="mt-1 text-2xl font-bold text-[#0B1F3A]">Organization Management</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Manage organizational hierarchy, teams and role-based access.
+          <h1 className="mt-0.5 text-xl font-bold text-[#0B1F3A]">Organization Management</h1>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Organizational hierarchy and role-based access. Functional delivery teams exclude executive and management roles.
           </p>
         </div>
         {canManage && (
@@ -314,7 +276,7 @@ export default function OrganizationManagementPage() {
         )}
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
         {[
           { label: 'Total Employees', value: users.filter((u) => u.role_code !== 'SYSTEM_ADMIN').length, icon: Users },
           { label: 'Teams', value: teams.length, icon: Building2 },
@@ -327,86 +289,49 @@ export default function OrganizationManagementPage() {
         ].map((card) => {
           const Icon = card.icon;
           return (
-            <div key={card.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div key={card.label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</span>
-                <Icon className="h-4 w-4 text-blue-600" />
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</span>
+                <Icon className="h-3.5 w-3.5 text-blue-600" />
               </div>
-              <div className="mt-2 text-2xl font-bold text-[#0B1F3A]">{card.value}</div>
+              <div className="mt-1 text-xl font-bold text-[#0B1F3A]">{card.value}</div>
             </div>
           );
         })}
       </div>
+      <p className="-mt-1 mb-3 text-[11px] text-slate-500">
+        {functionalHeadcount} functional team members + {managementHeadcount} management roles = {functionalHeadcount + managementHeadcount} total employees.
+      </p>
 
-      <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm lg:flex-row lg:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search employee, role or team"
-            className="w-full rounded-xl border border-slate-200 bg-[#F8FAFC] py-2.5 pl-9 pr-3 text-sm text-[#0B1F3A] outline-none placeholder:text-slate-400 focus:border-blue-500"
-          />
-        </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-sm">
-            <Filter className="h-4 w-4 text-slate-400" />
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="bg-transparent text-sm text-[#0B1F3A] outline-none"
-            >
-              <option value="ALL">Filter Role</option>
-              {roles
-                .filter((role) => role.code !== 'SYSTEM_ADMIN')
-                .map((role) => (
-                  <option key={role.id} value={role.code}>
-                    {role.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-sm">
-            <Users className="h-4 w-4 text-slate-400" />
-            <select
-              value={teamFilter}
-              onChange={(e) => setTeamFilter(e.target.value)}
-              className="bg-transparent text-sm text-[#0B1F3A] outline-none"
-            >
-              <option value="ALL">Filter Team</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-bold text-[#0B1F3A]">Organization overview</h2>
-              <p className="text-xs text-slate-500">Expand a node to view reporting lines. Click a person or team for details.</p>
-            </div>
-          </div>
-          <OrgTree
-            nodes={filteredTree}
-            users={users}
-            expandedIds={expandedIds}
-            selectedId={selection?.nodeId || null}
-            onToggle={handleToggle}
-            onSelect={handleSelect}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="space-y-4">
+          <OrgChart
+            users={users.filter((u) => u.role_code !== 'SYSTEM_ADMIN')}
+            teams={teams}
+            roles={roles}
+            selectedId={selection?.kind === 'person' ? selection.userId : selection?.kind === 'team' ? selection.teamId : null}
+            onSelectPerson={(user) =>
+              setSelection({
+                kind: 'person',
+                nodeId: `person-${user.id}`,
+                userId: user.id,
+                reportingContextId: user.reporting_manager_id,
+              })
+            }
+            onSelectTeam={(team) => setSelection({ kind: 'team', nodeId: `team-${team.id}`, teamId: team.id })}
           />
         </section>
 
-        <div className="xl:sticky xl:top-4 xl:h-[calc(100vh-8rem)]">
+        <div className="xl:sticky xl:top-3 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto">
           <OrgDetailsPanel
             person={
               selectedUser
-                ? { user: selectedUser, managerName }
+                ? {
+                    user: selectedUser,
+                    managerName,
+                    directReports: selectedDirectReports,
+                    teamMembers: selectedTeamMembers,
+                  }
                 : null
             }
             team={
@@ -416,6 +341,7 @@ export default function OrganizationManagementPage() {
                     leadName: selectedTeam.team_lead_name || 'Not Assigned',
                     members: teamMembers,
                     memberCount: teamMembers.length,
+                    reportsThrough: teamReportsThrough,
                     activeProjects: stats?.activeProjects || 0,
                     pendingTasks: stats?.pendingTasks || 0,
                     completedTasks: stats?.completedTasks || 0,

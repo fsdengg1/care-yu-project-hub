@@ -52,10 +52,16 @@ export class StorageService {
       return INITIAL_USERS;
     }
     const parsed: User[] = JSON.parse(stored);
-    const knownIds = new Set(parsed.map((u) => u.id));
+    const seedById = new Map(INITIAL_USERS.map((u) => [u.id, u]));
+    const LEADERSHIP = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm']);
+    const overlayed = parsed.map((user) => {
+      const seed = seedById.get(user.id);
+      if (!seed || !LEADERSHIP.has(user.id)) return user;
+      return { ...user, name: seed.name, role_name: seed.role_name, role_code: seed.role_code };
+    });
+    const knownIds = new Set(overlayed.map((u) => u.id));
     const missing = INITIAL_USERS.filter((u) => !knownIds.has(u.id));
-    if (missing.length === 0) return parsed;
-    const merged = [...parsed, ...missing];
+    const merged = missing.length === 0 ? overlayed : [...overlayed, ...missing];
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(merged));
     return merged;
   }
@@ -90,7 +96,17 @@ export class StorageService {
       localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(INITIAL_TEAMS));
       return INITIAL_TEAMS;
     }
-    return JSON.parse(stored);
+    const parsed: Team[] = JSON.parse(stored);
+    const seedById = new Map(INITIAL_TEAMS.map((team) => [team.id, team]));
+    const overlayed = parsed.map((team) => {
+      const seed = seedById.get(team.id);
+      return seed ? { ...team, name: seed.name, code: seed.code, description: seed.description } : team;
+    });
+    const knownIds = new Set(overlayed.map((team) => team.id));
+    const missing = INITIAL_TEAMS.filter((team) => !knownIds.has(team.id));
+    const merged = missing.length === 0 ? overlayed : [...overlayed, ...missing];
+    localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(merged));
+    return merged;
   }
 
   static saveTeams(teams: Team[]) {

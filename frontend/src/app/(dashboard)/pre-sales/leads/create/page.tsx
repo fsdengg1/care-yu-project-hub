@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
+import { canCreateLead } from '@/lib/rbac';
+import { apiRequest } from '@/lib/api';
 import { CustomerType, BusinessVertical, PriorityLevel, User } from '@/lib/types';
 import { VISION_DEMO_LEAD } from '@/lib/demoVisionLead';
 import { Building2, Save, Send, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
@@ -70,6 +72,10 @@ export default function CreateLeadPage() {
   useEffect(() => {
     const user = StorageService.getCurrentUser();
     setCurrentUser(user);
+    if (user && !canCreateLead(user)) {
+      router.replace('/pre-sales/leads');
+      return;
+    }
     setLeadNumber(StorageService.generateLeadNumber());
 
     // Preset Business Vertical based on Role
@@ -111,7 +117,13 @@ export default function CreateLeadPage() {
       }
     }
 
+    if (!canCreateLead(currentUser)) {
+      setValidationError('This action is not permitted for your role.');
+      return;
+    }
+
     const initialStatus = asSubmitToPM ? 'SUBMITTED_TO_PM' : 'DRAFT';
+    const expectedValue = Number(String(formData.estimated_opportunity_value || '').replace(/[₹,\s]/g, '')) || 0;
 
     const newLead = StorageService.createLead({
       title: formData.title || 'Untitled Lead',
@@ -164,9 +176,16 @@ export default function CreateLeadPage() {
 
       customer_budget: formData.customer_budget,
       estimated_opportunity_value: formData.estimated_opportunity_value,
+      expected_value: expectedValue,
+      pipeline_stage: asSubmitToPM ? 'PM_REVIEW' : 'PROJECT_INPUT',
       currency: formData.currency,
       expected_po_date: formData.expected_po_date,
       commercial_remarks: formData.commercial_remarks
+    });
+
+    void apiRequest('/api/leads', {
+      method: 'POST',
+      body: JSON.stringify(newLead),
     });
 
     // Central Audit Logging
@@ -331,8 +350,8 @@ export default function CreateLeadPage() {
                 onChange={e => setFormData({ ...formData, business_vertical: e.target.value as BusinessVertical })}
                 className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-slate-100 font-medium focus:border-cyan-500"
               >
-                <option value="Business Head">Business Head (Shradha Patil)</option>
-                <option value="Engineering Director">Engineering Director (Sabarigiri T)</option>
+                <option value="Business Head">Business Head (Sharadha Patil)</option>
+                <option value="Engineering Director">Engineering Director (Sabarigiri)</option>
               </select>
             </div>
           </div>

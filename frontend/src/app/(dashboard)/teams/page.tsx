@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '@/lib/storage';
 import { Team, User } from '@/lib/types';
+import { MANAGEMENT_ROLES } from '@/components/org/orgHierarchy';
 import { Users, Plus, ShieldCheck, UserCheck, Cpu, HardHat, Camera, Bot, Wrench, ShoppingBag } from 'lucide-react';
 
 const TEAM_ICONS: Record<string, React.ReactNode> = {
@@ -22,6 +23,13 @@ export default function FunctionalTeamsPage() {
     setUsers(StorageService.getUsers());
   }, []);
 
+  const functionalMembers = users.filter(
+    (u) => u.team_id && u.status === 'ACTIVE' && u.role_code !== 'SYSTEM_ADMIN'
+  ).length;
+  const managementMembers = users.filter(
+    (u) => MANAGEMENT_ROLES.has(u.role_code) && u.status === 'ACTIVE'
+  ).length;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -32,9 +40,18 @@ export default function FunctionalTeamsPage() {
           </div>
           <h1 className="text-xl font-bold text-slate-100 mt-1">Functional Engineering Teams</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Care Yu Automation functional teams (Software, Vision, Robotics, Execution, Procurement). Every employee belongs to 1 functional team.
+            All functional employees are assigned to one of five delivery teams. Executive and management roles are excluded from functional team headcount.
           </p>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/90 px-4 py-3 text-xs text-slate-300">
+        <span className="font-semibold text-slate-100">{functionalMembers} functional team members</span>
+        {' + '}
+        <span className="font-semibold text-slate-100">{managementMembers} management</span>
+        {' = '}
+        <span className="font-semibold text-cyan-300">{functionalMembers + managementMembers} total employees</span>
+        <span className="text-slate-500"> · matches Organization Management</span>
       </div>
 
       {/* Team Cards Grid */}

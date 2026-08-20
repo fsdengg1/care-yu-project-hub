@@ -1,5 +1,6 @@
 import { User } from './types';
 import { apiRequest } from './api';
+import { StorageService } from './storage';
 
 export interface LoginFieldErrors {
   email?: string;
@@ -39,6 +40,28 @@ export async function loginWithApi(
   }
 
   return { ok: true, user: result.data.user, token: result.data.token };
+}
+
+export async function ensureAuthSession(): Promise<boolean> {
+  const user = StorageService.getCurrentUser();
+  if (!user) return false;
+
+  const existing = StorageService.getAuthToken();
+  if (existing) {
+    const me = await apiRequest<{ user: User }>('/api/auth/me');
+    if (me.ok) return true;
+  }
+
+  const restored = await apiRequest<{ token: string; user: User }>('/api/auth/restore-session', {
+    method: 'POST',
+    body: JSON.stringify({ userId: user.id, email: user.email }),
+  });
+  if (!restored.ok) return false;
+
+  const remember = Boolean(typeof window !== 'undefined' && localStorage.getItem('cya_current_user_v6'));
+  StorageService.setAuthToken(restored.data.token, remember);
+  StorageService.setCurrentUser(restored.data.user, remember);
+  return true;
 }
 
 export function getDashboardPath(roleCode: string): string {

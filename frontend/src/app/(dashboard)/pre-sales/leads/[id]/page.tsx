@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { apiRequest } from '@/lib/api';
 import { StorageService } from '@/lib/storage';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
@@ -74,7 +75,7 @@ export default function LeadDetailPage() {
   const [suggestionComment, setSuggestionComment] = useState('');
   const [clarificationComment, setClarificationComment] = useState('');
 
-  const loadData = useCallback(() => {
+  const loadData = useCallback(async () => {
     const l = StorageService.getLeadById(leadId);
     if (l) {
       setLead(l);
@@ -84,6 +85,12 @@ export default function LeadDetailPage() {
       setHistory(StorageService.getLeadStatusHistory(l.id));
       setTeamAssignments(StorageService.getFeasibilityTeamAssignmentsByLeadId(l.id));
       setResubmitTechInput(l.technical_specifications || '');
+    } else {
+      const result = await apiRequest<{ lead: Lead }>(`/api/leads/${leadId}`);
+      if (result.ok) {
+        setLead(result.data.lead);
+        setResubmitTechInput(result.data.lead.technical_specifications || '');
+      }
     }
     setAllTeams(StorageService.getTeams());
     setAllUsers(StorageService.getUsers());
@@ -99,10 +106,12 @@ export default function LeadDetailPage() {
     return <div className="p-12 text-center text-slate-400 text-xs">Loading Lead Details…</div>;
   }
 
-  const isCEO = currentUser.role_code === 'CEO' || currentUser.role_code === 'SYSTEM_ADMIN';
-  const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isCEO;
+  const isCEO = currentUser.role_code === 'CEO';
+  const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
+  const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isAdmin;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
   const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id;
+  const canViewRestricted = isPM || isSalesOwner || isCEO || isAdmin;
 
   // TL can access this lead only if assigned
   const myTLAssignment = isTL
@@ -317,7 +326,14 @@ export default function LeadDetailPage() {
               <h1 className="text-xl font-bold text-slate-100 mt-0.5">{lead.title}</h1>
             </div>
           </div>
-          <span className={`px-3 py-1 rounded text-xs font-bold border ${statusColor(lead.status)}`}>{lead.status}</span>
+          <div className="flex items-center gap-2">
+            {isCEO && (
+              <span className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                View only
+              </span>
+            )}
+            <span className={`px-3 py-1 rounded text-xs font-bold border ${statusColor(lead.status)}`}>{lead.status}</span>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400">
           <div>Customer: <span className="font-bold text-slate-200">{lead.customer_name}</span></div>
@@ -430,7 +446,7 @@ export default function LeadDetailPage() {
       {/* === TAB: CUSTOMER === */}
       {activeTab === 'customer' && (
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
-          {!isPM && !isSalesOwner ? (
+          {!canViewRestricted ? (
             <div className="p-6 text-center text-amber-400 font-bold text-xs"><AlertTriangle className="w-5 h-5 mx-auto mb-2" /> Customer contact information is restricted to Sales and PM.</div>
           ) : (
             <>
@@ -482,7 +498,7 @@ export default function LeadDetailPage() {
       {/* === TAB: COMMERCIAL (PM/Sales only) === */}
       {activeTab === 'commercial' && (
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
-          {!isPM && !isSalesOwner ? (
+          {!canViewRestricted ? (
             <div className="p-6 text-center text-amber-400 font-bold text-xs"><AlertTriangle className="w-5 h-5 mx-auto mb-2" /> Commercial information is restricted to Sales and PM.</div>
           ) : (
             <>
@@ -662,15 +678,17 @@ export default function LeadDetailPage() {
       {/* === TAB: CUSTOMER COMMUNICATION (Sales/PM only) === */}
       {activeTab === 'communication' && (
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
-          {!isPM && !isSalesOwner ? (
+          {!canViewRestricted ? (
             <div className="p-6 text-center text-amber-400 font-bold text-xs"><AlertTriangle className="w-5 h-5 mx-auto mb-2" /> Customer communication history is restricted to Sales and PM.</div>
           ) : (
             <>
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="font-bold text-slate-100 text-sm">Customer Activity Log ({activities.length})</h3>
-                <button onClick={() => setShowActivityModal(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded text-xs flex items-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5" /> Add Activity
-                </button>
+                {(isPM || isSalesOwner) && (
+                  <button onClick={() => setShowActivityModal(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded text-xs flex items-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" /> Add Activity
+                  </button>
+                )}
               </div>
               {activities.length === 0 ? <div className="p-8 text-center text-slate-500">No activities logged yet.</div> : (
                 <div className="space-y-3">

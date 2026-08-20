@@ -70,13 +70,13 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.getByText('Careyu Automation').first().waitFor();
 
-    await caption(page, '1. Login as Shradha Patil (Business Head)');
+    await caption(page, '1. Login as Sharadha Patil (Business Head)');
     await page.locator('[data-demo="login-email"]').fill('shradha.patil@careyu.com');
     await page.locator('[data-demo="login-password"]').fill('Careyu@123');
     await pause(900);
     await page.getByRole('button', { name: 'Sign In' }).click();
     await page.waitForURL('**/dashboard**');
-    await page.getByText('Shradha Patil').first().waitFor();
+    await page.getByText('Sharadha Patil').first().waitFor();
     await pause(1200);
 
     await caption(page, '2. Create Vision Project — Leads & Pipeline');
@@ -157,7 +157,7 @@ async function main() {
     await page.getByText('Vision Team').first().waitFor();
     await page.getByText('PENDING_TEAM_LEAD_REVIEW').waitFor();
 
-    await caption(page, 'Done — Shradha created · Arivan accepted · Vision Team assigned to Vani');
+    await caption(page, 'Done — Sharadha created · Arivan accepted · Vision Team assigned to Vani');
     await pause(2800);
   } catch (err) {
     await page.screenshot({ path: join(DEMO_DIR, 'demo-error.png'), fullPage: true });

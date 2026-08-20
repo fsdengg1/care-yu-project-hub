@@ -2,14 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '@/lib/storage';
+import { apiRequest } from '@/lib/api';
 import { AuditLog } from '@/lib/types';
-import { History, Shield, Filter, Clock, User } from 'lucide-react';
+import { History } from 'lucide-react';
 
 export default function AuditTrailPage() {
   const [audits, setAudits] = useState<AuditLog[]>([]);
 
   useEffect(() => {
-    setAudits(StorageService.getAudits());
+    (async () => {
+      const result = await apiRequest<{ audits: AuditLog[] }>('/api/audit-logs');
+      setAudits(result.ok ? result.data.audits : StorageService.getAudits());
+    })();
   }, []);
 
   return (
@@ -32,35 +36,48 @@ export default function AuditTrailPage() {
           <span className="text-xs text-slate-400">Showing recent system activity</span>
         </div>
 
-        <div className="space-y-3">
-          {audits.map(log => (
-            <div key={log.id} className="p-3.5 bg-slate-950/60 border border-slate-800 rounded-lg text-xs space-y-1.5 hover:border-slate-700 transition-colors">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-slate-100">{log.user_name}</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300 font-mono">
-                    {log.user_role}
-                  </span>
-                </div>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  {new Date(log.created_at).toLocaleString()}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
-                  {log.action}
-                </span>
-                <span className="text-slate-400">{log.description}</span>
-              </div>
-
-              {log.old_value && (
-                <div className="text-[11px] text-slate-500 pt-1 font-mono">
-                  Old: <span className="text-rose-400">{log.old_value}</span> → New: <span className="text-emerald-400">{log.new_value}</span>
-                </div>
-              )}
-            </div>
-          ))}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="pb-2 pr-3">Time</th>
+                <th className="pb-2 pr-3">User</th>
+                <th className="pb-2 pr-3">Action</th>
+                <th className="pb-2 pr-3">Entity</th>
+                <th className="pb-2">Details</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70">
+              {audits.map((log) => (
+                <tr key={log.id} className="align-top">
+                  <td className="py-3 pr-3 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                    {new Date(log.created_at).toLocaleString()}
+                  </td>
+                  <td className="py-3 pr-3">
+                    <div className="font-bold text-slate-100">{log.user_name}</div>
+                    <div className="text-[10px] text-slate-500">{log.user_role}</div>
+                  </td>
+                  <td className="py-3 pr-3">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800">
+                      {log.action}
+                    </span>
+                  </td>
+                  <td className="py-3 pr-3 text-slate-200">
+                    {log.entity_name || log.entity_type.replace(/_/g, ' ')}
+                  </td>
+                  <td className="py-3 text-slate-400">
+                    {log.description}
+                    {log.old_value && (
+                      <div className="mt-1 font-mono text-[11px] text-slate-500">
+                        Old: <span className="text-rose-400">{log.old_value}</span> → New:{' '}
+                        <span className="text-emerald-400">{log.new_value}</span>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

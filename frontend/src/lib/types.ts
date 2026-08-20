@@ -48,8 +48,9 @@ export interface AuditLog {
   user_id: string;
   user_name: string;
   user_role: string;
-  entity_type: 'USER' | 'TEAM' | 'ROLE' | 'LEAD' | 'FEASIBILITY' | 'TASK' | 'SYSTEM' | 'AUTH';
+  entity_type: 'USER' | 'TEAM' | 'ROLE' | 'LEAD' | 'FEASIBILITY' | 'TASK' | 'SYSTEM' | 'AUTH' | 'PROJECT' | 'ESCALATION';
   entity_id: string;
+  entity_name?: string;
   action: string;
   description: string;
   old_value?: string;
@@ -79,7 +80,10 @@ export interface NotificationItem {
     | 'CRITICAL_DIRECT_ASSIGNMENT_TO_EMPLOYEE'
     | 'CRITICAL_ASSIGNMENT_TEAM_LEAD_NOTICE'
     | 'FEASIBILITY_READY_TO_START'
-    | 'FEASIBILITY_SUBMITTED_TO_PM';
+    | 'FEASIBILITY_SUBMITTED_TO_PM'
+    | 'CRITICAL_ESCALATION'
+    | 'PROJECT_AT_RISK'
+    | 'PROJECT_COMPLETED';
   title: string;
   message: string;
   entity_type: string;
@@ -100,6 +104,17 @@ export type LeadStatus =
   | 'WON'
   | 'LOST'
   | 'ON_HOLD';
+
+export type PipelineStage =
+  | 'PROJECT_INPUT'
+  | 'PM_REVIEW'
+  | 'FEASIBILITY'
+  | 'COSTING'
+  | 'QUOTATION'
+  | 'NEGOTIATION'
+  | 'CONVERTED'
+  | 'REJECTED'
+  | 'CANCELLED';
 
 export type CustomerType =
   | 'Automotive'
@@ -243,6 +258,8 @@ export interface Lead {
   // Commercial — RESTRICTED (PM/Sales/CEO only)
   customer_budget?: string;
   estimated_opportunity_value?: string;
+  expected_value?: number;
+  pipeline_stage?: PipelineStage;
   currency: string;
   expected_po_date?: string;
   commercial_remarks?: string;
@@ -434,4 +451,130 @@ export interface DashboardMetrics {
   totalTeams: number;
   pendingProcurements: number;
   pendingTLFeedback: number;
+}
+
+export type ProjectHealth = 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
+export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
+
+export interface Project {
+  id: string;
+  code: string;
+  name: string;
+  customer_name: string;
+  pm_id: string;
+  pm_name: string;
+  progress: number;
+  health: ProjectHealth;
+  status: ProjectStatus;
+  issue?: string;
+  lead_id?: string;
+  team_ids?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProcurementRequestStatus = 'DELAYED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED';
+
+export interface ProcurementRequest {
+  id: string;
+  request: string;
+  project_id: string;
+  project_name: string;
+  customer_name: string;
+  status: ProcurementRequestStatus;
+  impact: string;
+  owner_name: string;
+  owner_team: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EscalationSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type EscalationStatus = 'OPEN' | 'IN_REVIEW' | 'RESOLVED';
+export type EscalationLevel = 'TEAM_LEAD' | 'PROJECT_MANAGER' | 'BUSINESS_HEAD' | 'ENG_DIRECTOR' | 'CEO';
+
+export interface Escalation {
+  id: string;
+  code: string;
+  project_id?: string;
+  project_name: string;
+  customer_name: string;
+  issue: string;
+  impact: string;
+  summary: string;
+  severity: EscalationSeverity;
+  status: EscalationStatus;
+  raised_by_id: string;
+  raised_by_name: string;
+  raised_by_role: string;
+  team_id?: string;
+  team_name?: string;
+  previous_actions: string;
+  current_level: EscalationLevel;
+  decision_required?: string;
+  ceo_decision?: string;
+  resolved_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CriticalIssue {
+  id: string;
+  kind: 'CRITICAL_ISSUE' | 'PROJECT_AT_RISK' | 'PROCUREMENT_DELAY';
+  title: string;
+  customer: string;
+  project: string;
+  summary: string;
+  escalatedBy?: string;
+  escalatedAt?: string;
+  href: string;
+}
+
+export interface CeoDashboardPayload {
+  pipeline: {
+    value: number;
+    activeLeads: number;
+    awaitingApproval: number;
+    inProgress: number;
+    negotiation: number;
+    stages: {
+      projectInput: number;
+      pmReview: number;
+      feasibility: number;
+      costing: number;
+      quotation: number;
+      negotiation: number;
+      converted: number;
+    };
+  };
+  projects: {
+    total: number;
+    onTrack: number;
+    atRisk: number;
+    critical: number;
+    needAttention: number;
+    items: Project[];
+  };
+  teams: {
+    total: number;
+    members: number;
+    blockedTeams: number;
+    breakdown: Array<{
+      id: string;
+      code: string;
+      name: string;
+      members: number;
+      hasBlocker: boolean;
+    }>;
+  };
+  projectManager: {
+    id: string;
+    name: string;
+    activeProjects: number;
+    pendingReviews: number;
+    escalations: number;
+  };
+  criticalIssues: CriticalIssue[];
+  escalations: Escalation[];
+  recentActivity: AuditLog[];
 }
