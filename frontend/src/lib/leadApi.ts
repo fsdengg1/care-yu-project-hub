@@ -1,0 +1,193 @@
+import { apiRequest } from './api';
+import { StorageService } from './storage';
+import {
+  FeasibilityStudy,
+  FeasibilityTeamAssignment,
+  Lead,
+  LeadWorkflowPayload,
+  MyWorkItem,
+  CostingRecord,
+  QuotationRecord,
+} from './types';
+
+export interface BusinessHeadDashboard {
+  pipelineValue: number;
+  activeOpportunities: number;
+  technicalReview: number;
+  commercialProposals: number;
+  returned: number;
+  drafts: number;
+  quotationReady: number;
+  negotiations: number;
+  leads: Lead[];
+}
+
+function syncPayload(payload: LeadWorkflowPayload) {
+  StorageService.upsertLead(payload.lead);
+  if (payload.assignments?.length) {
+    const existing = StorageService.getFeasibilityTeamAssignments().filter((item) => item.lead_id !== payload.lead.id);
+    StorageService.saveFeasibilityTeamAssignments([...payload.assignments, ...existing]);
+  }
+  return payload;
+}
+
+async function call<T>(path: string, options?: RequestInit) {
+  return apiRequest<T>(path, options);
+}
+
+export const LeadApi = {
+  async list(): Promise<Lead[]> {
+    const result = await call<{ leads: Lead[] }>('/api/leads');
+    if (!result.ok) return StorageService.getLeads();
+    const local = StorageService.getLeads();
+    const byId = new Map(result.data.leads.map((lead) => [lead.id, lead]));
+    for (const lead of local) {
+      if (!byId.has(lead.id)) byId.set(lead.id, lead);
+    }
+    const merged = Array.from(byId.values());
+    StorageService.saveLeads(merged);
+    return merged;
+  },
+
+  async get(id: string): Promise<LeadWorkflowPayload | null> {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}`);
+    if (result.ok) return syncPayload(result.data);
+    const lead = StorageService.getLeadById(id);
+    if (!lead) return null;
+    return {
+      lead,
+      documents: StorageService.getLeadDocuments(lead.id),
+      comments: StorageService.getLeadComments(lead.id),
+      activities: StorageService.getLeadActivities(lead.id),
+      history: StorageService.getLeadStatusHistory(lead.id),
+      assignments: StorageService.getFeasibilityTeamAssignmentsByLeadId(lead.id),
+      allocations: StorageService.getFeasibilityAllocationsByLeadId(lead.id),
+      teams: StorageService.getTeams(),
+      users: StorageService.getUsers(),
+    };
+  },
+
+  async create(body: Partial<Lead>) {
+    const result = await call<LeadWorkflowPayload>('/api/leads', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    const created = StorageService.createLead(body as Omit<Lead, 'id' | 'lead_number' | 'created_at' | 'updated_at'>);
+    return { lead: created } as LeadWorkflowPayload;
+  },
+
+  async update(id: string, body: Partial<Lead>) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    const user = StorageService.getCurrentUser();
+    if (!user) return null;
+    const lead = StorageService.updateLead(id, body, user.id, user.name);
+    return { lead } as LeadWorkflowPayload;
+  },
+
+  async submit(id: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/submit`, { method: 'POST', body: '{}' });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async pmReview(id: string, body: { action: 'approve_assign' | 'return'; team_id?: string; team_lead_id?: string; notes?: string; reason?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/pm-review`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async saveFeasibility(id: string, study: Partial<FeasibilityStudy>, submit = false) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/feasibility`, {
+      method: 'POST',
+      body: JSON.stringify({ study, submit }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async reviewFeasibility(id: string, action: 'approve' | 'return', reason?: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/feasibility/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async saveCosting(id: string, costing: Partial<CostingRecord>, submit = false) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/costing`, {
+      method: 'POST',
+      body: JSON.stringify({ costing, submit }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async reviewCosting(id: string, action: 'approve' | 'return', reason?: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/costing/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async saveQuotation(id: string, quotation: Partial<QuotationRecord>, send = false) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/quotation`, {
+      method: 'POST',
+      body: JSON.stringify({ quotation, send }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async negotiation(id: string, body: Record<string, unknown>) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/negotiation`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async convert(id: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/convert`, { method: 'POST', body: '{}' });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async addDocument(id: string, body: { file_name: string; category: string; file_type?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/documents`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async myWork(): Promise<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }> {
+    const result = await call<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }>('/api/leads/my-work');
+    if (result.ok) return result.data;
+    return { items: [], groups: {} };
+  },
+
+  async businessHeadDashboard(): Promise<BusinessHeadDashboard | null> {
+    const result = await call<BusinessHeadDashboard>('/api/dashboard/business-head');
+    if (result.ok) return result.data;
+    return null;
+  },
+
+  async teams(): Promise<{ id: string; name: string; team_lead_id?: string; team_lead_name?: string }[]> {
+    const result = await call<{ teams: FeasibilityTeamAssignment[] }>('/api/teams');
+    if (!result.ok) return StorageService.getTeams();
+    return result.data.teams as unknown as { id: string; name: string; team_lead_id?: string; team_lead_name?: string }[];
+  },
+};

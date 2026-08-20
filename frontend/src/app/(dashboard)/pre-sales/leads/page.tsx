@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { Lead, LeadStatus, User } from '@/lib/types';
 import { canCreateLead, isCeoViewOnly } from '@/lib/rbac';
-import { apiRequest } from '@/lib/api';
+import { LeadApi } from '@/lib/leadApi';
 import { formatInrCompact, PIPELINE_STAGE_LABELS } from '@/lib/format';
 import { 
   Building2, 
@@ -24,14 +24,22 @@ import {
 
 const STATUS_BADGES: Record<LeadStatus, { label: string; style: string }> = {
   DRAFT: { label: 'DRAFT', style: 'bg-slate-800 text-slate-300 border-slate-700' },
-  SUBMITTED_TO_PM: { label: 'SUBMITTED TO PM', style: 'bg-blue-950 text-blue-300 border-blue-800' },
-  UNDER_PM_REVIEW: { label: 'UNDER PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
+  SUBMITTED_TO_PM: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
+  UNDER_PM_REVIEW: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
   RETURNED_TO_SALES: { label: 'RETURNED TO SALES', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  ADDITIONAL_INFORMATION_REQUIRED: { label: 'ADDITIONAL INFO REQ', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  RESUBMITTED_TO_PM: { label: 'RESUBMITTED TO PM', style: 'bg-blue-950 text-blue-300 border-blue-800' },
-  ACCEPTED_FOR_FEASIBILITY: { label: 'ACCEPTED FOR FEASIBILITY', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-  FEASIBILITY_IN_PROGRESS: { label: 'FEASIBILITY IN PROGRESS', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
-  WON: { label: 'WON', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  ADDITIONAL_INFORMATION_REQUIRED: { label: 'RETURNED TO SALES', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  RESUBMITTED_TO_PM: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
+  ACCEPTED_FOR_FEASIBILITY: { label: 'FEASIBILITY', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
+  FEASIBILITY_IN_PROGRESS: { label: 'FEASIBILITY', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
+  FEASIBILITY_SUBMITTED: { label: 'PM APPROVAL — FEASIBILITY', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
+  FEASIBILITY_RETURNED: { label: 'RETURNED TO TEAM', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  COSTING_IN_PROGRESS: { label: 'PROCUREMENT / COSTING', style: 'bg-violet-950 text-violet-300 border-violet-800' },
+  COSTING_SUBMITTED: { label: 'PM APPROVAL — COSTING', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
+  COSTING_RETURNED: { label: 'COSTING REVISION', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  QUOTATION: { label: 'QUOTATION', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  NEGOTIATION: { label: 'NEGOTIATION', style: 'bg-orange-950 text-orange-300 border-orange-800' },
+  ORDER_CONVERTED: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  WON: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   LOST: { label: 'LOST', style: 'bg-rose-950 text-rose-300 border-rose-800' },
   ON_HOLD: { label: 'ON HOLD', style: 'bg-slate-800 text-slate-400 border-slate-700' }
 };
@@ -49,15 +57,10 @@ export default function LeadsListPage() {
   useEffect(() => {
     const user = StorageService.getCurrentUser();
     setCurrentUser(user);
-    const localLeads = StorageService.getLeads();
-    if (isCeoViewOnly(user)) {
-      (async () => {
-        const result = await apiRequest<{ leads: Lead[] }>('/api/leads');
-        setLeads(result.ok ? result.data.leads : localLeads);
-      })();
-      return;
-    }
-    setLeads(localLeads);
+    void (async () => {
+      const apiLeads = await LeadApi.list();
+      setLeads(apiLeads);
+    })();
   }, []);
 
   if (!currentUser) return null;

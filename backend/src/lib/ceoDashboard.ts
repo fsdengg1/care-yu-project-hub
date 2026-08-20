@@ -22,7 +22,18 @@ export function resolvePipelineStage(lead: Lead): PipelineStage {
       return 'PM_REVIEW';
     case 'ACCEPTED_FOR_FEASIBILITY':
     case 'FEASIBILITY_IN_PROGRESS':
+    case 'FEASIBILITY_SUBMITTED':
+    case 'FEASIBILITY_RETURNED':
       return 'FEASIBILITY';
+    case 'COSTING_IN_PROGRESS':
+    case 'COSTING_SUBMITTED':
+    case 'COSTING_RETURNED':
+      return 'COSTING';
+    case 'QUOTATION':
+      return 'QUOTATION';
+    case 'NEGOTIATION':
+      return 'NEGOTIATION';
+    case 'ORDER_CONVERTED':
     case 'WON':
       return 'CONVERTED';
     case 'LOST':

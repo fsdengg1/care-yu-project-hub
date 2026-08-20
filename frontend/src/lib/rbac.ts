@@ -128,6 +128,23 @@ export function canPerformPmOperations(user: User | null | undefined): boolean {
   return ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
+export function canPrepareFeasibility(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['TEAM_LEAD', 'EMPLOYEE', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canPrepareCosting(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role_code === 'PROCUREMENT' || user.role_code === 'SYSTEM_ADMIN') return true;
+  const hay = `${user.team_name || ''} ${user.role_name || ''}`.toLowerCase();
+  return hay.includes('procurement') || hay.includes('costing');
+}
+
+export function canHandleCommercial(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
 export function hasPermission(user: User, requiredPermission: string): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (user.role_code === 'CEO') {

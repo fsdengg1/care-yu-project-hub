@@ -228,6 +228,15 @@ export class StorageService {
     if (this.isBrowser) localStorage.setItem(STORAGE_KEYS.LEADS, JSON.stringify(leads));
   }
 
+  static upsertLead(lead: Lead): Lead {
+    const leads = this.getLeads();
+    const index = leads.findIndex((item) => item.id === lead.id || item.lead_number === lead.lead_number);
+    if (index === -1) leads.unshift(lead);
+    else leads[index] = { ...leads[index], ...lead };
+    this.saveLeads(leads);
+    return lead;
+  }
+
   static generateLeadNumber(): string {
     const leads = this.getLeads();
     const count = leads.length + 1;

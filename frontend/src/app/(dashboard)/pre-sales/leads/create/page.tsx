@@ -1,16 +1,18 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
-import { apiRequest } from '@/lib/api';
+import { LeadApi } from '@/lib/leadApi';
 import { CustomerType, BusinessVertical, PriorityLevel, User } from '@/lib/types';
 import { VISION_DEMO_LEAD } from '@/lib/demoVisionLead';
 import { Building2, Save, Send, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
 
 export default function CreateLeadPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = searchParams.get('id');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [leadNumber, setLeadNumber] = useState<string>('');
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -66,7 +68,9 @@ export default function CreateLeadPage() {
     estimated_opportunity_value: '',
     currency: 'INR',
     expected_po_date: '',
-    commercial_remarks: ''
+    commercial_remarks: '',
+    additional_notes: '',
+    required_documents: ''
   });
 
   useEffect(() => {
@@ -78,15 +82,70 @@ export default function CreateLeadPage() {
     }
     setLeadNumber(StorageService.generateLeadNumber());
 
-    // Preset Business Vertical based on Role
     if (user?.role_code === 'ENG_DIRECTOR') {
       setFormData(prev => ({ ...prev, business_vertical: 'Engineering Director' }));
     }
-  }, []);
+
+    if (editId) {
+      void (async () => {
+        const payload = await LeadApi.get(editId);
+        const lead = payload?.lead;
+        if (!lead) return;
+        setLeadNumber(lead.lead_number);
+        setFormData((prev) => ({
+          ...prev,
+          title: lead.title || '',
+          customer_name: lead.customer_name || '',
+          customer_type: lead.customer_type,
+          business_vertical: lead.business_vertical,
+          expected_decision_date: lead.expected_decision_date || '',
+          priority: lead.priority,
+          customer_contact: lead.customer_contact || '',
+          customer_designation: lead.customer_designation || '',
+          customer_email: lead.customer_email || '',
+          customer_phone: lead.customer_phone || '',
+          customer_location: lead.customer_location || '',
+          plant_location: lead.plant_location || '',
+          requirement_summary: lead.requirement_summary || '',
+          detailed_requirement: lead.detailed_requirement || '',
+          application: lead.application || '',
+          industry_process: lead.industry_process || '',
+          current_process: lead.current_process || '',
+          expected_automation: lead.expected_automation || '',
+          customer_objective: lead.customer_objective || '',
+          expected_project_timeline: lead.expected_project_timeline || '',
+          customer_target_date: lead.customer_target_date || '',
+          production_quantity: lead.production_quantity || '',
+          production_rate: lead.production_rate || '',
+          cycle_time: lead.cycle_time || '',
+          shift_pattern: lead.shift_pattern || '',
+          operating_hours: lead.operating_hours || '',
+          existing_equipment: lead.existing_equipment || '',
+          existing_automation: lead.existing_automation || '',
+          integration_requirements: lead.integration_requirements || '',
+          technical_requirements: lead.technical_requirements || '',
+          machine_dimensions: lead.machine_dimensions || '',
+          payload: lead.payload || '',
+          accuracy_requirement: lead.accuracy_requirement || '',
+          environment_conditions: lead.environment_conditions || '',
+          technical_specifications: lead.technical_specifications || '',
+          technical_assumptions: lead.technical_assumptions || '',
+          customer_dependencies: lead.customer_dependencies || '',
+          customer_budget: lead.customer_budget || '',
+          estimated_opportunity_value: lead.estimated_opportunity_value || '',
+          currency: lead.currency || 'INR',
+          expected_po_date: lead.expected_po_date || '',
+          commercial_remarks: lead.commercial_remarks || '',
+          additional_notes: lead.additional_notes || '',
+          required_documents: lead.required_documents || '',
+        }));
+      })();
+    }
+  }, [editId, router]);
 
   if (!currentUser) return null;
 
-  const handleSave = (asSubmitToPM: boolean) => {
+  const handleSave = async (asSubmitToPM: boolean) => {
     setValidationError(null);
 
     // Mandatory Field Validation if Submitting to PM
@@ -125,7 +184,7 @@ export default function CreateLeadPage() {
     const initialStatus = asSubmitToPM ? 'SUBMITTED_TO_PM' : 'DRAFT';
     const expectedValue = Number(String(formData.estimated_opportunity_value || '').replace(/[₹,\s]/g, '')) || 0;
 
-    const newLead = StorageService.createLead({
+    const payload = {
       title: formData.title || 'Untitled Lead',
       customer_name: formData.customer_name || 'Unspecified Customer',
       customer_type: formData.customer_type,
@@ -138,7 +197,7 @@ export default function CreateLeadPage() {
       lead_date: new Date().toISOString(),
       expected_decision_date: formData.expected_decision_date,
       priority: formData.priority,
-      status: initialStatus,
+      status: initialStatus as 'DRAFT' | 'SUBMITTED_TO_PM',
 
       customer_contact: formData.customer_contact,
       customer_designation: formData.customer_designation,
@@ -177,44 +236,43 @@ export default function CreateLeadPage() {
       customer_budget: formData.customer_budget,
       estimated_opportunity_value: formData.estimated_opportunity_value,
       expected_value: expectedValue,
-      pipeline_stage: asSubmitToPM ? 'PM_REVIEW' : 'PROJECT_INPUT',
+      pipeline_stage: asSubmitToPM ? 'PM_REVIEW' as const : 'PROJECT_INPUT' as const,
       currency: formData.currency,
       expected_po_date: formData.expected_po_date,
-      commercial_remarks: formData.commercial_remarks
-    });
+      commercial_remarks: formData.commercial_remarks,
+      additional_notes: formData.additional_notes,
+      required_documents: formData.required_documents,
+    };
 
-    void apiRequest('/api/leads', {
-      method: 'POST',
-      body: JSON.stringify(newLead),
-    });
+    let savedId = editId;
+    if (editId) {
+      await LeadApi.update(editId, payload);
+      if (asSubmitToPM) await LeadApi.submit(editId);
+      savedId = editId;
+    } else {
+      const created = await LeadApi.create(payload);
+      savedId = created.lead.id;
+      if (formData.required_documents.trim()) {
+        await LeadApi.addDocument(created.lead.id, {
+          file_name: formData.required_documents.trim(),
+          category: 'Required Document',
+        });
+      }
+    }
 
-    // Central Audit Logging
     StorageService.logAudit({
       user_id: currentUser.id,
       user_name: currentUser.name,
       user_role: currentUser.role_name,
       entity_type: 'LEAD',
-      entity_id: newLead.id,
+      entity_id: savedId || 'lead',
       action: asSubmitToPM ? 'LEAD_SUBMITTED_TO_PM' : 'LEAD_DRAFT_CREATED',
-      description: asSubmitToPM 
-        ? `Created and submitted Lead ${newLead.lead_number} (${newLead.title}) to PM for technical review.`
-        : `Saved draft for Lead ${newLead.lead_number} (${newLead.title}).`
+      description: asSubmitToPM
+        ? `Created and submitted Lead ${leadNumber} (${formData.title}) to PM for technical review.`
+        : `Saved draft for Lead ${leadNumber} (${formData.title}).`
     });
 
-    // PM Notification if Submitted
-    if (asSubmitToPM) {
-      const pmUser = StorageService.getUsers().find(u => u.role_code === 'PROJECT_MANAGER');
-      StorageService.sendNotification({
-        recipient_id: pmUser?.id || 'u-pm',
-        type: 'NEW_LEAD_TO_PM',
-        title: `New Lead Submitted: ${newLead.lead_number}`,
-        message: `Lead "${newLead.title}" for ${newLead.customer_name} (${newLead.business_vertical}) is awaiting your technical completeness review.`,
-        entity_type: 'LEAD',
-        entity_id: newLead.id
-      });
-    }
-
-    router.push('/pre-sales/leads');
+    router.push(savedId ? `/pre-sales/leads/${savedId}` : '/pre-sales/leads');
   };
 
   return (
@@ -651,6 +709,34 @@ export default function CreateLeadPage() {
                 className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-slate-200 focus:border-cyan-500"
               />
             </div>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-5 space-y-4 shadow-sm">
+          <div className="border-b border-slate-800 pb-2.5">
+            <h2 className="text-sm font-bold text-slate-100 uppercase tracking-wider text-cyan-400">
+              Section F — Documents & Additional Notes
+            </h2>
+          </div>
+          <div>
+            <label className="block text-slate-400 mb-1 font-medium">Required documents</label>
+            <input
+              type="text"
+              value={formData.required_documents}
+              onChange={e => setFormData({ ...formData, required_documents: e.target.value })}
+              placeholder="e.g. Customer RFQ, layout drawing, sample photos"
+              className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-slate-200 focus:border-cyan-500"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-400 mb-1 font-medium">Additional notes</label>
+            <textarea
+              rows={3}
+              value={formData.additional_notes}
+              onChange={e => setFormData({ ...formData, additional_notes: e.target.value })}
+              placeholder="Any commercial or operational notes for PM review"
+              className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-200 focus:border-cyan-500"
+            />
           </div>
         </div>
       </form>

@@ -3,8 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { apiRequest } from '@/lib/api';
 import { StorageService } from '@/lib/storage';
+import { LeadApi } from '@/lib/leadApi';
+import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
+import { LEAD_STATUS_LABELS } from '@/lib/format';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
   FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType
@@ -76,21 +78,18 @@ export default function LeadDetailPage() {
   const [clarificationComment, setClarificationComment] = useState('');
 
   const loadData = useCallback(async () => {
-    const l = StorageService.getLeadById(leadId);
-    if (l) {
-      setLead(l);
-      setActivities(StorageService.getLeadActivities(l.id));
-      setComments(StorageService.getLeadComments(l.id));
-      setDocuments(StorageService.getLeadDocuments(l.id));
-      setHistory(StorageService.getLeadStatusHistory(l.id));
-      setTeamAssignments(StorageService.getFeasibilityTeamAssignmentsByLeadId(l.id));
-      setResubmitTechInput(l.technical_specifications || '');
-    } else {
-      const result = await apiRequest<{ lead: Lead }>(`/api/leads/${leadId}`);
-      if (result.ok) {
-        setLead(result.data.lead);
-        setResubmitTechInput(result.data.lead.technical_specifications || '');
-      }
+    const payload = await LeadApi.get(leadId);
+    if (payload) {
+      setLead(payload.lead);
+      setActivities(payload.activities || StorageService.getLeadActivities(payload.lead.id));
+      setComments(payload.comments || StorageService.getLeadComments(payload.lead.id));
+      setDocuments(payload.documents || StorageService.getLeadDocuments(payload.lead.id));
+      setHistory(payload.history || StorageService.getLeadStatusHistory(payload.lead.id));
+      setTeamAssignments(payload.assignments?.length ? payload.assignments : StorageService.getFeasibilityTeamAssignmentsByLeadId(payload.lead.id));
+      setResubmitTechInput(payload.lead.technical_specifications || '');
+      setAllTeams(payload.teams?.length ? payload.teams : StorageService.getTeams());
+      setAllUsers(payload.users?.length ? payload.users : StorageService.getUsers());
+      return;
     }
     setAllTeams(StorageService.getTeams());
     setAllUsers(StorageService.getUsers());
@@ -110,7 +109,9 @@ export default function LeadDetailPage() {
   const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
   const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isAdmin;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
-  const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id;
+  const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
+    || (currentUser.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head')
+    || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
   const canViewRestricted = isPM || isSalesOwner || isCEO || isAdmin;
 
   // TL can access this lead only if assigned
@@ -141,11 +142,9 @@ export default function LeadDetailPage() {
     setShowReturnModal(false); setPmReturnReason(''); loadData();
   };
 
-  const handleSalesResubmit = () => {
-    StorageService.updateLead(lead.id, { status: 'RESUBMITTED_TO_PM', technical_specifications: resubmitTechInput, submitted_at: new Date().toISOString() }, currentUser.id, currentUser.name);
-    const pmUser = StorageService.getUsers().find(u => u.role_code === 'PROJECT_MANAGER');
-    StorageService.sendNotification({ recipient_id: pmUser?.id || 'u-pm', type: 'LEAD_RESUBMITTED_TO_PM', title: `Lead Resubmitted: ${lead.lead_number}`, message: `${currentUser.name} resubmitted "${lead.title}" with updated inputs.`, entity_type: 'LEAD', entity_id: lead.id });
-    StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'LEAD', entity_id: lead.id, action: 'LEAD_RESUBMITTED_TO_PM', description: `${currentUser.name} resubmitted Lead ${lead.lead_number} to PM.` });
+  const handleSalesResubmit = async () => {
+    await LeadApi.update(lead.id, { technical_specifications: resubmitTechInput });
+    await LeadApi.submit(lead.id);
     loadData();
   };
 
@@ -279,9 +278,9 @@ export default function LeadDetailPage() {
     setShowActivityModal(false); setActivityForm({ activity_type: 'Customer Call', contact_person: '', subject: '', description: '' }); loadData();
   };
 
-  const handleAddDocument = (e: React.FormEvent) => {
+  const handleAddDocument = async (e: React.FormEvent) => {
     e.preventDefault();
-    StorageService.addLeadDocument({ lead_id: lead.id, file_name: docForm.file_name, file_type: 'PDF / CAD', file_size: '—', uploaded_by: currentUser.name, uploaded_by_id: currentUser.id, category: docForm.category });
+    await LeadApi.addDocument(lead.id, { file_name: docForm.file_name, category: docForm.category });
     setShowDocModal(false); setDocForm({ file_name: '', category: 'Technical Specification' }); loadData();
   };
 
@@ -332,7 +331,7 @@ export default function LeadDetailPage() {
                 View only
               </span>
             )}
-            <span className={`px-3 py-1 rounded text-xs font-bold border ${statusColor(lead.status)}`}>{lead.status}</span>
+            <span className={`px-3 py-1 rounded text-xs font-bold border ${statusColor(lead.status)}`}>{LEAD_STATUS_LABELS[lead.status] || lead.status}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400">
@@ -368,7 +367,7 @@ export default function LeadDetailPage() {
       {(lead.status === 'RETURNED_TO_SALES' || lead.status === 'ADDITIONAL_INFORMATION_REQUIRED') && (
         <div className="p-4 bg-amber-950/50 border border-amber-800/80 rounded-xl space-y-3">
           <div className="flex items-center gap-2 text-amber-300 font-bold text-xs">
-            <AlertTriangle className="w-4 h-4 text-amber-400" /> ACTION REQUIRED — RETURNED BY PM (ARIVAN)
+            <AlertTriangle className="w-4 h-4 text-amber-400" /> ACTION REQUIRED — RETURNED BY PM
           </div>
           <div className="text-slate-200 text-xs bg-slate-950/70 p-3 rounded border border-amber-900/60 font-mono">
             PM Request: &quot;{lead.pm_return_reason || 'Please provide additional information'}&quot;
@@ -376,7 +375,8 @@ export default function LeadDetailPage() {
           {isSalesOwner && (
             <div className="space-y-2 pt-1">
               <textarea rows={2} value={resubmitTechInput} onChange={e => setResubmitTechInput(e.target.value)} placeholder="Update requested technical inputs…" className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-100" />
-              <div className="flex justify-end">
+              <div className="flex justify-end gap-2">
+                <Link href={`/pre-sales/leads/create?id=${lead.id}`} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg">Edit Draft</Link>
                 <button onClick={handleSalesResubmit} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg flex items-center gap-2">
                   <Send className="w-4 h-4" /> Resubmit to PM
                 </button>
@@ -385,6 +385,23 @@ export default function LeadDetailPage() {
           )}
         </div>
       )}
+
+      {lead.status === 'DRAFT' && isSalesOwner && (
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-3">
+          <div>
+            <div className="font-bold text-slate-100">Draft — not yet submitted</div>
+            <p className="text-slate-400">Edit the Pre-Sales Lead Form, then submit to PM. It will leave draft status.</p>
+          </div>
+          <div className="flex gap-2">
+            <Link href={`/pre-sales/leads/create?id=${lead.id}`} className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg">Edit Draft</Link>
+            <button onClick={handleSalesResubmit} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-lg flex items-center gap-2">
+              <Send className="w-4 h-4" /> Submit to PM
+            </button>
+          </div>
+        </div>
+      )}
+
+      <LeadCyclePanels lead={lead} currentUser={currentUser} teams={allTeams} users={allUsers} onUpdated={loadData} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-800 overflow-x-auto pb-0.5">
@@ -402,6 +419,12 @@ export default function LeadDetailPage() {
             <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-3">
               <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-2">Requirement Summary</h3>
               <p className="text-slate-300 leading-relaxed font-medium">{lead.requirement_summary}</p>
+              {lead.additional_notes && (
+                <div className="pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Additional Notes</span>
+                  <p className="text-slate-400 whitespace-pre-wrap mt-1">{lead.additional_notes}</p>
+                </div>
+              )}
               <div className="pt-2 border-t border-slate-800/80">
                 <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Detailed Description</span>
                 <p className="text-slate-400 whitespace-pre-wrap mt-1 leading-relaxed">{lead.detailed_requirement}</p>

@@ -4,7 +4,13 @@ import {
   AuditLog,
   DailyUpdate,
   Escalation,
+  FeasibilityEmployeeAllocation,
+  FeasibilityTeamAssignment,
   Lead,
+  LeadActivity,
+  LeadComment,
+  LeadDocument,
+  LeadStatusHistory,
   NotificationItem,
   ProcurementRequest,
   Project,
@@ -39,6 +45,12 @@ interface DbShape {
   notifications: NotificationItem[];
   tasks: Task[];
   dailyUpdates: DailyUpdate[];
+  leadDocuments: LeadDocument[];
+  leadComments: LeadComment[];
+  leadActivities: LeadActivity[];
+  leadStatusHistory: LeadStatusHistory[];
+  feasibilityTeamAssignments: FeasibilityTeamAssignment[];
+  feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[];
 }
 
 const dataDir = path.join(process.cwd(), 'data');
@@ -66,17 +78,38 @@ function mergeRoles(stored: Role[] | undefined, seed: Role[]): Role[] {
   });
 }
 
+function alignStoredLead(lead: Lead): Lead {
+  if (lead.status === 'WON') {
+    return { ...lead, status: 'ORDER_CONVERTED', pipeline_stage: 'CONVERTED' };
+  }
+  if (lead.status === 'FEASIBILITY_IN_PROGRESS' && lead.pipeline_stage === 'COSTING') {
+    return { ...lead, status: 'COSTING_IN_PROGRESS' };
+  }
+  if (lead.status === 'FEASIBILITY_IN_PROGRESS' && lead.pipeline_stage === 'QUOTATION') {
+    return { ...lead, status: 'QUOTATION' };
+  }
+  if (lead.status === 'FEASIBILITY_IN_PROGRESS' && lead.pipeline_stage === 'NEGOTIATION') {
+    return { ...lead, status: 'NEGOTIATION' };
+  }
+  return lead;
+}
+
 function mergeLeads(stored: Lead[] | undefined, seed: Lead[]): Lead[] {
-  return mergeById(stored, seed).map((lead) => {
+  const current = stored ?? [];
+  const known = new Set(current.map((item) => item.id));
+  const merged = [...current, ...seed.filter((item) => !known.has(item.id))];
+  return merged.map((lead) => {
+    const userModified = Boolean(lead.updated_at && lead.created_at && lead.updated_at !== lead.created_at);
+    if (userModified) return alignStoredLead(lead);
     const fromSeed = seed.find((item) => item.id === lead.id);
-    if (!fromSeed) return lead;
-    return {
+    if (!fromSeed) return alignStoredLead(lead);
+    return alignStoredLead({
       ...lead,
-      expected_value: fromSeed.expected_value,
-      pipeline_stage: fromSeed.pipeline_stage,
-      estimated_opportunity_value: fromSeed.estimated_opportunity_value,
       status: fromSeed.status,
-    };
+      pipeline_stage: fromSeed.pipeline_stage,
+      expected_value: lead.expected_value ?? fromSeed.expected_value,
+      estimated_opportunity_value: lead.estimated_opportunity_value ?? fromSeed.estimated_opportunity_value,
+    });
   });
 }
 
@@ -130,6 +163,12 @@ function loadDb(): DbShape {
       notifications: INITIAL_NOTIFICATIONS,
       tasks: INITIAL_TASKS,
       dailyUpdates: INITIAL_DAILY_UPDATES,
+      leadDocuments: [],
+      leadComments: [],
+      leadActivities: [],
+      leadStatusHistory: [],
+      feasibilityTeamAssignments: [],
+      feasibilityEmployeeAllocations: [],
     });
     fs.writeFileSync(dbPath, JSON.stringify(initial, null, 2));
     return initial;
@@ -148,6 +187,12 @@ function loadDb(): DbShape {
     notifications: mergeById(parsed.notifications, INITIAL_NOTIFICATIONS),
     tasks: mergeById(parsed.tasks, INITIAL_TASKS),
     dailyUpdates: mergeById(parsed.dailyUpdates, INITIAL_DAILY_UPDATES),
+    leadDocuments: parsed.leadDocuments ?? [],
+    leadComments: parsed.leadComments ?? [],
+    leadActivities: parsed.leadActivities ?? [],
+    leadStatusHistory: parsed.leadStatusHistory ?? [],
+    feasibilityTeamAssignments: parsed.feasibilityTeamAssignments ?? [],
+    feasibilityEmployeeAllocations: parsed.feasibilityEmployeeAllocations ?? [],
   });
   saveDb(merged);
   return merged;
@@ -238,15 +283,75 @@ export const store = {
     db.dailyUpdates = dailyUpdates;
     saveDb(db);
   },
+  getLeadDocuments(): LeadDocument[] {
+    return loadDb().leadDocuments ?? [];
+  },
+  saveLeadDocuments(leadDocuments: LeadDocument[]) {
+    const db = loadDb();
+    db.leadDocuments = leadDocuments;
+    saveDb(db);
+  },
+  getLeadComments(): LeadComment[] {
+    return loadDb().leadComments ?? [];
+  },
+  saveLeadComments(leadComments: LeadComment[]) {
+    const db = loadDb();
+    db.leadComments = leadComments;
+    saveDb(db);
+  },
+  getLeadActivities(): LeadActivity[] {
+    return loadDb().leadActivities ?? [];
+  },
+  saveLeadActivities(leadActivities: LeadActivity[]) {
+    const db = loadDb();
+    db.leadActivities = leadActivities;
+    saveDb(db);
+  },
+  getLeadStatusHistory(): LeadStatusHistory[] {
+    return loadDb().leadStatusHistory ?? [];
+  },
+  saveLeadStatusHistory(leadStatusHistory: LeadStatusHistory[]) {
+    const db = loadDb();
+    db.leadStatusHistory = leadStatusHistory;
+    saveDb(db);
+  },
+  getFeasibilityTeamAssignments(): FeasibilityTeamAssignment[] {
+    return loadDb().feasibilityTeamAssignments ?? [];
+  },
+  saveFeasibilityTeamAssignments(feasibilityTeamAssignments: FeasibilityTeamAssignment[]) {
+    const db = loadDb();
+    db.feasibilityTeamAssignments = feasibilityTeamAssignments;
+    saveDb(db);
+  },
+  getFeasibilityEmployeeAllocations(): FeasibilityEmployeeAllocation[] {
+    return loadDb().feasibilityEmployeeAllocations ?? [];
+  },
+  saveFeasibilityEmployeeAllocations(feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[]) {
+    const db = loadDb();
+    db.feasibilityEmployeeAllocations = feasibilityEmployeeAllocations;
+    saveDb(db);
+  },
   appendAudit(entry: Omit<AuditLog, 'id' | 'created_at'>): AuditLog {
     const audits = this.getAudits();
     const log: AuditLog = {
       ...entry,
-      id: `log-${Date.now()}`,
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       created_at: new Date().toISOString(),
     };
     audits.unshift(log);
     this.saveAudits(audits);
     return log;
+  },
+  appendNotification(entry: Omit<NotificationItem, 'id' | 'created_at' | 'read_status'>): NotificationItem {
+    const notifications = this.getNotifications();
+    const item: NotificationItem = {
+      ...entry,
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      read_status: false,
+      created_at: new Date().toISOString(),
+    };
+    notifications.unshift(item);
+    this.saveNotifications(notifications);
+    return item;
   },
 };

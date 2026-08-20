@@ -81,6 +81,12 @@ export interface NotificationItem {
     | 'CRITICAL_ASSIGNMENT_TEAM_LEAD_NOTICE'
     | 'FEASIBILITY_READY_TO_START'
     | 'FEASIBILITY_SUBMITTED_TO_PM'
+    | 'FEASIBILITY_RETURNED_TO_TEAM'
+    | 'COSTING_ASSIGNED'
+    | 'COSTING_RETURNED'
+    | 'COSTING_SUBMITTED_TO_PM'
+    | 'QUOTATION_READY'
+    | 'LEAD_CONVERTED'
     | 'CRITICAL_ESCALATION'
     | 'PROJECT_AT_RISK'
     | 'PROJECT_COMPLETED';
@@ -101,6 +107,14 @@ export type LeadStatus =
   | 'RESUBMITTED_TO_PM'
   | 'ACCEPTED_FOR_FEASIBILITY'
   | 'FEASIBILITY_IN_PROGRESS'
+  | 'FEASIBILITY_SUBMITTED'
+  | 'FEASIBILITY_RETURNED'
+  | 'COSTING_IN_PROGRESS'
+  | 'COSTING_SUBMITTED'
+  | 'COSTING_RETURNED'
+  | 'QUOTATION'
+  | 'NEGOTIATION'
+  | 'ORDER_CONVERTED'
   | 'WON'
   | 'LOST'
   | 'ON_HOLD';
@@ -148,6 +162,12 @@ export interface LeadDocument {
     | 'Sample Information'
     | 'RFQ'
     | 'Customer Email / Document'
+    | 'Required Document'
+    | 'Feasibility Document'
+    | 'Quotation'
+    | 'Vendor Quotation'
+    | 'Costing Support'
+    | 'Negotiation Support'
     | 'Other';
   file_url?: string;
 }
@@ -265,12 +285,143 @@ export interface Lead {
   commercial_remarks?: string;
 
   pm_return_reason?: string;
+  pm_review_notes?: string;
+  additional_notes?: string;
+  required_documents?: string;
+
+  assigned_team_id?: string;
+  assigned_team_name?: string;
+  assigned_team_lead_id?: string;
+  assigned_team_lead_name?: string;
+  pm_id?: string;
+  pm_name?: string;
+  project_id?: string;
+  converted_at?: string;
+
+  feasibility_return_reason?: string;
+  costing_return_reason?: string;
+
+  feasibility_study?: FeasibilityStudy;
+  costing?: CostingRecord;
+  quotation?: QuotationRecord;
+  negotiation_history?: NegotiationEntry[];
 
   created_at: string;
   updated_at: string;
   submitted_at?: string;
   reviewed_at?: string;
   accepted_at?: string;
+}
+
+export type WorkflowRecordStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED';
+
+export interface FeasibilityStudy {
+  technical_feasibility: string;
+  required_resources: string;
+  proposed_solution: string;
+  major_constraints: string;
+  estimated_timeline: string;
+  technical_assumptions: string;
+  required_equipment: string;
+  team_remarks: string;
+  documents: string[];
+  status: WorkflowRecordStatus;
+  submitted_by?: string;
+  submitted_by_id?: string;
+  submitted_at?: string;
+  pm_approved_by?: string;
+  pm_approved_at?: string;
+  pm_return_reason?: string;
+}
+
+export interface CostingRecord {
+  bom_components: string;
+  vendor_requirements: string;
+  vendor_quotations: string;
+  component_costs: number;
+  procurement_costs: number;
+  engineering_costs: number;
+  software_costs: number;
+  installation_costs: number;
+  other_costs: number;
+  total_estimated_cost: number;
+  commercial_assumptions: string;
+  documents: string[];
+  status: WorkflowRecordStatus;
+  submitted_by?: string;
+  submitted_by_id?: string;
+  submitted_at?: string;
+  pm_approved_by?: string;
+  pm_approved_at?: string;
+  pm_return_reason?: string;
+}
+
+export interface QuotationRecord {
+  quotation_value: number;
+  commercial_terms: string;
+  validity: string;
+  payment_terms: string;
+  delivery_terms: string;
+  document_name?: string;
+  sent_at?: string;
+  sent_by?: string;
+  sent_by_id?: string;
+  revised_value?: number;
+}
+
+export interface NegotiationEntry {
+  id: string;
+  customer_feedback: string;
+  notes: string;
+  revised_value?: number;
+  customer_requests: string;
+  commercial_changes: string;
+  follow_up_date?: string;
+  document_name?: string;
+  action: 'UPDATE' | 'REVISED_QUOTATION' | 'CONVERT' | 'LOST';
+  created_by: string;
+  created_by_id: string;
+  created_at: string;
+}
+
+export type MyWorkCategory =
+  | 'CREATE'
+  | 'DRAFT'
+  | 'RETURNED'
+  | 'PM_REVIEW'
+  | 'ASSIGN'
+  | 'FEASIBILITY'
+  | 'FEASIBILITY_APPROVAL'
+  | 'COSTING'
+  | 'COSTING_APPROVAL'
+  | 'QUOTATION'
+  | 'NEGOTIATION';
+
+export interface MyWorkItem {
+  lead_id: string;
+  lead_number: string;
+  title: string;
+  customer_name: string;
+  status: LeadStatus;
+  pipeline_stage: PipelineStage;
+  category: MyWorkCategory;
+  summary: string;
+  href: string;
+  priority: PriorityLevel;
+}
+
+export interface LeadWorkflowPayload {
+  lead: Lead;
+  documents: LeadDocument[];
+  comments: LeadComment[];
+  activities: LeadActivity[];
+  history: LeadStatusHistory[];
+  assignments: FeasibilityTeamAssignment[];
+  allocations: FeasibilityEmployeeAllocation[];
+  teams: Team[];
+  users: User[];
+  assignment?: FeasibilityTeamAssignment;
+  project?: Project;
 }
 
 // ============================================================

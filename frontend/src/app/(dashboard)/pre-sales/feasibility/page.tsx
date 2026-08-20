@@ -5,16 +5,9 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { FeasibilityTeamAssignment, Lead, Project, User } from '@/lib/types';
 import { apiRequest } from '@/lib/api';
+import { LeadApi } from '@/lib/leadApi';
 import { PIPELINE_STAGE_LABELS } from '@/lib/format';
 import { Scan, ArrowRight, ShieldAlert, Inbox, Clock } from 'lucide-react';
-
-const TEAM_LABELS: Record<string, string> = {
-  't-sw': 'Software',
-  't-vision': 'Vision',
-  't-robotics': 'Robotics & Solutions',
-  't-procurement': 'Procurement / Costing',
-  't-execution': 'Execution',
-};
 
 export default function FeasibilityStudiesPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -27,26 +20,37 @@ export default function FeasibilityStudiesPage() {
     setCurrentUser(u);
     const all = StorageService.getFeasibilityTeamAssignments();
     setAssignments(all);
-    const localLeads = StorageService.getLeads();
-    const map: Record<string, Lead> = {};
-    localLeads.forEach(l => { map[l.id] = l; });
-    setLeadsMap(map);
-    if (u?.role_code === 'CEO') {
-      (async () => {
-        const [leadsResult, projectsResult] = await Promise.all([
-          apiRequest<{ leads: Lead[] }>('/api/leads'),
-          apiRequest<{ projects: Project[] }>('/api/projects'),
-        ]);
-        if (leadsResult.ok) {
-          const apiMap: Record<string, Lead> = { ...map };
-          leadsResult.data.leads.forEach((lead) => { apiMap[lead.id] = lead; });
-          setLeadsMap(apiMap);
-        }
-        if (projectsResult.ok) {
-          setProjects(projectsResult.data.projects);
-        }
-      })();
-    }
+    void (async () => {
+      const apiLeads = await LeadApi.list();
+      const fromLeads: FeasibilityTeamAssignment[] = apiLeads
+        .filter((lead) => Boolean(lead.assigned_team_id) && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(lead.status))
+        .filter((lead) => !all.some((item) => item.lead_id === lead.id && item.team_id === lead.assigned_team_id))
+        .map((lead) => ({
+          id: `fta-${lead.id}`,
+          lead_id: lead.id,
+          team_id: lead.assigned_team_id || '',
+          team_name: lead.assigned_team_name || 'Assigned team',
+          team_lead_id: lead.assigned_team_lead_id,
+          team_lead_name: lead.assigned_team_lead_name,
+          assignment_type: 'NORMAL',
+          priority: lead.priority,
+          due_date: lead.expected_decision_date || '',
+          pm_instructions: lead.pm_review_notes || 'Feasibility assignment',
+          status: lead.status === 'FEASIBILITY_SUBMITTED' ? 'SUBMITTED_TO_PM' : lead.status === 'FEASIBILITY_RETURNED' ? 'CHANGE_SUGGESTED' : 'PENDING_TEAM_LEAD_REVIEW',
+          created_by: lead.pm_name || 'Project Manager',
+          created_by_id: lead.pm_id || '',
+          created_at: lead.updated_at,
+          updated_at: lead.updated_at,
+        }));
+      setAssignments([...all, ...fromLeads]);
+      const map: Record<string, Lead> = {};
+      apiLeads.forEach((l) => { map[l.id] = l; });
+      setLeadsMap(map);
+      if (u?.role_code === 'CEO') {
+        const projectsResult = await apiRequest<{ projects: Project[] }>('/api/projects');
+        if (projectsResult.ok) setProjects(projectsResult.data.projects);
+      }
+    })();
   }, []);
 
   if (!currentUser) return null;
@@ -73,9 +77,9 @@ export default function FeasibilityStudiesPage() {
     )
     .map((lead) => {
       const project = projects.find((item) => item.lead_id === lead.id);
-      const teams = (project?.team_ids ?? [])
-        .map((id) => TEAM_LABELS[id])
-        .filter(Boolean);
+      const teams = lead.assigned_team_name
+        ? [lead.assigned_team_name]
+        : (project?.team_ids ?? []).map((id) => StorageService.getTeams().find((team) => team.id === id)?.name).filter(Boolean) as string[];
       return {
         lead,
         teams: teams.length ? teams.join(', ') : 'Unassigned',

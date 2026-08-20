@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, AuthedRequest } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
 import { buildCeoDashboard, summarizeProjects } from '../lib/ceoDashboard.js';
+import { buildBusinessHeadDashboard } from '../lib/leadWorkflow.js';
 import { store } from '../store/db.js';
 
 const router = Router();
@@ -57,6 +58,15 @@ router.get(
   (_req, res) => {
     const { projectManager } = buildCeoDashboard();
     res.json(projectManager);
+  }
+);
+
+router.get(
+  '/business-head',
+  requireAuth,
+  requirePermission('view:leads', 'create:lead'),
+  (req: AuthedRequest, res) => {
+    res.json(buildBusinessHeadDashboard(req.user!));
   }
 );
 

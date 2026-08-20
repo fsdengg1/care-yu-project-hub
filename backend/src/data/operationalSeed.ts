@@ -79,7 +79,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Business Head',
     value: 1800000,
     stage: 'QUOTATION',
-    status: 'FEASIBILITY_IN_PROGRESS',
+    status: 'QUOTATION',
     createdHoursAgo: 80,
   }),
   makeLead({
@@ -91,7 +91,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Engineering Director',
     value: 1500000,
     stage: 'NEGOTIATION',
-    status: 'FEASIBILITY_IN_PROGRESS',
+    status: 'NEGOTIATION',
     createdHoursAgo: 72,
   }),
   makeLead({
@@ -140,7 +140,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Engineering Director',
     value: 800000,
     stage: 'COSTING',
-    status: 'FEASIBILITY_IN_PROGRESS',
+    status: 'COSTING_IN_PROGRESS',
     createdHoursAgo: 54,
   }),
   makeLead({
@@ -152,7 +152,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Engineering Director',
     value: 750000,
     stage: 'QUOTATION',
-    status: 'FEASIBILITY_IN_PROGRESS',
+    status: 'QUOTATION',
     createdHoursAgo: 50,
   }),
   makeLead({
@@ -189,7 +189,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Engineering Director',
     value: 600000,
     stage: 'NEGOTIATION',
-    status: 'FEASIBILITY_IN_PROGRESS',
+    status: 'NEGOTIATION',
     createdHoursAgo: 40,
   }),
   makeLead({
@@ -214,7 +214,7 @@ export const INITIAL_LEADS: Lead[] = [
     vertical: 'Engineering Director',
     value: 950000,
     stage: 'CONVERTED',
-    status: 'WON',
+    status: 'ORDER_CONVERTED',
     createdHoursAgo: 240,
   }),
 ];
