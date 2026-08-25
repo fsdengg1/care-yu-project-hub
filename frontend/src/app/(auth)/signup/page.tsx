@@ -98,20 +98,24 @@ export default function SignupPage() {
             <MailCheck strokeWidth={2.2} />
           </div>
           <header className="auth-signup-card__header">
-            <h2>Account Created Successfully</h2>
-            <p>Your account request has been created successfully.</p>
+            <h2>{emailSent ? 'Account Created Successfully' : 'Invitation created'}</h2>
+            <p>
+              {emailSent
+                ? successMessage || `Invitation sent to fsdengg1@careyu.ai. Complete first-time login with ${successEmail} and the invitation code.`
+                : successMessage || 'Invitation email could not be sent.'}
+            </p>
           </header>
           {emailSent ? (
             <p>An invitation code has been sent to your Reporting Manager.</p>
           ) : (
             <p className="auth-signup-error">
               {successMessage ||
-                'Your account request was created, but we could not send the invitation notification. Please contact Admin.'}
+                'Invitation email could not be sent.'}
             </p>
           )}
           <p>
-            Please contact your Reporting Manager to receive the invitation code and complete your
-            first login.
+            Please contact your Reporting Manager to receive the invitation code, then first-time login
+            with <strong>{successEmail}</strong> and that code.
           </p>
           <div className="auth-signup-next">
             <span>Next Step</span>
@@ -119,7 +123,7 @@ export default function SignupPage() {
               Use your <strong>Work Email + Invitation Code</strong> to continue.
             </p>
           </div>
-          <Link href="/invitation-login" className="auth-btn-primary">
+          <Link href={`/invitation-login?email=${encodeURIComponent(successEmail)}`} className="auth-btn-primary">
             Continue to First-Time Login
           </Link>
         </div>

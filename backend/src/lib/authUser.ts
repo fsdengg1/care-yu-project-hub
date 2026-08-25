@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 import { store } from '../store/db.js';
-import { User } from '../types.js';
+import { PendingSignup, User } from '../types.js';
 
 export type AccountStatus =
   | 'INVITED'
@@ -62,6 +62,35 @@ export function isFullyActivated(user: User): boolean {
 export function needsInvitationLogin(user: User): boolean {
   const status = effectiveAccountStatus(user);
   return status === 'INVITED' || status === 'PASSWORD_SETUP_REQUIRED' || status === 'INVITATION_VERIFIED' || status === 'INVITATION_EXPIRED';
+}
+
+/** Signup-only: invitation has not been used to access the app yet. */
+export function isPendingSignupOnly(user: User): boolean {
+  const status = effectiveAccountStatus(user);
+  return status === 'INVITED' || status === 'INVITATION_EXPIRED';
+}
+
+export function pendingSignupToUser(pending: PendingSignup): User {
+  return {
+    id: pending.id,
+    employee_id: pending.employee_id,
+    name: pending.name,
+    email: pending.email,
+    phone: '',
+    role_id: pending.role_id,
+    role_code: pending.role_code,
+    role_name: pending.role_name,
+    status: 'ACTIVE',
+    account_status: pending.invitation_verified_at ? 'INVITATION_VERIFIED' : 'INVITED',
+    reporting_manager_id: pending.reporting_manager_id,
+    reporting_manager_name: pending.reporting_manager_name,
+    invitation_code_hash: pending.invitation_code_hash,
+    invitation_created_at: pending.invitation_created_at,
+    invitation_expires_at: pending.invitation_expires_at,
+    email_verified: false,
+    created_at: pending.created_at,
+    updated_at: pending.updated_at,
+  };
 }
 
 export function signupReportingManagerEmail() {

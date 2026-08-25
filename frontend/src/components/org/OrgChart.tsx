@@ -9,6 +9,7 @@ import {
   formatAccessCaption,
   hasTeamDescendant,
 } from './orgHierarchy';
+import { directoryStatus } from '@/lib/usersApi';
 
 interface OrgChartProps {
   users: User[];
@@ -88,6 +89,8 @@ function PersonCard({
   access,
   roleCode,
   selected,
+  pending,
+  pendingLabel,
   onClick,
 }: {
   title: string;
@@ -95,9 +98,13 @@ function PersonCard({
   access: string;
   roleCode?: string;
   selected: boolean;
+  pending?: boolean;
+  pendingLabel?: string;
   onClick: () => void;
 }) {
-  const tone = ROLE_TONE[roleCode || ''] || 'bg-gradient-to-b from-slate-600 to-slate-800';
+  const tone = pending
+    ? 'bg-gradient-to-b from-amber-600 to-amber-800'
+    : ROLE_TONE[roleCode || ''] || 'bg-gradient-to-b from-slate-600 to-slate-800';
   return (
     <button
       type="button"
@@ -108,7 +115,9 @@ function PersonCard({
     >
       <div className="text-[11px] font-bold leading-tight">{title}</div>
       <div className="mt-0.5 text-[10px] font-semibold opacity-95">{subtitle}</div>
-      <div className="mt-0.5 text-[9px] font-medium leading-tight opacity-85">{formatAccessCaption(access)}</div>
+      <div className="mt-0.5 text-[9px] font-medium leading-tight opacity-85">
+        {pending ? `Signup · ${pendingLabel || 'Pending invitation'}` : formatAccessCaption(access)}
+      </div>
     </button>
   );
 }
@@ -175,6 +184,8 @@ function PersonBranch({
           access={node.access}
           roleCode={node.roleCode}
           selected={selectedId === user.id}
+          pending={directoryStatus(user).pending}
+          pendingLabel={directoryStatus(user).label}
           onClick={() => onSelectPerson(user)}
         />
       )}
@@ -217,14 +228,33 @@ function PersonBranch({
             {teamNodes.map((child) => {
               const team = teams.find((item) => item.id === child.teamId);
               if (!team) return null;
+              const reports = child.children.filter((item) => item.kind === 'person');
               return (
-                <TeamCard
-                  key={child.id}
-                  team={team}
-                  subtitle={child.subtitle || 'Team Lead / Members'}
-                  selected={selectedId === team.id}
-                  onClick={() => onSelectTeam(team)}
-                />
+                <div key={child.id} className="flex w-full min-w-0 flex-col items-center">
+                  <TeamCard
+                    team={team}
+                    subtitle={child.subtitle || 'Team Lead / Members'}
+                    selected={selectedId === team.id}
+                    onClick={() => onSelectTeam(team)}
+                  />
+                  {reports.length > 0 && (
+                    <div className="w-full">
+                      <BranchGroup count={reports.length}>
+                        {reports.map((person) => (
+                          <PersonBranch
+                            key={person.id}
+                            node={person}
+                            users={users}
+                            teams={teams}
+                            selectedId={selectedId}
+                            onSelectPerson={onSelectPerson}
+                            onSelectTeam={onSelectTeam}
+                          />
+                        ))}
+                      </BranchGroup>
+                    </div>
+                  )}
+                </div>
               );
             })}
           </BranchGroup>

@@ -1,11 +1,9 @@
 import nodemailer from 'nodemailer';
-import { createRequire } from 'node:module';
 import { env } from '../config/env.js';
 import { store } from '../store/db.js';
 import { OutboundEmail, User } from '../types.js';
 import { newId } from './leadWorkflow.js';
-
-const require = createRequire(import.meta.url);
+import { ELASTIC_API, emailDebugLog, emailErrorLog, maskEmail, redactEmailSecrets } from './emailDiagnostics.js';
 
 export type OutboundEmailInput = {
   toEmail: string;
@@ -20,83 +18,123 @@ export type EmailDeliveryResult = {
   status: 'SENT' | 'FAILED' | 'QUEUED';
   mode: 'console' | 'resend' | 'sendgrid' | 'brevo' | 'smtp' | 'elasticemail' | 'unknown';
   transactionId?: string;
+  httpStatus?: number;
+  accepted?: boolean;
+  reason?: string;
 };
-
-function redactSecrets(value: string) {
-  return value
-    .replace(/CY-[A-Z0-9]{4}-[A-Z0-9]{4}/gi, '[REDACTED]')
-    .replace(/([?&]token=)[^&\s]+/gi, '$1[REDACTED]')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]');
-}
 
 function isValidRecipient(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim().toLowerCase());
 }
 
-let elasticApi: { ElasticEmail: any; emailsApi: any } | null = null;
-function getElasticEmailApi() {
-  if (elasticApi) return elasticApi;
-  const ElasticEmail = require('@elasticemail/elasticemail-client');
-  const client = ElasticEmail.ApiClient.instance;
-  const apikey = client.authentications.apikey;
-  apikey.apiKey = env.emailApiKey;
-  const emailsApi = new ElasticEmail.EmailsApi();
-  elasticApi = { ElasticEmail, emailsApi };
-  return elasticApi;
-}
-
 async function deliverViaElasticEmail(input: OutboundEmailInput): Promise<EmailDeliveryResult> {
   if (!env.emailApiKey) {
-    console.error('[email:elasticemail] Missing ELASTIC_EMAIL_API_KEY');
-    return { status: 'FAILED', mode: 'elasticemail' };
+    emailErrorLog('ELASTIC_EMAIL_API_KEY: missing');
+    return {
+      status: 'FAILED',
+      mode: 'elasticemail',
+      accepted: false,
+      reason: 'ELASTIC_EMAIL_API_KEY is missing',
+    };
+  }
+  if (!env.emailFrom) {
+    emailErrorLog('ELASTIC_EMAIL_FROM_EMAIL: missing');
+    return {
+      status: 'FAILED',
+      mode: 'elasticemail',
+      accepted: false,
+      reason: 'Sender email is missing',
+    };
+  }
+  if (!isValidRecipient(input.toEmail)) {
+    emailErrorLog('Recipient email is missing or invalid');
+    return {
+      status: 'FAILED',
+      mode: 'elasticemail',
+      accepted: false,
+      reason: 'Recipient email is missing or invalid',
+    };
   }
 
+  const senderEmail = env.emailFrom.trim().toLowerCase();
+  const from = senderEmail;
+  const recipient = input.toEmail.trim().toLowerCase();
+  emailDebugLog('Triggered', { recipient, subject: input.subject, sender: from });
+  emailDebugLog('Calling Elastic Email');
+
+  const payload = {
+    Recipients: [{ Email: recipient }],
+    Content: {
+      Body: [
+        { ContentType: 'HTML', Charset: 'utf-8', Content: input.html },
+        { ContentType: 'PlainText', Charset: 'utf-8', Content: input.text },
+      ],
+      From: from,
+      ReplyTo: env.emailReplyTo || undefined,
+      Subject: input.subject,
+    },
+  };
+
   try {
-    const { ElasticEmail, emailsApi } = getElasticEmailApi();
-    const from = `${env.emailFromName} <${env.emailFrom}>`;
-    const email = ElasticEmail.EmailMessageData.constructFromObject({
-      Recipients: [new ElasticEmail.EmailRecipient(input.toEmail)],
-      Content: {
-        Body: [
-          ElasticEmail.BodyPart.constructFromObject({
-            ContentType: 'HTML',
-            Content: input.html,
-          }),
-          ElasticEmail.BodyPart.constructFromObject({
-            ContentType: 'PlainText',
-            Content: input.text,
-          }),
-        ],
-        Subject: input.subject,
-        From: from,
-        ReplyTo: env.emailReplyTo || undefined,
+    const response = await fetch(`${ELASTIC_API}/emails`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        'X-ElasticEmail-ApiKey': env.emailApiKey,
       },
+      body: JSON.stringify(payload),
     });
+    const raw = await response.text();
+    let data: Record<string, unknown> = {};
+    try {
+      data = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+    } catch {
+      data = {};
+    }
+    const transactionId =
+      String(data.TransactionID || data.transactionID || data.MessageID || '').trim() || undefined;
+    const providerMessage = redactEmailSecrets(
+      String(data.Error || data.message || data.ErrorMessage || raw || '')
+    ).slice(0, 400);
 
-    const data = await new Promise<Record<string, unknown>>((resolve, reject) => {
-      emailsApi.emailsPost(email, (error: unknown, payload: unknown) => {
-        if (error) reject(error);
-        else resolve((payload || {}) as Record<string, unknown>);
-      });
-    });
-
-    const transactionId = String(data.TransactionID || data.MessageID || data.transactionID || '').trim() || undefined;
-    console.info('[email:elasticemail] sent', {
-      to: input.toEmail,
-      subject: input.subject,
+    console.info('[EMAIL] Elastic Email Status:', response.status, {
+      recipient: maskEmail(recipient),
       transactionId: transactionId || 'n/a',
+      accepted: response.ok,
     });
-    return { status: 'SENT', mode: 'elasticemail', transactionId };
+
+    if (!response.ok) {
+      const reason = providerMessage || `Elastic Email HTTP ${response.status}`;
+      emailErrorLog('Delivery status: Failed', { httpStatus: response.status, reason });
+      return {
+        status: 'FAILED',
+        mode: 'elasticemail',
+        httpStatus: response.status,
+        accepted: false,
+        reason,
+        transactionId,
+      };
+    }
+
+    emailDebugLog('Delivery status: Accepted', { transactionId: transactionId || 'n/a' });
+    return {
+      status: 'SENT',
+      mode: 'elasticemail',
+      httpStatus: response.status,
+      accepted: true,
+      transactionId,
+    };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'unknown error';
-    console.error('[email:elasticemail] failed', { to: input.toEmail, subject: input.subject, message });
-    return { status: 'FAILED', mode: 'elasticemail' };
+    const reason = redactEmailSecrets(error instanceof Error ? error.message : 'unknown error');
+    emailErrorLog('Delivery status: Failed', { reason });
+    return { status: 'FAILED', mode: 'elasticemail', accepted: false, reason };
   }
 }
 
 async function deliverViaSmtp(input: OutboundEmailInput): Promise<'SENT' | 'FAILED'> {
   if (!env.smtpHost || !env.smtpUser || !env.smtpPass) {
-    console.error('[email:smtp] Missing SMTP_HOST / SMTP_USER / SMTP_PASS');
+    emailErrorLog('SMTP is selected but SMTP_HOST / SMTP_USER / SMTP_PASS is missing');
     return 'FAILED';
   }
 
@@ -124,24 +162,25 @@ async function deliverViaSmtp(input: OutboundEmailInput): Promise<'SENT' | 'FAIL
 export async function deliverViaProvider(input: OutboundEmailInput): Promise<EmailDeliveryResult> {
   const provider = env.emailProvider;
 
-  if (provider === 'console' || (provider !== 'smtp' && provider !== 'elasticemail' && !env.emailApiKey)) {
-    if (provider === 'console' || (!env.emailApiKey && provider !== 'smtp' && provider !== 'elasticemail')) {
-      console.log(`[email:console] to=${input.toEmail} subject=${input.subject}`);
-      console.log('[email:console] Body omitted from logs. Set EMAIL_PROVIDER=elasticemail with ELASTIC_EMAIL_API_KEY to send mail.');
-      return { status: 'SENT', mode: 'console' };
-    }
+  if (provider === 'elasticemail') {
+    return deliverViaElasticEmail(input);
+  }
+
+  if (provider === 'smtp') {
+    const status = await deliverViaSmtp(input);
+    return { status, mode: 'smtp', accepted: status === 'SENT' };
+  }
+
+  if (provider === 'console') {
+    emailDebugLog('Console provider — not calling Elastic Email', {
+      recipient: input.toEmail,
+      subject: input.subject,
+    });
+    console.warn('[EMAIL] EMAIL_PROVIDER=console. Inbox delivery is skipped.');
+    return { status: 'QUEUED', mode: 'console', accepted: false, reason: 'EMAIL_PROVIDER=console' };
   }
 
   try {
-    if (provider === 'smtp') {
-      const status = await deliverViaSmtp(input);
-      return { status, mode: 'smtp' };
-    }
-
-    if (provider === 'elasticemail') {
-      return deliverViaElasticEmail(input);
-    }
-
     if (provider === 'resend') {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -159,11 +198,11 @@ export async function deliverViaProvider(input: OutboundEmailInput): Promise<Ema
         }),
       });
       if (!response.ok) {
-        const detail = await response.text();
-        console.error('[email:resend] failed', response.status, detail);
-        return { status: 'FAILED', mode: 'resend' };
+        const detail = redactEmailSecrets(await response.text());
+        emailErrorLog('resend failed', { httpStatus: response.status, reason: detail.slice(0, 400) });
+        return { status: 'FAILED', mode: 'resend', httpStatus: response.status, accepted: false };
       }
-      return { status: 'SENT', mode: 'resend' };
+      return { status: 'SENT', mode: 'resend', accepted: true, httpStatus: response.status };
     }
 
     if (provider === 'sendgrid') {
@@ -185,11 +224,11 @@ export async function deliverViaProvider(input: OutboundEmailInput): Promise<Ema
         }),
       });
       if (!response.ok) {
-        const detail = await response.text();
-        console.error('[email:sendgrid] failed', response.status, detail);
-        return { status: 'FAILED', mode: 'sendgrid' };
+        const detail = redactEmailSecrets(await response.text());
+        emailErrorLog('sendgrid failed', { httpStatus: response.status, reason: detail.slice(0, 400) });
+        return { status: 'FAILED', mode: 'sendgrid', httpStatus: response.status, accepted: false };
       }
-      return { status: 'SENT', mode: 'sendgrid' };
+      return { status: 'SENT', mode: 'sendgrid', accepted: true, httpStatus: response.status };
     }
 
     if (provider === 'brevo') {
@@ -210,19 +249,19 @@ export async function deliverViaProvider(input: OutboundEmailInput): Promise<Ema
         }),
       });
       if (!response.ok) {
-        const detail = await response.text();
-        console.error('[email:brevo] failed', response.status, detail);
-        return { status: 'FAILED', mode: 'brevo' };
+        const detail = redactEmailSecrets(await response.text());
+        emailErrorLog('brevo failed', { httpStatus: response.status, reason: detail.slice(0, 400) });
+        return { status: 'FAILED', mode: 'brevo', httpStatus: response.status, accepted: false };
       }
-      return { status: 'SENT', mode: 'brevo' };
+      return { status: 'SENT', mode: 'brevo', accepted: true, httpStatus: response.status };
     }
 
-    console.warn(`[email] Unknown EMAIL_PROVIDER "${provider}". Falling back to console.`);
-    console.log(`[email:console] to=${input.toEmail} subject=${input.subject}`);
-    return { status: 'SENT', mode: 'console' };
+    emailErrorLog(`Unknown EMAIL_PROVIDER "${provider}". Elastic Email was not called.`);
+    return { status: 'FAILED', mode: 'unknown', accepted: false, reason: `Unknown EMAIL_PROVIDER "${provider}"` };
   } catch (error) {
-    console.error('[email] delivery error', error);
-    return { status: 'FAILED', mode: provider === 'smtp' ? 'smtp' : 'unknown' };
+    const reason = redactEmailSecrets(error instanceof Error ? error.message : 'unknown error');
+    emailErrorLog('delivery error', { reason });
+    return { status: 'FAILED', mode: 'unknown', accepted: false, reason };
   }
 }
 
@@ -238,16 +277,16 @@ export async function sendEmail(input: {
   const subject = input.subject.trim();
   const htmlContent = input.htmlContent.trim();
   if (!isValidRecipient(toEmail)) {
-    console.error('[email] Invalid recipient');
-    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown' };
+    emailErrorLog('Invalid recipient');
+    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown', reason: 'Recipient email is missing or invalid' };
   }
   if (!subject) {
-    console.error('[email] Missing subject');
-    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown' };
+    emailErrorLog('Missing subject');
+    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown', reason: 'Subject is missing' };
   }
   if (!htmlContent) {
-    console.error('[email] Missing HTML content');
-    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown' };
+    emailErrorLog('Missing HTML content');
+    return { status: 'FAILED', mode: env.emailProvider === 'elasticemail' ? 'elasticemail' : 'unknown', reason: 'HTML body is missing' };
   }
 
   const sent = await sendTransactionalEmail({
@@ -262,29 +301,65 @@ export async function sendEmail(input: {
     status: sent.status,
     mode: (sent.deliveryMode as EmailDeliveryResult['mode']) || 'unknown',
     transactionId: sent.transactionId,
+    reason: sent.failureReason,
   };
 }
 
 export async function sendTransactionalEmail(
   input: OutboundEmailInput
-): Promise<OutboundEmail & { deliveryMode: string; transactionId?: string }> {
+): Promise<OutboundEmail & { deliveryMode: string; transactionId?: string; failureReason?: string; httpStatus?: number }> {
   const delivery = await deliverViaProvider(input);
-  const email: OutboundEmail & { deliveryMode: string; transactionId?: string } = {
+  const email: OutboundEmail & { deliveryMode: string; transactionId?: string; failureReason?: string; httpStatus?: number } = {
     id: newId('mail'),
     to_user_id: input.toUserId || 'unknown',
     to_email: input.toEmail,
     to_name: input.toName,
     subject: input.subject,
-    body: redactSecrets(input.text),
+    body: redactEmailSecrets(input.text),
     status: delivery.status,
     created_at: new Date().toISOString(),
     deliveryMode: delivery.mode,
     transactionId: delivery.transactionId,
+    transaction_id: delivery.transactionId,
+    failureReason: delivery.reason,
+    httpStatus: delivery.httpStatus,
   };
   const emails = store.getOutboundEmails();
   emails.unshift(email);
-  store.saveOutboundEmails(emails);
+  store.saveOutboundEmails(emails.slice(0, 500));
   return email;
+}
+
+export async function sendTestEmail(toEmail: string) {
+  const recipient = toEmail.trim().toLowerCase();
+  if (!isValidRecipient(recipient)) {
+    return {
+      ok: false as const,
+      status: 'FAILED' as const,
+      reason: 'Enter a valid recipient email address.',
+      deliveryMode: env.emailProvider,
+      transactionId: null,
+    };
+  }
+  const html = `
+    <p>Hello,</p>
+    <p>This is a test email from CareYu Automation Project Hub.</p>
+    <p>Regards,<br/>CareYu Automation</p>
+  `;
+  const result = await sendTransactionalEmail({
+    toEmail: recipient,
+    toName: recipient,
+    subject: 'CareYu Invitation Email Test',
+    html,
+    text: 'This is a test email from CareYu Automation Project Hub.',
+  });
+  return {
+    ok: result.status === 'SENT',
+    status: result.status,
+    transactionId: result.transactionId || null,
+    deliveryMode: result.deliveryMode,
+    reason: result.failureReason || null,
+  };
 }
 
 /** Legacy helper used by stage notifications — still works via transactional pipeline. */
@@ -293,6 +368,20 @@ export function queueUserEmail(input: {
   subject: string;
   body: string;
 }): OutboundEmail {
+  if (!input.to?.email) {
+    emailErrorLog('Stage email skipped: recipient email is missing');
+    return {
+      id: newId('mail'),
+      to_user_id: input.to?.id || 'unknown',
+      to_email: '',
+      to_name: input.to?.name || '',
+      subject: input.subject,
+      body: input.body,
+      status: 'FAILED',
+      created_at: new Date().toISOString(),
+    };
+  }
+
   const email: OutboundEmail = {
     id: newId('mail'),
     to_user_id: input.to.id,
@@ -314,9 +403,13 @@ export function queueUserEmail(input: {
   })
     .then((sent) => {
       email.status = sent.status;
+      email.transaction_id = sent.transactionId;
     })
-    .catch(() => {
+    .catch((error) => {
       email.status = 'FAILED';
+      emailErrorLog('Stage email failed', {
+        reason: redactEmailSecrets(error instanceof Error ? error.message : 'unknown error'),
+      });
     });
 
   return email;

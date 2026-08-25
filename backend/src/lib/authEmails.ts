@@ -1,5 +1,6 @@
 import { env } from '../config/env.js';
 import { sendTransactionalEmail } from './email.js';
+import { maskEmail } from './emailDiagnostics.js';
 
 function logoUrl() {
   return `${env.frontendUrl}/assets/branding/careyu-logo.png`;
@@ -185,17 +186,17 @@ export async function sendInvitationToManager(input: {
   const employeeEmail = escapeHtml(input.employeeEmail);
   const invitationCode = escapeHtml(input.invitationCode);
   const managerName = escapeHtml(input.managerName);
-  const loginUrl = `${env.frontendUrl}/invitation-login`;
+  const loginUrl = `${env.frontendUrl}/invitation-login?email=${encodeURIComponent(input.employeeEmail)}`;
   const hours = Math.max(1, Math.round(input.expiresInHours));
   const html = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>New CareYu Account Invitation Request</title>
+  <title>You are invited to CareYu Automation Project Hub</title>
 </head>
 <body style="margin:0;padding:0;background:#F4F7FB;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">A new employee has requested CareYu access. Share the invitation code to complete first-time login.</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">Your CareYu invitation code is ready. Complete first-time login within ${hours} hours.</div>
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F7FB;padding:32px 16px;">
     <tr>
       <td align="center">
@@ -207,9 +208,10 @@ export async function sendInvitationToManager(input: {
           </tr>
           <tr>
             <td style="padding:28px;">
-              <h1 style="margin:0 0 8px;color:#0B1F3A;font-size:22px;">New CareYu Account Invitation Request</h1>
+              <h1 style="margin:0 0 8px;color:#0B1F3A;font-size:22px;">You are invited to CareYu Automation Project Hub</h1>
               <p style="margin:0 0 20px;color:#0B1F3A;font-size:16px;font-weight:600;">Hello ${managerName},</p>
-              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;">A new employee has requested access to the CareYu Automation Project Management Tool.</p>
+              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;">You have been invited to join CareYu Automation Project Hub.</p>
+              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;">A new account request was submitted:</p>
               <table role="presentation" width="100%" style="margin:0 0 20px;background:#F8FAFC;border:1px solid #e2e8f0;border-radius:12px;">
                 <tr>
                   <td style="padding:16px 18px;">
@@ -221,14 +223,14 @@ export async function sendInvitationToManager(input: {
                   </td>
                 </tr>
               </table>
-              <p style="margin:0 0 8px;color:#64748b;font-size:13px;font-weight:600;">Invitation Code</p>
+              <p style="margin:0 0 8px;color:#64748b;font-size:13px;font-weight:600;">Invitation code</p>
               <p style="margin:0 0 20px;padding:14px 16px;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;color:#0B1F3A;font-size:22px;letter-spacing:0.08em;font-family:Consolas,Monaco,monospace;font-weight:700;">${invitationCode}</p>
-              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;">Please provide this invitation code to the employee so they can complete their first-time login.</p>
-              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;"><strong>Important:</strong> This invitation code is valid for ${hours} hour${hours === 1 ? '' : 's'} and can only be used once.</p>
+              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;">On first-time login, enter the <strong>Work Email</strong> above (<strong>${employeeEmail}</strong>) and this invitation code. Do not use a different inbox address unless it is the same email.</p>
+              <p style="margin:0 0 16px;color:#334155;font-size:15px;line-height:1.6;"><strong>Invitation expires in ${hours} hour${hours === 1 ? '' : 's'}.</strong> This code can only be used once.</p>
               <p style="margin:28px 0;">
-                <a href="${loginUrl}" style="display:inline-block;background:#1D4ED8;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 22px;border-radius:10px;">Open First-Time Login</a>
+                <a href="${loginUrl}" style="display:inline-block;background:#1D4ED8;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 22px;border-radius:10px;">Complete Signup</a>
               </p>
-              <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">Do not forward this email except to the employee named above.</p>
+              <p style="margin:0;color:#64748b;font-size:13px;line-height:1.5;">If the button does not work, open: ${loginUrl}</p>
             </td>
           </tr>
           <tr>
@@ -248,29 +250,36 @@ export async function sendInvitationToManager(input: {
   const text = [
     `Hello ${input.managerName},`,
     '',
-    'A new employee has requested access to the CareYu Automation Project Management Tool.',
+    'You have been invited to join CareYu Automation Project Hub.',
     '',
     'Employee Details:',
     `Name: ${input.employeeName}`,
     `Work Email: ${input.employeeEmail}`,
     '',
-    `Invitation Code: ${input.invitationCode}`,
+    'Invitation code:',
+    input.invitationCode,
     '',
-    'Please provide this invitation code to the employee so they can complete their first-time login.',
-    `Important: This invitation code is valid for ${hours} hours and can only be used once.`,
+    `On first-time login, enter work email ${input.employeeEmail} and this invitation code.`,
+    `Invitation expires in ${hours} hours.`,
     '',
-    `First-time login: ${loginUrl}`,
+    `Complete Signup: ${loginUrl}`,
     '',
     'Regards,',
     'CareYu Automation',
-    'Project Management System',
   ].join('\n');
 
-  const allowedManagerEmail = (env.defaultReportingManagerEmail || 'robotlead1@careyu.ai').toLowerCase();
-  if (input.managerEmail.trim().toLowerCase() !== allowedManagerEmail) {
-    console.error('[auth] Invitation email blocked: recipient is not the configured reporting manager', {
-      attempted: input.managerEmail,
-      allowed: allowedManagerEmail,
+  if (!input.managerEmail?.trim()) {
+    throw new Error('Invitation recipient email is missing');
+  }
+  if (!input.invitationCode?.trim()) {
+    throw new Error('Invitation code is missing');
+  }
+
+  const allowed = new Set(env.invitationNotifyEmails);
+  if (!allowed.has(input.managerEmail.trim().toLowerCase())) {
+    console.error('[INVITATION EMAIL] Status: FAILED', {
+      reason: 'Recipient is not a configured invitation inbox',
+      recipient: maskEmail(input.managerEmail),
     });
     return {
       id: 'blocked',
@@ -282,6 +291,7 @@ export async function sendInvitationToManager(input: {
       status: 'FAILED' as const,
       created_at: new Date().toISOString(),
       deliveryMode: 'blocked',
+      failureReason: 'Invitation recipient email is not allowed',
     };
   }
 
@@ -289,7 +299,7 @@ export async function sendInvitationToManager(input: {
     toEmail: input.managerEmail,
     toName: input.managerName,
     toUserId: input.managerUserId,
-    subject: `New CareYu Account Invitation Request – ${input.employeeName}`,
+    subject: 'You are invited to CareYu Automation Project Hub',
     html,
     text,
   });

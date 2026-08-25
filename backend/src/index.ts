@@ -18,6 +18,8 @@ import chatRouter from './routes/chat.js';
 import forumRouter from './routes/forum.js';
 import tasksRouter from './routes/tasks.js';
 import { startNotificationScheduler } from './lib/reminderJob.js';
+import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
+import emailRouter from './routes/email.js';
 
 const app = express();
 
@@ -62,6 +64,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api/auth', authRouter);
+app.use('/api/email', emailRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/leads', leadsRouter);
 app.use('/api/notifications', notificationsRouter);
@@ -78,13 +81,15 @@ app.use('/api', operationsRouter);
 app.use('/api', masterRouter);
 
 async function start() {
+  console.log('Starting CareYu backend...');
   const storeInfo = await initStore();
   console.log(
-    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
+    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
   );
 
   const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`Careyu backend running on http://localhost:${env.port}`);
+    logEmailConfigOnStartup();
   });
   startNotificationScheduler();
 
@@ -114,3 +119,4 @@ start().catch((error) => {
   console.error('Failed to start backend:', error);
   process.exit(1);
 });
+

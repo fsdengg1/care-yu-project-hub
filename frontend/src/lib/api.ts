@@ -23,10 +23,18 @@ export async function apiRequest<T>(
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      const proxyDown =
+        !payload.message &&
+        (response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504 ||
+          ((response.headers.get('content-type') || '').includes('text/html') && response.status >= 500));
       return {
         ok: false,
         status: response.status,
-        message: payload.message || 'Request failed. Please try again.',
+        message: proxyDown
+          ? 'Unable to reach the server. Please confirm the backend is running on port 4100.'
+          : payload.message || 'Request failed. Please try again.',
         code: typeof payload.code === 'string' ? payload.code : undefined,
       };
     }

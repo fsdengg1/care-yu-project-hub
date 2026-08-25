@@ -24,6 +24,7 @@ import {
   NotificationDelivery,
   NotificationItem,
   OutboundEmail,
+  PendingSignup,
   ProcurementRequest,
   Project,
   ProjectPhase,
@@ -88,6 +89,7 @@ interface DbShape {
   forumLiveMessages: ForumLiveMessage[];
   assignmentHistory: AssignmentHistory[];
   notificationDeliveries: NotificationDelivery[];
+  pendingSignups: PendingSignup[];
 }
 
 const localDbPath = path.join(process.cwd(), 'data', 'db.json');
@@ -120,9 +122,30 @@ function mergeById<T extends { id: string }>(stored: T[] | undefined, seed: T[])
   return [...current, ...seed.filter((item) => !known.has(item.id))];
 }
 
+const SEED_USER_IDS = new Set(INITIAL_USERS.map((user) => user.id));
+
+function isIncompleteSignupAccount(user: User): boolean {
+  if (SEED_USER_IDS.has(user.id)) return false;
+  if (user.password_hash) return false;
+  const status = user.account_status;
+  if (
+    status === 'INVITED' ||
+    status === 'INVITATION_VERIFIED' ||
+    status === 'PASSWORD_SETUP_REQUIRED' ||
+    status === 'INVITATION_EXPIRED'
+  ) {
+    return true;
+  }
+  return Boolean(user.invitation_code_hash);
+}
+
+function stripIncompleteSignupUsers(users: User[]): User[] {
+  return users.filter((user) => !isIncompleteSignupAccount(user));
+}
+
 function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
   const leadership = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm']);
-  return mergeById(stored, seed).map((user) => {
+  const merged = mergeById(stored, seed).map((user) => {
     const fromSeed = seed.find((item) => item.id === user.id);
     const withVerified: User = {
       ...user,
@@ -137,6 +160,7 @@ function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
       role_code: fromSeed.role_code,
     };
   });
+  return stripIncompleteSignupUsers(merged);
 }
 
 function mergeRoles(stored: Role[] | undefined, seed: Role[]): Role[] {
@@ -249,6 +273,7 @@ function emptyDb(): DbShape {
     forumLiveMessages: [],
     assignmentHistory: [],
     notificationDeliveries: [],
+    pendingSignups: [],
   };
 }
 
@@ -301,6 +326,7 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     forumLiveMessages: parsed.forumLiveMessages ?? [],
     assignmentHistory: parsed.assignmentHistory ?? [],
     notificationDeliveries: parsed.notificationDeliveries ?? [],
+    pendingSignups: parsed.pendingSignups ?? [],
   });
 }
 
@@ -386,6 +412,10 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
   }
 
   const merged = buildMergedDb(parsed);
+  const removedIncomplete = (parsed.users ?? []).filter(isIncompleteSignupAccount).length;
+  if (removedIncomplete) {
+    console.info('[store] Removed incomplete signup accounts from users', { removed: removedIncomplete });
+  }
   cache = merged;
   await persistDb(merged);
   initialized = true;
@@ -454,9 +484,34 @@ export const store = {
   findUserById(id: string): User | undefined {
     return this.getUsers().find((user) => user.id === id);
   },
+  getPendingSignups(): PendingSignup[] {
+    return loadDb().pendingSignups ?? [];
+  },
+  findPendingSignupByEmail(email: string): PendingSignup | undefined {
+    const normalized = email.trim().toLowerCase();
+    return this.getPendingSignups().find((item) => item.email.toLowerCase() === normalized);
+  },
+  findPendingSignupById(id: string): PendingSignup | undefined {
+    return this.getPendingSignups().find((item) => item.id === id);
+  },
+  savePendingSignup(pending: PendingSignup) {
+    const db = loadDb();
+    const email = pending.email.trim().toLowerCase();
+    const next = (db.pendingSignups ?? []).filter(
+      (item) => item.id !== pending.id && item.email.toLowerCase() !== email
+    );
+    next.unshift({ ...pending, email });
+    db.pendingSignups = next;
+    saveDb(db);
+  },
+  deletePendingSignup(id: string) {
+    const db = loadDb();
+    db.pendingSignups = (db.pendingSignups ?? []).filter((item) => item.id !== id);
+    saveDb(db);
+  },
   saveUsers(users: User[]) {
     const db = loadDb();
-    db.users = users;
+    db.users = stripIncompleteSignupUsers(users);
     saveDb(refreshTeamCounts(db));
   },
   saveLeads(leads: Lead[]) {

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
-import { publicUser } from '../lib/authUser.js';
+import { publicUser, isPendingSignupOnly } from '../lib/authUser.js';
 import { createUser, deleteUser, updateUser } from '../lib/users.js';
 import { store } from '../store/db.js';
 import { DEFAULT_NOTIFICATION_PREFERENCES, userPreferences } from '../lib/responsibility.js';
@@ -15,7 +15,10 @@ function paramId(req: AuthedRequest) {
 }
 
 function publicUsers() {
-  return store.getUsers().map((user) => publicUser(user));
+  return store
+    .getUsers()
+    .filter((user) => !isPendingSignupOnly(user))
+    .map((user) => publicUser(user));
 }
 
 router.get('/', requireAuth, (_req: AuthedRequest, res) => {

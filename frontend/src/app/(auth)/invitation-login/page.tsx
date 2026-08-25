@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { KeyRound, Mail } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { KeyRound, Loader2, Mail } from 'lucide-react';
 import AuthShell from '@/components/auth/AuthShell';
 import AuthField from '@/components/auth/AuthField';
 import AuthButton from '@/components/auth/AuthButton';
@@ -14,8 +14,9 @@ import {
 } from '@/lib/auth';
 import { StorageService } from '@/lib/storage';
 
-export default function InvitationLoginPage() {
+function InvitationLoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; invitationCode?: string }>({});
@@ -24,6 +25,11 @@ export default function InvitationLoginPage() {
   const [loading, setLoading] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [requestInfo, setRequestInfo] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fromInvite = (searchParams.get('email') || '').trim();
+    if (fromInvite) setEmail(fromInvite);
+  }, [searchParams]);
 
   useEffect(() => {
     if (StorageService.getAuthToken()) {
@@ -84,6 +90,7 @@ export default function InvitationLoginPage() {
           autoComplete="email"
           value={email}
           placeholder="name@careyu.ai"
+          hint="Use the work email from the invitation, not a different inbox that forwarded the mail."
           error={fieldErrors.email}
           onChange={(e) => {
             setEmail(e.target.value);
@@ -129,5 +136,22 @@ export default function InvitationLoginPage() {
         </Link>
       </p>
     </AuthShell>
+  );
+}
+
+export default function InvitationLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <AuthShell title="Welcome to CareYu" subtitle="Complete your first-time login" compact>
+          <div className="flex items-center gap-2 text-sm text-[color:var(--auth-muted)]">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading...
+          </div>
+        </AuthShell>
+      }
+    >
+      <InvitationLoginContent />
+    </Suspense>
   );
 }

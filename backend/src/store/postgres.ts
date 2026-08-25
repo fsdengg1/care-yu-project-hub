@@ -34,7 +34,8 @@ export type CollectionName =
   | 'forumTags'
   | 'forumLiveMessages'
   | 'assignmentHistory'
-  | 'notificationDeliveries';
+  | 'notificationDeliveries'
+  | 'pendingSignups';
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'users',
@@ -68,6 +69,7 @@ export const COLLECTION_NAMES: CollectionName[] = [
   'forumLiveMessages',
   'assignmentHistory',
   'notificationDeliveries',
+  'pendingSignups',
 ];
 
 let pool: pg.Pool | null = null;
@@ -90,6 +92,8 @@ export function getPool(): pg.Pool {
       // Managed Postgres (Aiven) uses a provider CA; for app use we accept TLS without pinning the CA file.
       ssl: env.databaseSsl ? { rejectUnauthorized: false } : false,
       max: 10,
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
     });
   }
   return pool;
@@ -160,5 +164,13 @@ export async function closePool(): Promise<void> {
 }
 
 export async function pingDatabase(): Promise<void> {
-  await getPool().query('SELECT 1');
+  const timeoutMs = 15000;
+  await Promise.race([
+    getPool().query('SELECT 1'),
+    new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Database connection timed out after ${timeoutMs / 1000}s. Check DATABASE_URL, SSL, and network access.`));
+      }, timeoutMs);
+    }),
+  ]);
 }

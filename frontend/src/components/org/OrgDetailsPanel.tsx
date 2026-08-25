@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Team, User } from '@/lib/types';
 import { getAccessScope, getDepartment } from './orgHierarchy';
+import { directoryStatus } from '@/lib/usersApi';
 
 interface PersonDetails {
   user: User;
@@ -148,12 +149,14 @@ export default function OrgDetailsPanel({
                     </div>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        member.status === 'ACTIVE'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : 'bg-slate-100 text-slate-500'
+                        directoryStatus(member).pending
+                          ? 'bg-amber-50 text-amber-700'
+                          : member.status === 'ACTIVE'
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : 'bg-slate-100 text-slate-500'
                       }`}
                     >
-                      {member.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                      {directoryStatus(member).label}
                     </span>
                   </div>
                 ))}
@@ -200,11 +203,16 @@ export default function OrgDetailsPanel({
             value={
               <span
                 className={`inline-flex items-center gap-1.5 ${
-                  user.status === 'ACTIVE' ? 'text-emerald-700' : 'text-slate-500'
+                  directoryStatus(user).pending
+                    ? 'text-amber-700'
+                    : user.status === 'ACTIVE'
+                      ? 'text-emerald-700'
+                      : 'text-slate-500'
                 }`}
               >
                 <CircleDot className="h-3.5 w-3.5" />
-                {user.status === 'ACTIVE' ? 'Active' : 'Inactive'}
+                {directoryStatus(user).label}
+                {directoryStatus(user).pending ? ' · Signup' : ''}
               </span>
             }
           />

@@ -1,15 +1,17 @@
 import { env } from '../config/env.js';
 import { store } from '../store/db.js';
-import { User } from '../types.js';
+import { PendingSignup, User } from '../types.js';
 import {
   effectiveAccountStatus,
   isAllowedWorkEmail,
   isFullyActivated,
   needsInvitationLogin,
+  pendingSignupToUser,
   publicUser,
   resolveSignupReportingManager,
 } from './authUser.js';
 import { sendInvitationToManager, sendPasswordChangedEmail, sendPasswordResetEmail, sendVerificationEmail, sendWelcomeEmail } from './authEmails.js';
+import { maskEmail } from './emailDiagnostics.js';
 import { newId } from './leadWorkflow.js';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password.js';
 import {
@@ -21,9 +23,9 @@ import {
   tokensMatch,
 } from './tokens.js';
 
-function nextEmployeeId(users: User[]) {
-  const numbers = users
-    .map((user) => Number(String(user.employee_id || '').replace(/\D/g, '')))
+function nextEmployeeId() {
+  const numbers = [...store.getUsers(), ...store.getPendingSignups()]
+    .map((item) => Number(String(item.employee_id || '').replace(/\D/g, '')))
     .filter((value) => Number.isFinite(value));
   const next = (numbers.length ? Math.max(...numbers) : 100) + 1;
   return `CYA-${String(next).padStart(3, '0')}`;
@@ -68,75 +70,82 @@ function invitationExpiryDate() {
   return new Date(Date.now() + env.invitationTtlHours * 60 * 60 * 1000);
 }
 
-async function issueInvitation(user: User, _manager: User, employeeName: string, employeeEmail: string) {
+async function issueInvitation(pending: PendingSignup, employeeName: string, employeeEmail: string) {
+  console.info('[INVITATION] Request received', { recipient: maskEmail(employeeEmail), pendingId: pending.id });
   const resolved = resolveSignupReportingManager();
   if (!resolved.ok) {
-    saveUser({
-      ...user,
-      account_status: 'INVITED',
+    store.savePendingSignup({
+      ...pending,
       updated_at: new Date().toISOString(),
     });
-    console.error('[auth] Invitation email skipped: reporting manager missing', { userId: user.id });
-    return { user, emailSent: false };
+    console.error('[INVITATION] Email skipped: reporting manager missing', { pendingId: pending.id });
+    return { pending, emailSent: false };
   }
   const manager = resolved.manager;
   const invitationCode = generateInvitationCode();
+  if (!invitationCode) {
+    console.error('[INVITATION] Code generated: FAIL');
+    return { pending, emailSent: false };
+  }
+  console.info('[INVITATION] Code generated: YES');
   const now = new Date();
-  const updated: User = {
-    ...user,
+  const updated: PendingSignup = {
+    ...pending,
     invitation_code_hash: hashInvitationCode(invitationCode),
     invitation_created_at: now.toISOString(),
     invitation_expires_at: invitationExpiryDate().toISOString(),
-    invitation_used_at: undefined,
-    account_status: 'INVITED',
+    invitation_verified_at: undefined,
     reporting_manager_id: manager.id,
     reporting_manager_name: manager.name,
     updated_at: now.toISOString(),
   };
-  saveUser(updated);
+  store.savePendingSignup(updated);
+  console.info('[INVITATION] Invitation saved: YES');
+  console.info('[INVITATION] Recipient:', employeeEmail);
 
-  console.info('[auth] Invitation generated', {
-    userId: updated.id,
-    managerId: manager.id,
-    managerEmail: manager.email,
-  });
-
-  let emailSent = true;
-  try {
-    const sent = await sendInvitationToManager({
-      managerEmail: manager.email,
-      managerName: manager.name,
-      managerUserId: manager.id,
-      employeeName,
-      employeeEmail,
-      invitationCode,
-      expiresInHours: env.invitationTtlHours,
+  let emailSent = false;
+  for (const notifyEmail of env.invitationNotifyEmails) {
+    if (!notifyEmail) {
+      console.error('[INVITATION EMAIL] Status: FAILED', { reason: 'Invitation recipient email is missing' });
+      continue;
+    }
+    const recipient = store.findUserByEmail(notifyEmail);
+    console.info('[INVITATION EMAIL]', {
+      Provider: env.emailProvider,
+      Sender: env.emailFrom,
+      Recipient: notifyEmail,
+      'API Key': env.emailApiKey ? 'configured' : 'missing',
+      Status: 'sending',
     });
-    emailSent = sent.status === 'SENT';
-    if (emailSent) {
-      console.info('[auth] Invitation email sent', {
-        userId: updated.id,
-        managerId: manager.id,
-        managerEmail: manager.email,
-        deliveryMode: sent.deliveryMode,
-        transactionId: sent.transactionId || undefined,
+    try {
+      const sent = await sendInvitationToManager({
+        managerEmail: notifyEmail,
+        managerName: recipient?.name || manager.name,
+        managerUserId: recipient?.id || manager.id,
+        employeeName,
+        employeeEmail,
+        invitationCode,
+        expiresInHours: env.invitationTtlHours,
       });
-    } else {
-      console.error('[auth] Invitation email failed', {
-        userId: updated.id,
-        managerId: manager.id,
-        managerEmail: manager.email,
-        deliveryMode: sent.deliveryMode,
+      console.info('[ELASTIC EMAIL]', {
+        Status: sent.status === 'SENT' ? 'success' : 'failed',
+        'HTTP Status': sent.httpStatus || 'n/a',
+        Recipient: notifyEmail,
+      });
+      if (sent.status === 'SENT') {
+        emailSent = true;
+      } else {
+        console.error('[INVITATION EMAIL] Status: FAILED', {
+          Recipient: notifyEmail,
+          reason: sent.failureReason || sent.deliveryMode || 'Email delivery failed',
+        });
+      }
+    } catch (error) {
+      console.error('[INVITATION EMAIL] Status: FAILED', {
+        Recipient: notifyEmail,
+        reason: error instanceof Error ? error.message : 'unknown error',
       });
     }
-  } catch (error) {
-    emailSent = false;
-    console.error('[auth] Invitation email failed', {
-      userId: updated.id,
-      managerId: manager.id,
-      managerEmail: manager.email,
-      message: error instanceof Error ? error.message : 'unknown error',
-    });
   }
 
   store.appendNotification({
@@ -149,7 +158,7 @@ async function issueInvitation(user: User, _manager: User, employeeName: string,
     sender_id: updated.id,
   });
 
-  return { user: updated, emailSent };
+  return { pending: updated, emailSent };
 }
 
 export async function signupUser(input: {
@@ -160,6 +169,7 @@ export async function signupUser(input: {
       ok: true;
       message: string;
       email: string;
+      invitationCreated?: boolean;
       deliveryMode?: string;
       emailSent: boolean;
       code?: string;
@@ -184,19 +194,9 @@ export async function signupUser(input: {
     };
   }
 
-  const users = store.getUsers();
-  const existing = users.find((user) => user.email.toLowerCase() === email);
+  const existing = store.findUserByEmail(email);
   if (existing) {
-    const status = effectiveAccountStatus(existing);
-    if (needsInvitationLogin(existing)) {
-      return {
-        ok: false,
-        status: 409,
-        code: 'PENDING_SIGNUP',
-        message: 'Your account request is already pending invitation verification.',
-      };
-    }
-    if (status === 'ACTIVE') {
+    if (existing.password_hash || isFullyActivated(existing) || !needsInvitationLogin(existing)) {
       return {
         ok: false,
         status: 409,
@@ -204,12 +204,7 @@ export async function signupUser(input: {
         message: 'This work email is already registered. Please sign in.',
       };
     }
-    return {
-      ok: false,
-      status: 409,
-      code: 'DUPLICATE_EMAIL',
-      message: 'This work email is already registered. Please sign in.',
-    };
+    store.saveUsers(store.getUsers().filter((user) => user.id !== existing.id));
   }
 
   const managerResult = resolveSignupReportingManager();
@@ -222,46 +217,47 @@ export async function signupUser(input: {
   const role = roles.find((item) => item.code === 'EMPLOYEE') || roles[0];
   if (!role) return { ok: false, status: 500, message: 'Unable to create your account right now. Please try again.' };
 
+  const previousPending = store.findPendingSignupByEmail(email);
   const now = new Date();
-  const user: User = {
+  const pending: PendingSignup = {
     id: newId('u'),
-    employee_id: nextEmployeeId(users),
+    employee_id: previousPending?.employee_id || nextEmployeeId(),
     name,
     email,
-    phone: '',
     role_id: role.id,
     role_code: role.code,
     role_name: role.name,
-    status: 'ACTIVE',
-    account_status: 'INVITED',
     reporting_manager_id: managerResult.manager.id,
     reporting_manager_name: managerResult.manager.name,
-    email_verified: false,
-    created_at: now.toISOString(),
+    created_at: previousPending?.created_at || now.toISOString(),
     updated_at: now.toISOString(),
   };
 
-  saveUser(user);
-  console.info('[auth] Signup created', { userId: user.id, managerId: managerResult.manager.id });
-  const issued = await issueInvitation(user, managerResult.manager, name, email);
+  console.info('[auth] Signup created', {
+    pendingId: pending.id,
+    managerId: managerResult.manager.id,
+    replacedPending: Boolean(previousPending),
+  });
+  const issued = await issueInvitation(pending, name, email);
 
   store.appendAudit({
-    user_id: user.id,
-    user_name: user.name,
-    user_role: user.role_name,
+    user_id: pending.id,
+    user_name: pending.name,
+    user_role: pending.role_name,
     entity_type: 'AUTH',
-    entity_id: user.id,
-    entity_name: user.name,
+    entity_id: pending.id,
+    entity_name: pending.name,
     action: 'USER_SIGNUP',
-    description: `${user.name} requested an account. Invitation sent to reporting manager ${managerResult.manager.name}.`,
+    description: `${pending.name} requested an account. Invitation sent to reporting manager ${managerResult.manager.name}.`,
   });
 
   return {
     ok: true,
-    email: issued.user.email,
+    email: issued.pending.email,
+    invitationCreated: true,
     message: issued.emailSent
-      ? 'Account request created successfully.'
-      : 'Your account request was created, but we could not send the invitation notification. Please contact Admin.',
+      ? `Invitation sent to fsdengg1@careyu.ai. Complete first-time login with ${issued.pending.email} and the invitation code.`
+      : 'Invitation email could not be sent.',
     deliveryMode: env.emailProvider,
     emailSent: issued.emailSent,
     code: issued.emailSent ? undefined : 'EMAIL_DELIVERY_FAILED',
@@ -273,6 +269,7 @@ export function lookupLoginMode(emailRaw: string): { loginMode: 'password' | 'in
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { loginMode: 'password' };
   }
+  if (store.findPendingSignupByEmail(email)) return { loginMode: 'invitation' };
   const user = store.findUserByEmail(email);
   if (!user) return { loginMode: 'password' };
   if (needsInvitationLogin(user)) return { loginMode: 'invitation' };
@@ -295,21 +292,8 @@ export async function invitationLogin(input: {
   }
   if (!code) return { ok: false, status: 400, message: 'Invitation code is required.' };
 
-  const user = store.findUserByEmail(email);
-  if (!user) {
-    return {
-      ok: false,
-      status: 401,
-      code: 'INVITATION_INVALID',
-      message: 'Invalid invitation code. Please check the code shared by your Reporting Manager.',
-    };
-  }
-
-  if (user.status === 'INACTIVE' || effectiveAccountStatus(user) === 'DISABLED') {
-    return { ok: false, status: 403, message: 'This account is inactive. Contact Admin for assistance.' };
-  }
-
-  if (user.invitation_used_at || (isFullyActivated(user) && user.password_hash)) {
+  const existingUser = store.findUserByEmail(email);
+  if (existingUser && (existingUser.invitation_used_at || existingUser.password_hash || isFullyActivated(existingUser))) {
     return {
       ok: false,
       status: 409,
@@ -318,26 +302,20 @@ export async function invitationLogin(input: {
     };
   }
 
-  if (!needsInvitationLogin(user)) {
+  const pendingByCode = store
+    .getPendingSignups()
+    .find((item) => invitationCodesMatch(code, item.invitation_code_hash));
+  if (pendingByCode && pendingByCode.email !== email) {
     return {
       ok: false,
-      status: 409,
-      code: 'INVITATION_USED',
-      message: 'This invitation code has already been used. Please sign in using your password.',
+      status: 401,
+      code: 'INVITATION_EMAIL_MISMATCH',
+      message: `This invitation code is for ${pendingByCode.email}. Enter that work email from the invitation, not the inbox that received the mail.`,
     };
   }
 
-  const status = effectiveAccountStatus(user);
-  if (status === 'INVITATION_EXPIRED') {
-    return {
-      ok: false,
-      status: 400,
-      code: 'INVITATION_EXPIRED',
-      message: 'Your invitation code has expired. Please contact your Reporting Manager.',
-    };
-  }
-
-  if (!invitationCodesMatch(code, user.invitation_code_hash)) {
+  const pending = pendingByCode || store.findPendingSignupByEmail(email);
+  if (!pending || !invitationCodesMatch(code, pending.invitation_code_hash)) {
     return {
       ok: false,
       status: 401,
@@ -346,9 +324,9 @@ export async function invitationLogin(input: {
     };
   }
 
-  const expiresAt = user.invitation_expires_at ? Date.parse(user.invitation_expires_at) : 0;
+  const expiresAt = pending.invitation_expires_at ? Date.parse(pending.invitation_expires_at) : 0;
   if (!expiresAt || expiresAt < Date.now()) {
-    saveUser({ ...user, account_status: 'INVITATION_EXPIRED', updated_at: new Date().toISOString() });
+    store.savePendingSignup({ ...pending, updated_at: new Date().toISOString() });
     return {
       ok: false,
       status: 400,
@@ -357,12 +335,12 @@ export async function invitationLogin(input: {
     };
   }
 
-  const updated: User = {
-    ...user,
-    account_status: 'INVITATION_VERIFIED',
+  const updated: PendingSignup = {
+    ...pending,
+    invitation_verified_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-  saveUser(updated);
+  store.savePendingSignup(updated);
 
   store.appendAudit({
     user_id: updated.id,
@@ -370,11 +348,12 @@ export async function invitationLogin(input: {
     user_role: updated.role_name,
     entity_type: 'AUTH',
     entity_id: updated.id,
+    entity_name: updated.name,
     action: 'INVITATION_VERIFIED',
     description: `${updated.name} verified their invitation code and can create a password.`,
   });
 
-  return { ok: true, user: publicUser(updated) as User };
+  return { ok: true, user: publicUser(pendingSignupToUser(updated)) as User };
 }
 
 export async function requestNewInvitation(emailRaw: string): Promise<
@@ -386,21 +365,19 @@ export async function requestNewInvitation(emailRaw: string): Promise<
     return { ok: false, status: 400, message: 'Please enter a valid work email address.' };
   }
 
-  const user = store.findUserByEmail(email);
-  if (!user || !needsInvitationLogin(user)) {
-    if (user && (user.invitation_used_at || isFullyActivated(user))) {
-      return {
-        ok: false,
-        status: 409,
-        code: 'INVITATION_USED',
-        message: 'This invitation code has already been used. Please sign in using your password.',
-      };
-    }
-    return { ok: false, status: 404, message: 'No pending invitation was found for this email.' };
+  const existingUser = store.findUserByEmail(email);
+  if (existingUser && (existingUser.invitation_used_at || existingUser.password_hash || isFullyActivated(existingUser))) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'INVITATION_USED',
+      message: 'This invitation code has already been used. Please sign in using your password.',
+    };
   }
 
-  if (user.status === 'INACTIVE') {
-    return { ok: false, status: 403, message: 'This account is inactive. Contact Admin for assistance.' };
+  const pending = store.findPendingSignupByEmail(email);
+  if (!pending) {
+    return { ok: false, status: 404, message: 'No pending invitation was found for this email.' };
   }
 
   const resolved = resolveSignupReportingManager();
@@ -409,22 +386,23 @@ export async function requestNewInvitation(emailRaw: string): Promise<
   }
   const manager = resolved.manager;
 
-  const issued = await issueInvitation(user, manager, user.name, user.email);
+  const issued = await issueInvitation(pending, pending.name, pending.email);
   store.appendAudit({
-    user_id: user.id,
-    user_name: user.name,
-    user_role: user.role_name,
+    user_id: pending.id,
+    user_name: pending.name,
+    user_role: pending.role_name,
     entity_type: 'AUTH',
-    entity_id: user.id,
+    entity_id: pending.id,
+    entity_name: pending.name,
     action: 'INVITATION_REISSUED',
-    description: `A new invitation code was issued for ${user.email} and sent to ${manager.name}.`,
+    description: `A new invitation code was issued for ${pending.email} and sent to ${manager.name}.`,
   });
 
   return {
     ok: true,
     message: issued.emailSent
-      ? 'Invitation notification sent successfully.'
-      : 'Your account request was created, but we could not send the invitation notification. Please contact Admin.',
+      ? `Invitation sent to fsdengg1@careyu.ai. Complete first-time login with ${issued.pending.email} and the invitation code.`
+      : 'Invitation email could not be sent.',
     deliveryMode: env.emailProvider,
     emailSent: issued.emailSent,
   };
@@ -435,15 +413,23 @@ export async function createAccountPassword(input: {
   newPassword: string;
   confirmPassword: string;
 }): Promise<{ ok: true; message: string; user: User } | { ok: false; status: number; message: string }> {
-  const fresh = store.findUserById(input.user.id);
-  if (!fresh) return { ok: false, status: 401, message: 'Not authenticated.' };
+  const existingUser = store.findUserById(input.user.id) || store.findUserByEmail(input.user.email);
+  if (existingUser?.password_hash && existingUser.invitation_used_at) {
+    return { ok: false, status: 409, message: 'This invitation code has already been used. Please sign in using your password.' };
+  }
 
-  if (fresh.status === 'INACTIVE') {
+  const pending =
+    store.findPendingSignupById(input.user.id) || store.findPendingSignupByEmail(input.user.email);
+  if (!pending && !existingUser) {
+    return { ok: false, status: 401, message: 'Not authenticated.' };
+  }
+
+  if (existingUser?.status === 'INACTIVE') {
     return { ok: false, status: 403, message: 'This account is inactive. Contact Admin for assistance.' };
   }
 
-  if (fresh.invitation_used_at && fresh.password_hash) {
-    return { ok: false, status: 409, message: 'This invitation code has already been used. Please sign in using your password.' };
+  if (pending && !pending.invitation_verified_at) {
+    return { ok: false, status: 401, message: 'Invitation verification is required before creating a password.' };
   }
 
   const passwordError = validatePasswordPolicy(input.newPassword);
@@ -453,8 +439,9 @@ export async function createAccountPassword(input: {
   }
 
   const now = new Date().toISOString();
+  const source = pending ? pendingSignupToUser(pending) : existingUser!;
   const updated: User = {
-    ...clearInvitationSecrets(fresh),
+    ...clearInvitationSecrets(source),
     password_hash: await hashPassword(input.newPassword),
     password_created_at: now,
     password_changed_at: now,
@@ -465,6 +452,7 @@ export async function createAccountPassword(input: {
     updated_at: now,
   };
   saveUser(updated);
+  if (pending) store.deletePendingSignup(pending.id);
 
   store.appendAudit({
     user_id: updated.id,
@@ -472,6 +460,7 @@ export async function createAccountPassword(input: {
     user_role: updated.role_name,
     entity_type: 'AUTH',
     entity_id: updated.id,
+    entity_name: updated.name,
     action: 'PASSWORD_CREATED',
     description: `${updated.name} created a password and activated their account.`,
   });
@@ -588,6 +577,14 @@ export async function authenticateLogin(input: {
   const user = store.findUserByEmail(email);
 
   if (!user) {
+    if (store.findPendingSignupByEmail(email)) {
+      return {
+        ok: false,
+        status: 403,
+        code: 'ACCOUNT_PENDING',
+        message: 'Your account is awaiting invitation verification.',
+      };
+    }
     return { ok: false, status: 401, message: 'Invalid email or password. Please try again.' };
   }
 

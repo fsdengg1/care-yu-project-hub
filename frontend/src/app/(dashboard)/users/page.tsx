@@ -11,7 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
-import { UsersApi } from '@/lib/usersApi';
+import { directoryStatus, UsersApi } from '@/lib/usersApi';
 import { Role, Team, User } from '@/lib/types';
 
 const emptyForm = {
@@ -32,6 +32,7 @@ export default function UserManagementPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [editing, setEditing] = useState<User | null>(null);
   const [deleting, setDeleting] = useState<User | null>(null);
@@ -131,15 +132,29 @@ export default function UserManagementPage() {
 
   const managerName = (user: User) => {
     const manager = users.find((item) => item.id === user.reporting_manager_id);
-    return user.team_lead_name || manager?.name || '—';
+    return user.reporting_manager_name || user.team_lead_name || manager?.name || '—';
   };
 
-  const filteredUsers = users.filter((user) => {
-    const hay = `${user.name} ${user.email} ${user.employee_id}`.toLowerCase();
-    const matchesSearch = hay.includes(search.toLowerCase());
-    const matchesRole = roleFilter === 'ALL' || user.role_code === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const pendingSignupCount = users.filter((user) => directoryStatus(user).pending).length;
+
+  const filteredUsers = users
+    .filter((user) => {
+      const hay = `${user.name} ${user.email} ${user.employee_id}`.toLowerCase();
+      const matchesSearch = hay.includes(search.toLowerCase());
+      const matchesRole = roleFilter === 'ALL' || user.role_code === roleFilter;
+      const status = directoryStatus(user);
+      const matchesStatus =
+        statusFilter === 'ALL' ||
+        (statusFilter === 'PENDING_SIGNUP' && status.pending) ||
+        (statusFilter === 'ACTIVE' && status.key === 'ACTIVE') ||
+        (statusFilter === 'INACTIVE' && status.key === 'INACTIVE');
+      return matchesSearch && matchesRole && matchesStatus;
+    })
+    .sort((a, b) => {
+      const pendingDelta = Number(directoryStatus(b).pending) - Number(directoryStatus(a).pending);
+      if (pendingDelta !== 0) return pendingDelta;
+      return a.name.localeCompare(b.name);
+    });
 
   return (
     <div className="space-y-6 text-xs">
@@ -150,7 +165,8 @@ export default function UserManagementPage() {
           </div>
           <h1 className="mt-1 text-xl font-bold text-slate-100">User & Employee Management</h1>
           <p className="mt-1 text-xs text-slate-400">
-            Add employees, edit roles and teams, update records, and remove users from the directory.
+            Add employees, review signup requests, edit roles and teams, and remove users from the directory.
+            {pendingSignupCount > 0 ? ` ${pendingSignupCount} signup request${pendingSignupCount === 1 ? '' : 's'} awaiting invitation or password setup.` : ''}
           </p>
         </div>
         <button
@@ -192,6 +208,16 @@ export default function UserManagementPage() {
               <option key={role.id} value={role.code}>{role.name}</option>
             ))}
           </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-md border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 focus:border-cyan-500 focus:outline-none"
+          >
+            <option value="ALL">All statuses</option>
+            <option value="PENDING_SIGNUP">Signup / pending ({pendingSignupCount})</option>
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
         </div>
       </div>
 
@@ -219,7 +245,14 @@ export default function UserManagementPage() {
                   <tr key={user.id} className="transition-colors hover:bg-slate-800/40">
                     <td className="p-3 font-mono text-[11px] font-semibold text-cyan-400">{user.employee_id}</td>
                     <td className="p-3">
-                      <div className="font-semibold text-slate-100">{user.name}</div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="font-semibold text-slate-100">{user.name}</div>
+                        {directoryStatus(user).pending && (
+                          <span className="rounded border border-amber-800/60 bg-amber-950 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                            Signup
+                          </span>
+                        )}
+                      </div>
                       <div className="text-[11px] text-slate-400">{user.email}</div>
                     </td>
                     <td className="p-3">
@@ -232,15 +265,28 @@ export default function UserManagementPage() {
                     </td>
                     <td className="p-3 text-slate-400">{managerName(user)}</td>
                     <td className="p-3">
-                      {user.status === 'ACTIVE' ? (
-                        <span className="flex w-fit items-center gap-1 rounded border border-emerald-800/60 bg-emerald-950 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active
-                        </span>
-                      ) : (
-                        <span className="flex w-fit items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
-                          <span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> Inactive
-                        </span>
-                      )}
+                      {(() => {
+                        const status = directoryStatus(user);
+                        if (status.pending) {
+                          return (
+                            <span className="flex w-fit items-center gap-1 rounded border border-amber-800/60 bg-amber-950 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> {status.label}
+                            </span>
+                          );
+                        }
+                        if (status.key === 'ACTIVE') {
+                          return (
+                            <span className="flex w-fit items-center gap-1 rounded border border-emerald-800/60 bg-emerald-950 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> Active
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="flex w-fit items-center gap-1 rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> {status.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-3">
                       <div className="flex justify-end gap-1.5">

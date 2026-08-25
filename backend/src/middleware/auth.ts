@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { isFullyActivated } from '../lib/authUser.js';
+import { isFullyActivated, pendingSignupToUser } from '../lib/authUser.js';
 import { store } from '../store/db.js';
 import { User } from '../types.js';
 
@@ -45,7 +45,8 @@ export function requirePasswordSetupOrInitialPassword(req: AuthedRequest, res: R
 
   try {
     const payload = jwt.verify(token, env.jwtSecret) as { sub: string; purpose?: string };
-    const user = store.findUserById(payload.sub);
+    const pending = store.findPendingSignupById(payload.sub);
+    const user = store.findUserById(payload.sub) || (pending ? pendingSignupToUser(pending) : undefined);
     if (!user || user.status !== 'ACTIVE') {
       return res.status(401).json({ message: 'Invitation verification is required before creating a password.' });
     }

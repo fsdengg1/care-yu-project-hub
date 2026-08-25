@@ -51,6 +51,25 @@ export interface User {
   updated_at: string;
 }
 
+/** Invitation request before password setup. Not a directory user. */
+export interface PendingSignup {
+  id: string;
+  employee_id: string;
+  name: string;
+  email: string;
+  role_id: string;
+  role_code: string;
+  role_name: string;
+  reporting_manager_id?: string;
+  reporting_manager_name?: string;
+  invitation_code_hash?: string;
+  invitation_created_at?: string;
+  invitation_expires_at?: string;
+  invitation_verified_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type NotificationPreferenceCategory = 'assignment' | 'forward' | 'reminder' | 'approval';
 
 export interface NotificationPreferences {

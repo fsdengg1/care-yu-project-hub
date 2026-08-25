@@ -105,7 +105,7 @@ async function deliverEmail(params: {
       status,
       transaction_id: result.transactionId,
       sent_at: status === 'SENT' ? new Date().toISOString() : undefined,
-      failure_reason: status === 'FAILED' ? 'Email provider rejected or failed the message.' : undefined,
+      failure_reason: status === 'FAILED' ? result.reason || 'Email provider rejected or failed the message.' : undefined,
       updated_at: new Date().toISOString(),
     });
     const notifications = store.getNotifications();
@@ -147,6 +147,10 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
 
   const recipient = store.findUserById(input.recipientUserId);
   if (!recipient || recipient.status !== 'ACTIVE') {
+    return { skipped: true };
+  }
+  if (!recipient.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.email)) {
+    console.error('[EMAIL] Notification skipped: recipient email is missing', { userId: recipient.id });
     return { skipped: true };
   }
 

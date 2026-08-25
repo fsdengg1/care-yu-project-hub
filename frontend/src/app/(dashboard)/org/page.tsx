@@ -17,6 +17,7 @@ import EmployeeActionModal, {
   EmployeeModalMode,
 } from '@/components/org/EmployeeActionModal';
 import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports } from '@/components/org/orgHierarchy';
+import { UsersApi } from '@/lib/usersApi';
 
 type Selection =
   | { kind: 'person'; nodeId: string; userId: string; reportingContextId?: string }
@@ -45,8 +46,10 @@ export default function OrganizationManagementPage() {
     Record<string, { activeProjects: number; pendingTasks: number; completedTasks: number }>
   >({});
 
-  const reload = () => {
-    const nextUsers = StorageService.getUsers();
+  const reload = async () => {
+    const listed = await UsersApi.list();
+    const nextUsers = listed.ok ? listed.users : StorageService.getUsers();
+    if (listed.ok) StorageService.saveUsers(nextUsers);
     const nextTeams = StorageService.getTeams();
     setUsers(nextUsers);
     setTeams(nextTeams);
@@ -77,7 +80,7 @@ export default function OrganizationManagementPage() {
   };
 
   useEffect(() => {
-    reload();
+    void reload();
   }, []);
 
   const canManage = Boolean(currentUser && ORG_ADMIN_ROLES.has(currentUser.role_code));
@@ -230,7 +233,13 @@ export default function OrganizationManagementPage() {
     );
   };
 
-  const teamMembers = selectedTeam ? users.filter((u) => u.team_id === selectedTeam.id) : [];
+  const teamMembers = selectedTeam
+    ? users.filter(
+        (u) =>
+          u.team_id === selectedTeam.id ||
+          (!u.team_id && u.reporting_manager_id === selectedTeam.team_lead_id)
+      )
+    : [];
   const selectedDirectReports = selectedUser ? getDirectReports(selectedUser.id, users) : [];
   const selectedTeamMembers = selectedUser?.team_id
     ? users.filter((u) => u.team_id === selectedUser.team_id)

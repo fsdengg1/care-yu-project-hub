@@ -23,17 +23,25 @@ async function main() {
     throw new Error('Signup must not return the invitation code to the client');
   }
 
-  const user = store.findUserByEmail(email);
-  if (!user) throw new Error('Pending user was not stored');
+  if (store.findUserByEmail(email)) {
+    throw new Error('Pending signup must not be stored as a user');
+  }
+
+  const firstPending = store.findPendingSignupByEmail(email);
+  if (!firstPending) throw new Error('Pending signup was not stored');
+
+  const again = await signupUser({ name: 'Auth Tester', email });
+  console.log('signup_again', again);
+  if (!again.ok) throw new Error('Re-signup of a pending email should succeed');
+
+  const pending = store.findPendingSignupByEmail(email);
+  if (!pending) throw new Error('Pending signup was not stored after re-signup');
   const knownCode = generateInvitationCode();
-  const users = store.getUsers();
-  const index = users.findIndex((item) => item.id === user.id);
-  users[index] = {
-    ...users[index],
+  store.savePendingSignup({
+    ...pending,
     invitation_code_hash: hashInvitationCode(knownCode),
     invitation_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-  };
-  store.saveUsers(users);
+  });
 
   const blocked = await authenticateLogin({ email, password: 'Careyu@1234' });
   console.log('password_login_before_invite', blocked.ok === false ? blocked.message : 'unexpected');
@@ -55,6 +63,9 @@ async function main() {
   });
   console.log('create_password', { ok: created.ok });
   if (!created.ok) throw new Error('Create password failed');
+  if (store.findPendingSignupByEmail(email)) {
+    throw new Error('Pending signup should be removed after password is created');
+  }
 
   const usedAgain = await invitationLogin({ email, invitationCode: knownCode });
   console.log('invitation_after_password', usedAgain.ok === false ? usedAgain.code : 'unexpected');
@@ -83,7 +94,14 @@ async function main() {
     accountStatus: createdUser?.account_status,
   });
 
-  await shutdownStore();
+  store.saveUsers(store.getUsers().filter((user) => user.email.toLowerCase() !== email));
+  store.deletePendingSignup(createdUser?.id || '');
+
+  try {
+    await shutdownStore();
+  } catch (error) {
+    console.warn('shutdown', error instanceof Error ? error.message : error);
+  }
 }
 
 main().catch(async (error) => {

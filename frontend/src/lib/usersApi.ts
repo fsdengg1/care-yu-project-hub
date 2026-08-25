@@ -1,6 +1,34 @@
 import { apiRequest } from './api';
 import { User } from './types';
 
+const PENDING_ACCOUNT_STATUSES = new Set([
+  'INVITED',
+  'INVITATION_VERIFIED',
+  'PASSWORD_SETUP_REQUIRED',
+  'INVITATION_EXPIRED',
+]);
+
+const ACCOUNT_STATUS_LABELS: Record<string, string> = {
+  ACTIVE: 'Active',
+  INVITED: 'Pending invitation',
+  INVITATION_VERIFIED: 'Password setup',
+  PASSWORD_SETUP_REQUIRED: 'Password setup',
+  DISABLED: 'Inactive',
+  INVITATION_EXPIRED: 'Invitation expired',
+};
+
+export function directoryStatus(user: User) {
+  if (user.status === 'INACTIVE' || user.account_status === 'DISABLED') {
+    return { key: 'INACTIVE', label: 'Inactive', pending: false };
+  }
+  const key = user.account_status || 'ACTIVE';
+  return {
+    key,
+    label: ACCOUNT_STATUS_LABELS[key] || 'Active',
+    pending: PENDING_ACCOUNT_STATUSES.has(key),
+  };
+}
+
 export interface UserPayload {
   name?: string;
   email?: string;

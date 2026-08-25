@@ -168,17 +168,37 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
     return chartPeople.filter((user) => user.reporting_manager_id === managerId && user.id !== managerId).sort(comparePeople);
   }
 
+  function makePersonLeaf(user: User): OrgNode {
+    return {
+      id: `person-${user.id}`,
+      kind: 'person',
+      title: user.name,
+      subtitle: user.role_name,
+      userId: user.id,
+      roleCode: user.role_code,
+      reportingContextId: user.reporting_manager_id,
+      access: getAccessScope(user.role_code, user.team_name),
+      children: [],
+    };
+  }
+
   function makeTeamNode(team: Team): OrgNode {
     const lead = teamLeadOf(team, directory);
+    const unassignedReports = directory
+      .filter((user) => !user.team_id && user.reporting_manager_id === lead?.id)
+      .sort(comparePeople)
+      .map(makePersonLeaf);
     return {
       id: `team-${team.id}`,
       kind: 'team',
       title: team.name,
-      subtitle: 'Team Lead / Members',
+      subtitle: unassignedReports.length
+        ? `Team Lead / Members · ${unassignedReports.length} unassigned`
+        : 'Team Lead / Members',
       teamId: team.id,
       reportingContextId: lead?.reporting_manager_id,
       access: `${team.name} — assigned team visibility`,
-      children: [],
+      children: unassignedReports,
     };
   }
 

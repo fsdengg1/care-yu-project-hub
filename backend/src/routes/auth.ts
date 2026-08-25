@@ -91,6 +91,7 @@ router.post('/signup', async (req, res) => {
     {
       message: result.message,
       email: result.email,
+      invitationCreated: true,
       deliveryMode: result.deliveryMode,
       emailSent: result.emailSent,
       ...(result.code ? { code: result.code } : {}),
@@ -369,19 +370,31 @@ router.post('/email-test', requireAuth, async (req, res) => {
     if (!manager.ok) {
       return fail(res, 409, manager.message, 'MANAGER_MISSING');
     }
-    const sent = await sendInvitationToManager({
-      managerEmail: manager.manager.email,
-      managerName: manager.manager.name,
-      managerUserId: manager.manager.id,
-      employeeName: 'Test Employee',
-      employeeEmail: 'testemployee@careyu.ai',
-      invitationCode: 'CY-TEST-ONLY',
-      expiresInHours: env.invitationTtlHours,
-    });
+    const deliveries = [];
+    for (const notifyEmail of env.invitationNotifyEmails) {
+      const recipient = store.findUserByEmail(notifyEmail);
+      const sent = await sendInvitationToManager({
+        managerEmail: notifyEmail,
+        managerName: recipient?.name || manager.manager.name,
+        managerUserId: recipient?.id || manager.manager.id,
+        employeeName: 'Test Employee',
+        employeeEmail: 'testemployee@careyu.ai',
+        invitationCode: 'CY-TEST-ONLY',
+        expiresInHours: env.invitationTtlHours,
+      });
+      deliveries.push({
+        to: notifyEmail,
+        status: sent.status,
+        transactionId: sent.transactionId || null,
+        deliveryMode: sent.deliveryMode,
+      });
+    }
+    const anySent = deliveries.some((item) => item.status === 'SENT');
     return ok(res, {
-      message: sent.status === 'SENT' ? 'Test invitation email sent.' : 'Email delivery failed.',
-      transactionId: sent.transactionId || null,
-      deliveryMode: sent.deliveryMode,
+      message: anySent ? 'Test invitation email sent.' : 'Email delivery failed.',
+      transactionId: deliveries.find((item) => item.transactionId)?.transactionId || null,
+      deliveryMode: env.emailProvider,
+      recipients: deliveries,
     });
   } catch (error) {
     console.error('[auth] Email test failed', { message: error instanceof Error ? error.message : 'unknown error' });

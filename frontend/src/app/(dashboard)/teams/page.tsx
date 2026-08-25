@@ -5,6 +5,7 @@ import { StorageService } from '@/lib/storage';
 import { Team, User } from '@/lib/types';
 import { MANAGEMENT_ROLES } from '@/components/org/orgHierarchy';
 import { Users, Plus, ShieldCheck, UserCheck, Cpu, HardHat, Camera, Bot, Wrench, ShoppingBag } from 'lucide-react';
+import { UsersApi, directoryStatus } from '@/lib/usersApi';
 
 const TEAM_ICONS: Record<string, React.ReactNode> = {
   SOFTWARE: <Cpu className="w-5 h-5 text-cyan-400" />,
@@ -19,8 +20,12 @@ export default function FunctionalTeamsPage() {
   const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
+    void UsersApi.list().then((result) => {
+      const next = result.ok ? result.users : StorageService.getUsers();
+      if (result.ok) StorageService.saveUsers(next);
+      setUsers(next);
+    });
     setTeams(StorageService.getTeams());
-    setUsers(StorageService.getUsers());
   }, []);
 
   const functionalMembers = users.filter(
@@ -58,7 +63,11 @@ export default function FunctionalTeamsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {teams.map(t => {
           const teamLead = users.find(u => u.id === t.team_lead_id);
-          const teamMembers = users.filter(u => u.team_id === t.id);
+          const teamMembers = users.filter(
+            (u) =>
+              u.team_id === t.id ||
+              (!u.team_id && u.reporting_manager_id === t.team_lead_id)
+          );
 
           return (
             <div key={t.id} className="bg-slate-900/90 rounded-xl border border-slate-800 p-5 space-y-4 shadow-sm flex flex-col justify-between">
@@ -98,8 +107,12 @@ export default function FunctionalTeamsPage() {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {teamMembers.map(m => (
-                    <span key={m.id} className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                      {m.name}
+                    <span key={m.id} className={`text-[10px] px-2 py-0.5 rounded border ${
+                      directoryStatus(m).pending
+                        ? 'bg-amber-950 text-amber-300 border-amber-800/60'
+                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                    }`}>
+                      {m.name}{directoryStatus(m).pending ? ' · Signup' : ''}
                     </span>
                   ))}
                 </div>

@@ -8,9 +8,17 @@ Set these backend environment variables (never commit real secrets):
 
 - `EMAIL_PROVIDER=elasticemail`
 - `ELASTIC_EMAIL_API_KEY`
-- `ELASTIC_EMAIL_SENDER_EMAIL` — must be a verified CareYu sender, for example `fsdlead1@careyu.ai`
-- `ELASTIC_EMAIL_SENDER_NAME=CareYu Automation`
+- `ELASTIC_EMAIL_FROM_EMAIL` or `ELASTIC_EMAIL_SENDER_EMAIL` — verified sender, for example `aicareyuautomation@gmail.com`
+- `ELASTIC_EMAIL_FROM_NAME` or `ELASTIC_EMAIL_SENDER_NAME=CareYu Automation`
+- `EMAIL_DEBUG=true` — verbose `[EMAIL]` logs without API keys or tokens
 - `FRONTEND_URL` — production site URL, not localhost
+- `DEFAULT_REPORTING_MANAGER_EMAIL` — org reporting manager (must be an existing user)
+- `INVITATION_NOTIFY_EMAILS` — extra inboxes that also receive the invitation code, for example `fsdengg1@careyu.ai`
+
+The backend sends through Elastic Email API v4:
+
+`POST https://api.elasticemail.com/v4/emails`  
+Header: `X-ElasticEmail-ApiKey`
 
 Do not send from an unverified or mismatched From address.
 
@@ -18,11 +26,13 @@ Do not send from an unverified or mismatched From address.
 
 In Elastic Email, verify the sending domain and publish the records Elastic Email provides:
 
-1. **SPF** — authorize Elastic Email to send for the domain.
+1. **SPF** — authorize Elastic Email (`include:_spf.elasticemail.com`).
 2. **DKIM** — add the Elastic Email DKIM CNAME/TXT records.
 3. **DMARC** — publish a DMARC policy (start with `p=none` while monitoring, then tighten).
 
 After DNS propagation, confirm domain authentication in the Elastic Email dashboard.
+
+Startup logs report only `configured` / `missing` for the API key and sender. They never print secrets.
 
 ## Responsibility notifications
 
@@ -40,4 +50,12 @@ The application sends to the current responsible person's work email using the v
 
 ## Testing
 
-System Admin can call `POST /api/auth/email-test` with `{ "type": "invitation" }` or `{ "type": "password-reset" }`. The response includes a transaction ID and never returns the API key.
+CEO, CTO, and System Admin can:
+
+- Open **Settings → Email Service**
+- Call `GET /api/email/status`
+- Call `POST /api/email/test` with `{ "to": "name@careyu.ai" }`
+
+The response includes a transaction ID and never returns the API key.
+
+The older `POST /api/auth/email-test` invitation/password-reset tester remains available for System Admin.

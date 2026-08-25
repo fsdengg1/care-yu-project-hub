@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Bell, CheckCircle2, KeyRound, Loader2, Shield, User } from 'lucide-react';
+import { AlertCircle, Bell, CheckCircle2, KeyRound, Loader2, Mail, Shield, User } from 'lucide-react';
 import PasswordRequirements from '@/components/auth/PasswordRequirements';
 import {
   changePasswordWithApi,
@@ -41,6 +41,20 @@ export default function SettingsPage() {
     approval: true,
   });
   const [prefsSaving, setPrefsSaving] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<{
+    provider: string;
+    backendIntegration: string;
+    apiKey: string;
+    sender: string;
+    senderEmail: string;
+    domain: string;
+    domainAuth: { spf: string; dkim: string; dmarc: string };
+    notes: string[];
+  } | null>(null);
+  const [testTo, setTestTo] = useState('');
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const canTestEmail = Boolean(user && ['SYSTEM_ADMIN', 'CEO', 'CTO'].includes(user.role_code));
 
   useEffect(() => {
     const stored = StorageService.getCurrentUser();
@@ -58,6 +72,20 @@ export default function SettingsPage() {
           reminder: true,
           approval: true,
           ...result.data.user.notification_preferences,
+        });
+      }
+      if (['SYSTEM_ADMIN', 'CEO', 'CTO'].includes(result.data.user.role_code)) {
+        void apiRequest<{
+          provider: string;
+          backendIntegration: string;
+          apiKey: string;
+          sender: string;
+          senderEmail: string;
+          domain: string;
+          domainAuth: { spf: string; dkim: string; dmarc: string };
+          notes: string[];
+        }>('/api/email/status').then((status) => {
+          if (status.ok) setEmailStatus(status.data);
         });
       }
     });
@@ -254,6 +282,69 @@ export default function SettingsPage() {
           </div>
         </form>
       </section>
+
+      {canTestEmail && (
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm">
+          <div className="mb-2 flex items-center gap-2">
+            <Mail className="h-4 w-4 text-cyan-400" />
+            <h2 className="text-lg font-semibold text-slate-100">Email Service</h2>
+          </div>
+          <p className="mb-4 text-sm text-slate-400">
+            Provider: Elastic Email. API keys are never shown here.
+          </p>
+          {emailStatus ? (
+            <ul className="mb-4 space-y-1 text-sm text-slate-300">
+              <li>Backend: {emailStatus.backendIntegration === 'PASS' ? 'connected' : 'not using Elastic Email'}</li>
+              <li>API key: {emailStatus.apiKey}</li>
+              <li>Sender: {emailStatus.sender} {emailStatus.senderEmail ? `(${emailStatus.senderEmail})` : ''}</li>
+              <li>Domain: {emailStatus.domain}</li>
+              <li>SPF: {emailStatus.domainAuth.spf} · DKIM: {emailStatus.domainAuth.dkim} · DMARC: {emailStatus.domainAuth.dmarc}</li>
+            </ul>
+          ) : (
+            <p className="mb-4 text-sm text-slate-500">Loading email configuration…</p>
+          )}
+          {emailStatus?.notes?.length ? (
+            <p className="mb-4 text-xs text-amber-300">{emailStatus.notes[0]}</p>
+          ) : null}
+          <form
+            className="flex flex-col gap-3 sm:flex-row"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setTestBusy(true);
+              setTestResult(null);
+              const result = await apiRequest<{ message: string; transactionId?: string }>('/api/email/test', {
+                method: 'POST',
+                body: JSON.stringify({ to: testTo }),
+              });
+              setTestBusy(false);
+              if (!result.ok) {
+                setTestResult(result.message);
+                return;
+              }
+              setTestResult(
+                `${result.data.message}${result.data.transactionId ? ` Transaction ID: ${result.data.transactionId}` : ''}`
+              );
+            }}
+          >
+            <input
+              type="email"
+              required
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="work-email@careyu.ai"
+              className="flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100"
+            />
+            <button
+              type="submit"
+              disabled={testBusy}
+              className="rounded-xl bg-cyan-600 px-4 py-2 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-80"
+            >
+              {testBusy ? 'Sending…' : 'Send Test Email'}
+            </button>
+          </form>
+          {testResult && <p className="mt-3 text-sm text-slate-300">{testResult}</p>}
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm">
         <div className="mb-2 flex items-center gap-2">
