@@ -6,10 +6,10 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
-import { LEAD_STATUS_LABELS } from '@/lib/format';
+import { LEAD_STATUS_LABELS, formatRelativeTime } from '@/lib/format';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
-  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType
+  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory
 } from '@/lib/types';
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, Send, Upload, Plus, X,
@@ -33,6 +33,12 @@ export default function LeadDetailPage() {
   const [teamAssignments, setTeamAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [forwardUserId, setForwardUserId] = useState('');
+  const [forwardReason, setForwardReason] = useState('');
 
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
@@ -89,6 +95,7 @@ export default function LeadDetailPage() {
       setResubmitTechInput(payload.lead.technical_specifications || '');
       setAllTeams(payload.teams?.length ? payload.teams : StorageService.getTeams());
       setAllUsers(payload.users?.length ? payload.users : StorageService.getUsers());
+      setAssignmentHistory(payload.assignmentHistory || []);
       return;
     }
     setAllTeams(StorageService.getTeams());
@@ -124,22 +131,49 @@ export default function LeadDetailPage() {
     ? StorageService.getFeasibilityAllocationsByLeadId(leadId).find(al => al.employee_id === currentUser.id)
     : null;
 
-  // ---- PM actions ----
-  const handlePMAcceptForFeasibility = () => {
-    StorageService.updateLead(lead.id, { status: 'ACCEPTED_FOR_FEASIBILITY', accepted_at: new Date().toISOString() }, currentUser.id, currentUser.name);
-    StorageService.addLeadComment({ lead_id: lead.id, author_id: currentUser.id, author_name: currentUser.name, author_role: currentUser.role_name, comment: 'Accepted for Feasibility. Information completeness verified.', comment_type: 'PM Review' });
-    StorageService.sendNotification({ recipient_id: lead.created_by_id, type: 'LEAD_ACCEPTED_FOR_FEASIBILITY', title: `Lead ${lead.lead_number} Accepted for Feasibility!`, message: `PM Arivan accepted "${lead.title}" for Feasibility study.`, entity_type: 'LEAD', entity_id: lead.id });
-    StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'LEAD', entity_id: lead.id, action: 'LEAD_ACCEPTED_FOR_FEASIBILITY', description: `PM Arivan accepted Lead ${lead.lead_number} for Feasibility.` });
-    loadData();
+  const isResponsible =
+    lead.responsible_user_id === currentUser.id ||
+    currentUser.role_code === 'SYSTEM_ADMIN' ||
+    (!lead.responsible_user_id && isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status));
+  const canAccept = isResponsible && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status);
+  const canForward = isResponsible && !['DRAFT', 'ORDER_CONVERTED', 'LOST'].includes(lead.status);
+
+  // ---- PM / current owner actions ----
+  const handlePMAcceptForFeasibility = async () => {
+    setActionError(null);
+    setActionBusy(true);
+    const result = await LeadApi.accept(lead.id);
+    setActionBusy(false);
+    if (result && 'lead' in result) {
+      await loadData();
+      return;
+    }
+    setActionError((result && 'message' in result && result.message) || 'Unable to accept this lead.');
   };
 
-  const handlePMReturnToSales = () => {
+  const handleForwardLead = async () => {
+    if (!forwardUserId) return;
+    setActionError(null);
+    setActionBusy(true);
+    const result = await LeadApi.forward(lead.id, { responsible_user_id: forwardUserId, reason: forwardReason });
+    setActionBusy(false);
+    if (result && 'lead' in result) {
+      setShowForwardModal(false);
+      setForwardUserId('');
+      setForwardReason('');
+      await loadData();
+      return;
+    }
+    setActionError((result && 'message' in result && result.message) || 'Unable to forward this lead.');
+  };
+
+  const handlePMReturnToSales = async () => {
     if (!pmReturnReason.trim()) return;
-    StorageService.updateLead(lead.id, { status: 'RETURNED_TO_SALES', pm_return_reason: pmReturnReason }, currentUser.id, currentUser.name);
-    StorageService.addLeadComment({ lead_id: lead.id, author_id: currentUser.id, author_name: currentUser.name, author_role: currentUser.role_name, comment: pmReturnReason, comment_type: 'Information Request' });
-    StorageService.sendNotification({ recipient_id: lead.created_by_id, type: 'LEAD_RETURNED_TO_SALES', title: `Lead ${lead.lead_number} Returned by PM`, message: `PM Arivan requested: "${pmReturnReason}"`, entity_type: 'LEAD', entity_id: lead.id });
-    StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'LEAD', entity_id: lead.id, action: 'LEAD_RETURNED_TO_SALES', description: `PM returned Lead ${lead.lead_number}: "${pmReturnReason}"` });
-    setShowReturnModal(false); setPmReturnReason(''); loadData();
+    setActionError(null);
+    await LeadApi.pmReview(lead.id, { action: 'return', reason: pmReturnReason });
+    setShowReturnModal(false);
+    setPmReturnReason('');
+    loadData();
   };
 
   const handleSalesResubmit = async () => {
@@ -350,6 +384,42 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
+      {actionError && (
+        <div className="rounded-xl border border-rose-800 bg-rose-950/40 px-4 py-3 text-xs text-rose-200">{actionError}</div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-cyan-800/70 bg-cyan-950/20 p-4 lg:col-span-2">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Current Owner</div>
+          <div className="mt-1 text-lg font-bold text-slate-100">{lead.responsible_user_name || 'Not assigned'}</div>
+          <div className="mt-1 text-xs text-slate-400">
+            {lead.responsible_role_code ? lead.responsible_role_code.replace(/_/g, ' ') : 'Awaiting assignment'}
+            {lead.pending_action !== false && lead.responsible_user_id ? ' · Action Required' : ''}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
+            <div>Assigned<br/><span className="font-medium text-slate-200">{lead.assigned_at ? formatRelativeTime(lead.assigned_at) : '—'}</span></div>
+            <div>Accepted<br/><span className="font-medium text-slate-200">{lead.accepted_at ? formatRelativeTime(lead.accepted_at) : '—'}</span></div>
+            <div>Forwarded<br/><span className="font-medium text-slate-200">{lead.forwarded_at ? formatRelativeTime(lead.forwarded_at) : '—'}</span></div>
+            <div>Reminders<br/><span className="font-medium text-slate-200">{lead.reminder_count || 0}</span></div>
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Created By</div>
+          <div className="mt-1 font-semibold text-slate-100">{lead.created_by}</div>
+          <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Stage</div>
+          <div className="mt-1 font-semibold text-slate-100">{LEAD_STATUS_LABELS[lead.status] || lead.status}</div>
+          {canForward && (
+            <button
+              type="button"
+              onClick={() => setShowForwardModal(true)}
+              className="mt-4 w-full rounded-lg border border-cyan-700 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-950"
+            >
+              Forward / Assign
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Accepted-for-feasibility banner — PM action prompt */}
       {lead.status === 'ACCEPTED_FOR_FEASIBILITY' && isPM && (
         <div className="p-4 bg-emerald-950/40 border border-emerald-800/80 rounded-xl flex items-center justify-between gap-3">
@@ -425,6 +495,39 @@ export default function LeadDetailPage() {
                   <p className="text-slate-400 whitespace-pre-wrap mt-1">{lead.additional_notes}</p>
                 </div>
               )}
+              {(lead.custom_fields || []).filter((field) => field.name || field.value).length > 0 && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+                  <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Additional Fields</span>
+                  {(lead.custom_fields || []).map((field) => (
+                    <div key={field.id} className="flex justify-between gap-3 text-slate-300">
+                      <span className="text-slate-400">{field.name || 'Untitled field'}</span>
+                      <span className="font-medium text-slate-200">{field.value || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(lead.competitor_information || lead.customer_challenge || lead.required_solution) && (
+                <div className="pt-2 border-t border-slate-800/80 grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {lead.required_solution && (
+                    <div>
+                      <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Required Solution</span>
+                      <p className="text-slate-300 mt-1">{lead.required_solution}</p>
+                    </div>
+                  )}
+                  {lead.customer_challenge && (
+                    <div>
+                      <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Customer Challenge</span>
+                      <p className="text-slate-300 mt-1">{lead.customer_challenge}</p>
+                    </div>
+                  )}
+                  {lead.competitor_information && (
+                    <div>
+                      <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Competitor Information</span>
+                      <p className="text-slate-300 mt-1">{lead.competitor_information}</p>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="pt-2 border-t border-slate-800/80">
                 <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Detailed Description</span>
                 <p className="text-slate-400 whitespace-pre-wrap mt-1 leading-relaxed">{lead.detailed_requirement}</p>
@@ -439,17 +542,31 @@ export default function LeadDetailPage() {
             </div>
           </div>
           <div className="space-y-5">
-            {isPM && (lead.status === 'SUBMITTED_TO_PM' || lead.status === 'UNDER_PM_REVIEW' || lead.status === 'RESUBMITTED_TO_PM') && (
+            {canAccept && (
               <div className="bg-blue-950/40 p-5 rounded-xl border border-blue-800/80 space-y-4">
                 <div className="font-bold text-blue-300 text-sm border-b border-blue-800/60 pb-2 flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-cyan-400" /> PM Decision Panel (Arivan)
+                  <CheckCircle2 className="w-4 h-4 text-cyan-400" /> Action Required
                 </div>
                 <div className="space-y-2 pt-1">
-                  <button onClick={handlePMAcceptForFeasibility} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg flex items-center justify-center gap-2" data-demo="accept-feasibility">
-                    <Check className="w-4 h-4" /> Accept for Feasibility
+                  <button
+                    onClick={() => void handlePMAcceptForFeasibility()}
+                    disabled={actionBusy}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg flex items-center justify-center gap-2 disabled:opacity-60"
+                    data-demo="accept-feasibility"
+                  >
+                    <Check className="w-4 h-4" /> Accept Lead
                   </button>
-                  <button onClick={() => setShowReturnModal(true)} className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg flex items-center justify-center gap-2">
-                    <RotateCcw className="w-4 h-4" /> Return to Sales
+                  {isPM && (
+                    <button onClick={() => setShowReturnModal(true)} className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg flex items-center justify-center gap-2">
+                      <RotateCcw className="w-4 h-4" /> Return to Sales
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowForwardModal(true)}
+                    className="w-full py-2.5 border border-cyan-700 text-cyan-300 font-bold rounded-lg"
+                  >
+                    Forward to next person
                   </button>
                 </div>
               </div>
@@ -690,7 +807,20 @@ export default function LeadDetailPage() {
                       <div className="text-[11px] text-slate-400">{d.category} • {d.file_size} • {d.uploaded_by}</div>
                     </div>
                   </div>
-                  <span className="text-[11px] text-slate-500 font-mono">{new Date(d.upload_date).toLocaleDateString()}</span>
+                  <div className="flex items-center gap-2">
+                    {d.file_url && (
+                      <a
+                        href={d.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        download={d.file_name}
+                        className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300"
+                      >
+                        View / Download
+                      </a>
+                    )}
+                    <span className="text-[11px] text-slate-500 font-mono">{new Date(d.upload_date).toLocaleDateString()}</span>
+                  </div>
                 </div>
               ))}
             </div>
@@ -734,7 +864,29 @@ export default function LeadDetailPage() {
 
       {/* === TAB: TIMELINE === */}
       {activeTab === 'timeline' && (
-        <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
+        <div className="space-y-4">
+          <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
+            <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Assignment History</h3>
+            {assignmentHistory.length === 0 ? (
+              <p className="text-xs text-slate-500">No responsibility transfers recorded yet.</p>
+            ) : (
+              <div className="space-y-3">
+                {assignmentHistory.map((item) => (
+                  <div key={item.id} className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                    <div className="font-semibold text-slate-200">
+                      {item.assigned_by_name} assigned to {item.new_responsible_user_name}
+                    </div>
+                    {item.previous_responsible_user_name && (
+                      <div className="text-[11px] text-slate-400 mt-0.5">Previous: {item.previous_responsible_user_name}</div>
+                    )}
+                    {item.reason && <div className="text-[11px] text-slate-500 italic mt-0.5">{item.reason}</div>}
+                    <div className="text-[11px] text-slate-500 font-mono mt-1">{new Date(item.assigned_at).toLocaleString()}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
           <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Status Transition History</h3>
           <div className="space-y-3">
             {history.map(h => (
@@ -747,6 +899,7 @@ export default function LeadDetailPage() {
               </div>
             ))}
           </div>
+        </div>
         </div>
       )}
 
@@ -784,6 +937,50 @@ export default function LeadDetailPage() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowReturnModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Cancel</button>
               <button onClick={handlePMReturnToSales} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded">Return to Sales</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showForwardModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-lg shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-slate-100 text-sm">Forward Lead</h3>
+              <button type="button" onClick={() => setShowForwardModal(false)}><X className="w-4 h-4 text-slate-400" /></button>
+            </div>
+            <p className="text-xs text-slate-400">The selected employee becomes the current responsible person and receives email plus in-app notification.</p>
+            <select
+              value={forwardUserId}
+              onChange={(e) => setForwardUserId(e.target.value)}
+              className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-sm text-slate-100"
+            >
+              <option value="">Select employee</option>
+              {allUsers
+                .filter((item) => item.id !== lead.responsible_user_id && item.status === 'ACTIVE')
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.role_name}
+                  </option>
+                ))}
+            </select>
+            <textarea
+              rows={3}
+              value={forwardReason}
+              onChange={(e) => setForwardReason(e.target.value)}
+              placeholder="Reason (optional)"
+              className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-100 text-sm"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowForwardModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Cancel</button>
+              <button
+                type="button"
+                disabled={!forwardUserId || actionBusy}
+                onClick={() => void handleForwardLead()}
+                className="px-4 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded disabled:opacity-60"
+              >
+                Forward
+              </button>
             </div>
           </div>
         </div>

@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { User } from '@/lib/types';
-import { StorageService } from '@/lib/storage';
 import { getDashboardPath } from '@/lib/auth';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 export default function RoleDashboardGate({
   expectedPath,
@@ -14,22 +14,28 @@ export default function RoleDashboardGate({
   children: (user: User) => React.ReactNode;
 }) {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useAuth();
+  const allowed = Boolean(user && getDashboardPath(user.role_code) === expectedPath);
 
   useEffect(() => {
-    const current = StorageService.getCurrentUser();
-    if (!current) {
+    if (loading) return;
+    if (!user) {
       router.replace('/login');
       return;
     }
-    const path = getDashboardPath(current.role_code);
-    if (path !== expectedPath) {
-      router.replace(path);
-      return;
+    if (!allowed) {
+      router.replace(getDashboardPath(user.role_code));
     }
-    setUser(current);
-  }, [expectedPath, router]);
+  }, [allowed, loading, router, user]);
 
-  if (!user) return null;
+  if (loading || !user) return null;
+  if (!allowed) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-300">
+        Access denied for this dashboard. Redirecting to your workspace...
+      </div>
+    );
+  }
+
   return <>{children(user)}</>;
 }

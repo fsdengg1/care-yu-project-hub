@@ -4,18 +4,23 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { User } from '@/lib/types';
 import { LeadApi, BusinessHeadDashboard } from '@/lib/leadApi';
+import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { formatInrCompact, LEAD_STATUS_LABELS } from '@/lib/format';
 import { Building2, Plus, Inbox, ArrowRight } from 'lucide-react';
+import { DailyUpdateSummary } from '@/lib/types';
+import PendingActionsCard from '@/components/work/PendingActionsCard';
 
 export default function SalesDashboard({ user }: { user: User }) {
   const isBH = user.role_code === 'BUSINESS_HEAD';
   const verticalName = isBH ? 'Business Head' : 'Sales';
   const [data, setData] = useState<BusinessHeadDashboard | null>(null);
+  const [work, setWork] = useState<DailyUpdateSummary | null>(null);
 
   useEffect(() => {
     void (async () => {
       const result = await LeadApi.businessHeadDashboard();
       setData(result);
+      setWork(await DailyUpdatesApi.summary());
     })();
   }, []);
 
@@ -40,6 +45,8 @@ export default function SalesDashboard({ user }: { user: User }) {
         </Link>
       </div>
 
+      <PendingActionsCard />
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
           <div className="text-xs font-medium text-slate-400">Pipeline Value</div>
@@ -59,6 +66,22 @@ export default function SalesDashboard({ user }: { user: User }) {
           <div className="mt-1 text-[11px] text-slate-500">Quotation / Negotiation</div>
         </div>
       </div>
+
+      {isBH && work && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {[
+            { label: 'Updates Today', value: work.submittedToday },
+            { label: 'Pending', value: work.pendingToday },
+            { label: 'Blocked', value: work.blocked },
+            { label: 'Projects requiring attention', value: work.projectsNeedingAttention },
+          ].map((card) => (
+            <Link key={card.label} href="/daily-updates" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 hover:border-cyan-800">
+              <div className="text-xs text-slate-400">{card.label}</div>
+              <div className="mt-2 text-2xl font-bold text-slate-100">{card.value}</div>
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <div className="mb-3 flex items-center justify-between border-b border-slate-800 pb-2">

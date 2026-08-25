@@ -6,19 +6,33 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "db:ensure": "tsx scripts/ensure-database.ts",
+    "db:migrate": "tsx scripts/migrate-to-postgres.ts",
+    "db:migrate:force": "tsx scripts/migrate-to-postgres.ts --force-local",
+    "test:permissions": "tsx scripts/verify-permissions.ts",
+    "test:notifications": "tsx scripts/verify-notifications.ts"
   },
   "dependencies": {
+    "@elasticemail/elasticemail-client": "^4.0.26",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^9.0.5",
+    "node-cron": "^4.2.1",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.20.5",
     "typescript": "^5"
   }

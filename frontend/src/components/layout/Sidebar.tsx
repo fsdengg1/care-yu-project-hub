@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { User } from '@/lib/types';
 import { filterNavForUser, isCeoViewOnly, CEO_NAV_CATEGORY_LABELS } from '@/lib/rbac';
+import CareyuLogo from '@/components/brand/CareyuLogo';
 import { 
   LayoutDashboard, 
   Building2, 
@@ -20,7 +21,8 @@ import {
   ShieldAlert, 
   History,
   Network,
-  Cpu,
+  MessageSquare,
+  Settings,
   ChevronRight
 } from 'lucide-react';
 
@@ -42,7 +44,9 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   UserCheck: <UserCheck className="w-4 h-4" />,
   ShieldAlert: <ShieldAlert className="w-4 h-4" />,
   History: <History className="w-4 h-4" />,
-  Network: <Network className="w-4 h-4" />
+  Network: <Network className="w-4 h-4" />,
+  MessageSquare: <MessageSquare className="w-4 h-4" />,
+  Settings: <Settings className="w-4 h-4" />
 };
 
 export default function Sidebar({ user }: SidebarProps) {
@@ -61,14 +65,8 @@ export default function Sidebar({ user }: SidebarProps) {
   return (
     <aside className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen sticky top-0">
       {/* Brand Header */}
-      <div className="p-4 border-b border-slate-800 flex items-center gap-3 bg-slate-950/50">
-        <div className="w-9 h-9 rounded-lg bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold shadow-inner">
-          <Cpu className="w-5 h-5 text-cyan-400" />
-        </div>
-        <div>
-          <div className="font-bold text-slate-100 text-sm tracking-wide leading-tight">Careyu Automation</div>
-          <div className="text-[11px] text-cyan-400 font-medium">Project Hub</div>
-        </div>
+      <div className="border-b border-slate-800 bg-slate-950/50 p-4">
+        <CareyuLogo />
       </div>
 
       {/* Role Badge Indicator */}
@@ -127,7 +125,7 @@ export default function Sidebar({ user }: SidebarProps) {
 
       {/* Footer Info */}
       <div className="p-3 border-t border-slate-800 bg-slate-950/60 text-center text-[10px] text-slate-500">
-        Careyu Enterprise Platform v1.0.0
+        Care Yu Automation · Project Hub
       </div>
     </aside>
   );

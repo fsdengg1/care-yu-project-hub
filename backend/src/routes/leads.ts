@@ -32,10 +32,22 @@ import {
   newId,
   notify,
   parseMoney,
+  removeDocument,
   saveLead,
   stageFromStatus,
   transitionLead,
 } from '../lib/leadWorkflow.js';
+import { notifyStageCompleted } from '../lib/stages.js';
+import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
+import { canAccessEntity } from '../lib/documents.js';
+import { notificationService } from '../lib/notificationService.js';
+import {
+  isCurrentResponsible,
+  markLeadActed,
+  NOT_RESPONSIBLE_MESSAGE,
+  resolveResponsibleUser,
+  transferLeadResponsibility,
+} from '../lib/responsibility.js';
 
 const router = Router();
 
@@ -49,6 +61,13 @@ function payloadFor(lead: Lead) {
   return {
     lead: hydrated,
     documents: store.getLeadDocuments().filter((item) => item.lead_id === hydrated.id),
+    additionalDocuments: store
+      .getEntityDocuments()
+      .filter((item) => item.entity_id === hydrated.id && (item.entity_type === 'ADDITIONAL_INPUT' || item.entity_type === 'LEAD'))
+      .map((item) => {
+        const { file_url: _ignored, ...rest } = item;
+        return rest;
+      }),
     comments: store.getLeadComments().filter((item) => item.lead_id === hydrated.id),
     activities: store.getLeadActivities().filter((item) => item.lead_id === hydrated.id),
     history: store.getLeadStatusHistory().filter((item) => item.lead_id === hydrated.id),
@@ -56,11 +75,65 @@ function payloadFor(lead: Lead) {
     allocations: store.getFeasibilityEmployeeAllocations().filter((item) => item.lead_id === hydrated.id),
     teams: store.getTeams().filter((team) => team.status === 'ACTIVE'),
     users: store.getUsers().filter((user) => user.status === 'ACTIVE'),
+    assignmentHistory: store
+      .getAssignmentHistory()
+      .filter((item) => item.entity_type === 'LEAD' && item.entity_id === hydrated.id),
   };
 }
 
-function forbidden(res: import('express').Response, message = 'Forbidden. This action is not permitted for your role.') {
+function forbidden(
+  res: import('express').Response,
+  message = 'Forbidden. This action is not permitted for your role.'
+) {
   return res.status(403).json({ message });
+}
+
+async function assignLeadToResponsible(
+  lead: Lead,
+  actor: User,
+  options: { explicitUserId?: string; reason?: string; notifyKind?: 'assignment' | 'forward' }
+) {
+  const responsible = resolveResponsibleUser({
+    explicitUserId: options.explicitUserId,
+    roleCode: 'PROJECT_MANAGER',
+    lead,
+    fallbackUserId: actor.reporting_manager_id,
+  });
+  if (!responsible) return lead;
+  const transferred = transferLeadResponsibility(lead, responsible, actor, options.reason);
+  const saved = saveLead({
+    ...transferred.lead,
+    pm_id: responsible.role_code === 'PROJECT_MANAGER' ? responsible.id : lead.pm_id,
+    pm_name: responsible.role_code === 'PROJECT_MANAGER' ? responsible.name : lead.pm_name,
+  });
+  try {
+    if (options.notifyKind === 'forward' && transferred.previous && transferred.previous.id !== responsible.id) {
+      await notificationService.notifyForward({
+        entityType: 'LEAD',
+        entityId: saved.id,
+        entityName: saved.title,
+        recipientUserId: responsible.id,
+        assignedByUserId: actor.id,
+        previousUserId: transferred.previous.id,
+        reason: options.reason,
+        eventKey: `LEAD_FORWARDED:${saved.id}:${responsible.id}:${saved.assigned_at}`,
+      });
+    } else {
+      await notificationService.notifyAssignment({
+        entityType: 'LEAD',
+        entityId: saved.id,
+        entityName: saved.title,
+        recipientUserId: responsible.id,
+        assignedByUserId: actor.id,
+        priority: saved.priority,
+        createdOn: saved.created_at,
+        eventKey: `LEAD_ASSIGNED:${saved.id}:${responsible.id}:${saved.assigned_at}`,
+      });
+    }
+  } catch (error) {
+    console.error('[leads] notification failed', error);
+  }
+  return saved;
 }
 
 function isPm(user: User) {
@@ -119,7 +192,7 @@ router.get('/:id', requireAuth, requirePermission('view:leads', 'create:lead', '
   return res.json(payloadFor(lead));
 });
 
-router.post('/', requireAuth, requirePermission('create:lead'), (req: AuthedRequest, res) => {
+router.post('/', requireAuth, requirePermission('create:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
   const body = req.body ?? {};
   const status: LeadStatus = body.status === 'SUBMITTED_TO_PM' ? 'SUBMITTED_TO_PM' : 'DRAFT';
@@ -185,9 +258,16 @@ router.post('/', requireAuth, requirePermission('create:lead'), (req: AuthedRequ
     commercial_remarks: body.commercial_remarks,
     additional_notes: body.additional_notes,
     required_documents: body.required_documents,
+    competitor_information: body.competitor_information,
+    customer_challenge: body.customer_challenge,
+    required_solution: body.required_solution,
+    project_description: body.project_description,
+    custom_fields: Array.isArray(body.custom_fields) ? body.custom_fields : [],
     created_at: now,
     updated_at: now,
     submitted_at: status === 'SUBMITTED_TO_PM' ? now : undefined,
+    submitted_by: status === 'SUBMITTED_TO_PM' ? user.name : undefined,
+    submitted_by_id: status === 'SUBMITTED_TO_PM' ? user.id : undefined,
   };
 
   leads.unshift(lead);
@@ -198,18 +278,15 @@ router.post('/', requireAuth, requirePermission('create:lead'), (req: AuthedRequ
     status === 'SUBMITTED_TO_PM' ? 'LEAD_SUBMITTED_TO_PM' : 'LEAD_CREATED',
     `${user.name} created lead ${lead.lead_number}`
   );
+  let created = lead;
   if (status === 'SUBMITTED_TO_PM') {
-    const pm = findPm();
-    notify({
-      recipient_id: pm?.id || '',
-      type: 'NEW_LEAD_TO_PM',
-      title: `New Lead Submitted: ${lead.lead_number}`,
-      message: `${user.name} submitted "${lead.title}" for ${lead.customer_name} for PM review.`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
+    created = await assignLeadToResponsible(lead, user, {
+      explicitUserId: body.responsible_user_id || body.pm_id,
+      reason: 'New lead submitted to Project Manager',
+      notifyKind: 'assignment',
     });
   }
-  return res.status(201).json(payloadFor(lead));
+  return res.status(201).json(payloadFor(created));
 });
 
 router.patch('/:id', requireAuth, requirePermission('edit:lead', 'create:lead'), (req: AuthedRequest, res) => {
@@ -238,32 +315,115 @@ router.patch('/:id', requireAuth, requirePermission('edit:lead', 'create:lead'),
   return res.json(payloadFor(updated));
 });
 
-router.post('/:id/submit', requireAuth, requirePermission('create:lead', 'edit:lead'), (req: AuthedRequest, res) => {
+router.post('/:id/submit', requireAuth, requirePermission('create:lead', 'edit:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  if (['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status)) {
+    return res.status(409).json({ message: 'This lead has already been submitted to the Project Manager.' });
+  }
   if (!canEditProjectInput(user, lead)) return forbidden(res);
   const next: LeadStatus = ['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)
     ? 'RESUBMITTED_TO_PM'
     : 'SUBMITTED_TO_PM';
   const updated = transitionLead(lead, next, user, 'Submitted to PM for review', {
     submitted_at: new Date().toISOString(),
+    submitted_by: user.name,
+    submitted_by_id: user.id,
     pm_return_reason: undefined,
   });
-  const pm = findPm();
-  notify({
-    recipient_id: pm?.id || '',
-    type: next === 'RESUBMITTED_TO_PM' ? 'LEAD_RESUBMITTED_TO_PM' : 'NEW_LEAD_TO_PM',
-    title: next === 'RESUBMITTED_TO_PM' ? `Lead resubmitted: ${lead.lead_number}` : `New Lead Submitted: ${lead.lead_number}`,
-    message: `${user.name} submitted "${lead.title}" for PM review.`,
-    entity_type: 'LEAD',
-    entity_id: lead.id,
+  const assigned = await assignLeadToResponsible(updated, user, {
+    explicitUserId: updated.pm_id,
+    reason: next === 'RESUBMITTED_TO_PM' ? 'Lead resubmitted to Project Manager' : 'Lead submitted to Project Manager',
+    notifyKind: 'assignment',
   });
-  audit(user, updated, next, `${user.name} submitted ${lead.lead_number} to PM.`);
+  audit(user, assigned, next, `${user.name} submitted ${lead.lead_number} to PM.`);
+  return res.json(payloadFor(assigned));
+});
+
+router.post('/:id/accept', requireAuth, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const lead = findLead(paramId(req));
+  if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  if (!isCurrentResponsible(user, lead) && !(user.role_code === 'SYSTEM_ADMIN')) {
+    const fallbackOwner = resolveResponsibleUser({ lead, roleCode: 'PROJECT_MANAGER' });
+    if (!lead.responsible_user_id && fallbackOwner?.id === user.id) {
+      // legacy leads without responsible_user_id
+    } else {
+      return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
+    }
+  }
+  if (!['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status)) {
+    return res.status(400).json({ message: 'This lead is not awaiting acceptance.' });
+  }
+  const now = new Date().toISOString();
+  const updated = transitionLead(
+    lead,
+    'ACCEPTED_FOR_FEASIBILITY',
+    user,
+    'Project Manager accepted the lead.',
+    markLeadActed(lead, {
+      accepted_at: now,
+      accepted_by_id: user.id,
+      accepted_by_name: user.name,
+      pm_id: lead.pm_id || user.id,
+      pm_name: lead.pm_name || user.name,
+    })
+  );
+  comment(updated, user, 'Accepted the lead.', 'PM Review');
+  audit(user, updated, 'LEAD_ACCEPTED', `${user.name} accepted the lead.`);
+  const history = store.getAssignmentHistory();
+  const latest = history.find((item) => item.entity_type === 'LEAD' && item.entity_id === lead.id);
+  if (latest && !latest.accepted_at) {
+    latest.accepted_at = now;
+    latest.accepted_by_id = user.id;
+    store.saveAssignmentHistory(history);
+  }
   return res.json(payloadFor(updated));
 });
 
-router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'assign:lead'), (req: AuthedRequest, res) => {
+router.post('/:id/forward', requireAuth, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const lead = findLead(paramId(req));
+  if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  if (!isCurrentResponsible(user, lead)) {
+    return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
+  }
+  const targetId = String(req.body?.responsible_user_id || req.body?.user_id || '').trim();
+  const target = store.findUserById(targetId);
+  if (!target || target.status !== 'ACTIVE') {
+    return res.status(400).json({ message: 'Select an active employee as the next responsible person.' });
+  }
+  if (target.id === lead.responsible_user_id) {
+    return res.status(409).json({ message: 'That employee is already the current responsible person.' });
+  }
+  const reason = String(req.body?.reason || '').trim() || undefined;
+  const transferred = transferLeadResponsibility(lead, target, user, reason);
+  const saved = saveLead(transferred.lead);
+  try {
+    await notificationService.notifyForward({
+      entityType: 'LEAD',
+      entityId: saved.id,
+      entityName: saved.title,
+      recipientUserId: target.id,
+      assignedByUserId: user.id,
+      previousUserId: transferred.previous?.id,
+      reason,
+      eventKey: `LEAD_FORWARDED:${saved.id}:${target.id}:${saved.assigned_at}`,
+    });
+  } catch (error) {
+    console.error('[leads] forward notification failed', error);
+  }
+  audit(
+    user,
+    saved,
+    'LEAD_FORWARDED',
+    `${user.name} forwarded ${saved.lead_number} to ${target.name}${reason ? `: ${reason}` : '.'}`
+  );
+  return res.json(payloadFor(saved));
+});
+
+router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'assign:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
   if (!isPm(user)) return forbidden(res);
   const lead = findLead(paramId(req));
@@ -275,19 +435,30 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   if (action === 'return') {
     const reason = String(req.body?.reason || '').trim();
     if (!reason) return res.status(400).json({ message: 'A return reason is required.' });
-    const updated = transitionLead(lead, 'RETURNED_TO_SALES', user, reason, {
+    const creator = store.findUserById(lead.created_by_id);
+    let updated = transitionLead(lead, 'RETURNED_TO_SALES', user, reason, {
       pm_return_reason: reason,
       pm_review_notes: req.body?.notes,
     });
+    if (creator) {
+      const transferred = transferLeadResponsibility(updated, creator, user, reason);
+      updated = saveLead({ ...transferred.lead, pending_action: true });
+      try {
+        await notificationService.notifyAssignment({
+          entityType: 'LEAD',
+          entityId: updated.id,
+          entityName: updated.title,
+          recipientUserId: creator.id,
+          assignedByUserId: user.id,
+          priority: updated.priority,
+          createdOn: updated.created_at,
+          eventKey: `LEAD_RETURNED:${updated.id}:${creator.id}:${updated.assigned_at}`,
+        });
+      } catch (error) {
+        console.error('[leads] return notification failed', error);
+      }
+    }
     comment(updated, user, reason, 'Information Request');
-    notify({
-      recipient_id: lead.created_by_id,
-      type: 'LEAD_RETURNED_TO_SALES',
-      title: `Lead ${lead.lead_number} returned by PM`,
-      message: `${user.name} requested: "${reason}"`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
-    });
     audit(user, updated, 'LEAD_RETURNED_TO_SALES', `${user.name} returned ${lead.lead_number}: ${reason}`);
     return res.json(payloadFor(updated));
   }
@@ -300,14 +471,22 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   try {
     const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
     comment(result.lead, user, req.body?.notes || 'Approved and assigned to team.', 'PM Review');
-    notify({
-      recipient_id: lead.created_by_id,
-      type: 'LEAD_ACCEPTED_FOR_FEASIBILITY',
-      title: `Lead ${lead.lead_number} approved for feasibility`,
-      message: `${user.name} assigned "${lead.title}" to ${result.lead.assigned_team_name}.`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
-    });
+    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
+      try {
+        await notificationService.notifyForward({
+          entityType: 'LEAD',
+          entityId: result.lead.id,
+          entityName: result.lead.title,
+          recipientUserId: result.lead.responsible_user_id,
+          assignedByUserId: user.id,
+          previousUserId: result.previousResponsibleUserId,
+          reason: req.body?.notes || `Assigned to ${result.lead.assigned_team_name}`,
+          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
+        });
+      } catch (error) {
+        console.error('[leads] assign notification failed', error);
+      }
+    }
     audit(
       user,
       result.lead,
@@ -321,7 +500,7 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   }
 });
 
-router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), (req: AuthedRequest, res) => {
+router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
   if (!isPm(user)) return forbidden(res);
   const lead = findLead(paramId(req));
@@ -336,6 +515,22 @@ router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), (req: 
       req.body?.team_lead_id,
       req.body?.notes || req.body?.pm_instructions
     );
+    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
+      try {
+        await notificationService.notifyForward({
+          entityType: 'LEAD',
+          entityId: result.lead.id,
+          entityName: result.lead.title,
+          recipientUserId: result.lead.responsible_user_id,
+          assignedByUserId: user.id,
+          previousUserId: result.previousResponsibleUserId,
+          reason: req.body?.notes || req.body?.pm_instructions,
+          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
+        });
+      } catch (error) {
+        console.error('[leads] assign notification failed', error);
+      }
+    }
     return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
   } catch (error) {
     const err = error as Error & { status?: number };
@@ -380,6 +575,15 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
       entity_id: lead.id,
     });
     audit(user, updated, 'FEASIBILITY_SUBMITTED', `${user.name} submitted feasibility for ${lead.lead_number}.`);
+    notifyStageCompleted({
+      actor: user,
+      stageName: 'Feasibility',
+      stageId: `stage-feasibility-${lead.id}`,
+      projectName: lead.title,
+      lead: updated,
+      nextUser: findPm(),
+      nextStage: 'Planning',
+    });
   } else {
     audit(user, updated, 'FEASIBILITY_SAVED', `${user.name} saved feasibility for ${lead.lead_number}.`);
   }
@@ -486,6 +690,15 @@ router.post('/:id/costing', requireAuth, requirePermission('create:costing', 'vi
       entity_id: lead.id,
     });
     audit(user, updated, 'COSTING_SUBMITTED', `${user.name} submitted costing for ${lead.lead_number}.`);
+    notifyStageCompleted({
+      actor: user,
+      stageName: 'Costing',
+      stageId: `stage-costing-${lead.id}`,
+      projectName: lead.title,
+      lead: updated,
+      nextUser: findPm(),
+      nextStage: 'Quotation',
+    });
   }
   return res.json(payloadFor(updated));
 });
@@ -622,6 +835,20 @@ router.post(
         entity_id: result.project.id,
       });
       audit(user, result.lead, 'ORDER_CONVERTED', `${user.name} converted ${lead.lead_number} to ${result.project.code}.`);
+      const nextUser =
+        user.role_code === 'PROJECT_MANAGER'
+          ? store.findUserById(result.project.team_lead_id || '') || findPm()
+          : store.findUserById(result.project.pm_id) || findPm();
+      notifyStageCompleted({
+        actor: user,
+        stageName: 'Conversion',
+        stageId: `stage-converted-${lead.id}`,
+        projectName: result.project.name,
+        lead: result.lead,
+        project: result.project,
+        nextUser,
+        nextStage: 'Execution',
+      });
       return res.json({ ...payloadFor(result.lead), project: result.project });
     }
     if (action === 'LOST') {
@@ -662,6 +889,20 @@ router.post('/:id/convert', requireAuth, requirePermission('convert:lead', 'crea
     entity_type: 'PROJECT',
     entity_id: result.project.id,
   });
+  const nextUser =
+    user.role_code === 'PROJECT_MANAGER'
+      ? store.findUserById(result.project.team_lead_id || '') || findPm()
+      : store.findUserById(result.project.pm_id) || findPm();
+  notifyStageCompleted({
+    actor: user,
+    stageName: 'Conversion',
+    stageId: `stage-converted-${lead.id}`,
+    projectName: result.project.name,
+    lead: result.lead,
+    project: result.project,
+    nextUser,
+    nextStage: 'Execution',
+  });
   return res.json({ ...payloadFor(result.lead), project: result.project });
 });
 
@@ -673,8 +914,52 @@ router.post(
     const user = req.user!;
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+    const fileName = String(req.body?.file_name || '');
+    const sizeBytes = req.body?.size_bytes != null ? Number(req.body.size_bytes) : undefined;
+    if (fileName && !isAllowedFileType(fileName)) {
+      return res.status(400).json({ message: fileTypeError() });
+    }
+    if (typeof sizeBytes === 'number' && !Number.isNaN(sizeBytes) && sizeBytes > MAX_FILE_SIZE) {
+      return res.status(400).json({ message: fileTypeError() });
+    }
     const doc = addDocument(lead, user, req.body ?? {});
     return res.status(201).json({ document: doc, ...payloadFor(lead) });
+  }
+);
+
+router.get(
+  '/:id/documents/:docId/file',
+  requireAuth,
+  requirePermission('view:leads', 'create:lead', 'create:feasibility', 'create:costing'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const lead = findLead(paramId(req));
+    if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+    if (!canAccessEntity(user, 'LEAD', lead.id) && !canOwnLead(user, lead)) {
+      return forbidden(res, 'You do not have permission to view this project.');
+    }
+    const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
+    const doc = store.getLeadDocuments().find((item) => item.id === docId && item.lead_id === lead.id);
+    if (!doc) return res.status(404).json({ message: 'Document not found.' });
+    return res.json({ document: doc });
+  }
+);
+
+router.delete(
+  '/:id/documents/:docId',
+  requireAuth,
+  requirePermission('create:lead', 'edit:lead'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const lead = findLead(paramId(req));
+    if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+    if (!canEditProjectInput(user, lead)) {
+      return forbidden(res, 'Documents can only be deleted before the lead is submitted.');
+    }
+    const docId = Array.isArray(req.params.docId) ? req.params.docId[0] : req.params.docId;
+    const removed = removeDocument(lead, user, docId);
+    if (!removed) return res.status(404).json({ message: 'Document not found.' });
+    return res.json({ document: removed, ...payloadFor(lead) });
   }
 );
 

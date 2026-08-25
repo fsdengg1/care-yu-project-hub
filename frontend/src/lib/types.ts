@@ -18,9 +18,33 @@ export interface User {
   team_lead_id?: string;
   team_lead_name?: string;
   reporting_manager_id?: string;
+  reporting_manager_name?: string;
   status: 'ACTIVE' | 'INACTIVE';
+  account_status?:
+    | 'INVITED'
+    | 'INVITATION_VERIFIED'
+    | 'PASSWORD_SETUP_REQUIRED'
+    | 'ACTIVE'
+    | 'DISABLED'
+    | 'INVITATION_EXPIRED';
+  has_password?: boolean;
+  email_verified?: boolean;
+  password_changed_at?: string;
+  password_created_at?: string;
+  notification_preferences?: NotificationPreferences;
   created_at: string;
   updated_at: string;
+}
+
+export type NotificationPreferenceCategory = 'assignment' | 'forward' | 'reminder' | 'approval';
+
+export interface NotificationPreferences {
+  email_enabled: boolean;
+  in_app_enabled: boolean;
+  assignment: boolean;
+  forward: boolean;
+  reminder: boolean;
+  approval: boolean;
 }
 
 export interface Role {
@@ -48,7 +72,7 @@ export interface AuditLog {
   user_id: string;
   user_name: string;
   user_role: string;
-  entity_type: 'USER' | 'TEAM' | 'ROLE' | 'LEAD' | 'FEASIBILITY' | 'TASK' | 'SYSTEM' | 'AUTH' | 'PROJECT' | 'ESCALATION';
+  entity_type: 'USER' | 'TEAM' | 'ROLE' | 'LEAD' | 'FEASIBILITY' | 'TASK' | 'SYSTEM' | 'AUTH' | 'PROJECT' | 'ESCALATION' | 'DAILY_UPDATE' | 'CONVERSATION' | 'DOCUMENT' | 'ANNOUNCEMENT' | 'FORUM';
   entity_id: string;
   entity_name?: string;
   action: string;
@@ -57,6 +81,18 @@ export interface AuditLog {
   new_value?: string;
   created_at: string;
 }
+
+export type ChatMessageType =
+  | 'TEXT'
+  | 'LINK'
+  | 'IMAGE'
+  | 'DOCUMENT'
+  | 'PDF'
+  | 'EXCEL'
+  | 'WORD'
+  | 'POWERPOINT'
+  | 'NOTE'
+  | 'FILE';
 
 export interface NotificationItem {
   id: string;
@@ -87,15 +123,83 @@ export interface NotificationItem {
     | 'COSTING_SUBMITTED_TO_PM'
     | 'QUOTATION_READY'
     | 'LEAD_CONVERTED'
+    | 'DAILY_UPDATE_BLOCKED'
+    | 'DAILY_UPDATE_SUBMITTED'
+    | 'NO_RECENT_UPDATE'
     | 'CRITICAL_ESCALATION'
     | 'PROJECT_AT_RISK'
-    | 'PROJECT_COMPLETED';
+    | 'PROJECT_COMPLETED'
+    | 'CHAT_MESSAGE'
+    | 'DIRECT_MESSAGE'
+    | 'GROUP_MESSAGE'
+    | 'ANNOUNCEMENT'
+    | 'STAGE_COMPLETED'
+    | 'FORUM_POST'
+    | 'FORUM_REPLY'
+    | 'FORUM_MENTION'
+    | 'FORUM_REACTION'
+    | 'FORUM_PINNED'
+    | 'LEAD_ASSIGNED'
+    | 'LEAD_FORWARDED'
+    | 'LEAD_ACCEPTED'
+    | 'TASK_FORWARDED'
+    | 'ACTION_REQUIRED'
+    | 'DAILY_REMINDER'
+    | 'ESCALATION'
+    | 'APPROVAL_REQUIRED';
   title: string;
   message: string;
   entity_type: string;
   entity_id: string;
+  sender_id?: string;
+  message_type?: ChatMessageType;
+  message_id?: string;
+  action_url?: string;
+  priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  event_key?: string;
+  email_status?: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+  email_sent_at?: string;
+  acted_at?: string;
   read_status: boolean;
+  read_at?: string;
   created_at: string;
+}
+
+export type ResponsibilityEntityType = 'LEAD' | 'TASK' | 'PROJECT';
+
+export interface AssignmentHistory {
+  id: string;
+  entity_type: ResponsibilityEntityType;
+  entity_id: string;
+  previous_responsible_user_id?: string;
+  previous_responsible_user_name?: string;
+  new_responsible_user_id: string;
+  new_responsible_user_name: string;
+  assigned_by_id: string;
+  assigned_by_name: string;
+  assigned_at: string;
+  reason?: string;
+  accepted_at?: string;
+  accepted_by_id?: string;
+}
+
+export type EmailDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED';
+
+export interface NotificationDelivery {
+  id: string;
+  notification_id: string;
+  event_key: string;
+  recipient_user_id: string;
+  recipient_email: string;
+  subject: string;
+  email_type: string;
+  status: EmailDeliveryStatus;
+  transaction_id?: string;
+  sent_at?: string;
+  failure_reason?: string;
+  retry_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export type LeadStatus =
@@ -143,6 +247,12 @@ export type BusinessVertical = 'Business Head' | 'Engineering Director';
 
 export type PriorityLevel = 'Low' | 'Medium' | 'High' | 'Critical';
 
+export interface LeadCustomField {
+  id: string;
+  name: string;
+  value: string;
+}
+
 export interface LeadDocument {
   id: string;
   lead_id: string;
@@ -168,8 +278,11 @@ export interface LeadDocument {
     | 'Vendor Quotation'
     | 'Costing Support'
     | 'Negotiation Support'
+    | 'Additional Input'
     | 'Other';
   file_url?: string;
+  mime_type?: string;
+  upload_status?: 'UPLOADED' | 'FAILED';
 }
 
 export interface LeadActivity {
@@ -288,6 +401,13 @@ export interface Lead {
   pm_review_notes?: string;
   additional_notes?: string;
   required_documents?: string;
+  competitor_information?: string;
+  customer_challenge?: string;
+  required_solution?: string;
+  project_description?: string;
+  custom_fields?: LeadCustomField[];
+  submitted_by?: string;
+  submitted_by_id?: string;
 
   assigned_team_id?: string;
   assigned_team_name?: string;
@@ -311,6 +431,24 @@ export interface Lead {
   submitted_at?: string;
   reviewed_at?: string;
   accepted_at?: string;
+  accepted_by_id?: string;
+  accepted_by_name?: string;
+  responsible_user_id?: string;
+  responsible_user_name?: string;
+  responsible_role_code?: string;
+  assigned_by_id?: string;
+  assigned_by_name?: string;
+  assigned_at?: string;
+  forwarded_by_id?: string;
+  forwarded_by_name?: string;
+  forwarded_at?: string;
+  pending_action?: boolean;
+  last_action_at?: string;
+  reminder_count?: number;
+  last_reminder_at?: string;
+  next_reminder_at?: string;
+  escalated_at?: string;
+  escalated_to_user_id?: string;
 }
 
 export type WorkflowRecordStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED';
@@ -422,6 +560,8 @@ export interface LeadWorkflowPayload {
   users: User[];
   assignment?: FeasibilityTeamAssignment;
   project?: Project;
+  additionalDocuments?: EntityDocument[];
+  assignmentHistory?: AssignmentHistory[];
 }
 
 // ============================================================
@@ -573,9 +713,25 @@ export interface FeasibilitySuggestion {
  * Task — linked to Lead + FeasibilityTeamAssignment + EmployeeAllocation.
  * Feasibility tasks are never orphaned from a Lead.
  */
+export type GanttStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'BLOCKED' | 'COMPLETED' | 'DELAYED';
+
+export interface ProjectPhase {
+  id: string;
+  project_id: string;
+  name: string;
+  sort_order: number;
+  start_date?: string;
+  due_date?: string;
+  remarks?: string;
+  progress?: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Task {
   id: string;
   lead_id: string;
+  project_id?: string;
   feasibility_team_assignment_id?: string;
   employee_allocation_id?: string;
   title: string;
@@ -587,8 +743,103 @@ export interface Task {
   assigned_to_id: string;
   created_by: string;
   created_by_id: string;
+  progress_percent?: number;
+  last_update_at?: string;
+  blocked_reason?: string;
+  phase_id?: string;
+  parent_task_id?: string;
+  team_id?: string;
+  team_name?: string;
+  start_date?: string;
+  duration_days?: number;
+  depends_on_id?: string;
+  is_milestone?: boolean;
+  remarks?: string;
+  task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
+  assigned_by?: string;
+  assigned_by_id?: string;
+  comments?: TaskComment[];
+  responsible_user_id?: string;
+  responsible_user_name?: string;
+  pending_action?: boolean;
+  last_action_at?: string;
+  reminder_count?: number;
+  last_reminder_at?: string;
+  next_reminder_at?: string;
+  escalated_at?: string;
+  escalated_to_user_id?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface TaskComment {
+  id: string;
+  user_id: string;
+  user_name: string;
+  comment: string;
+  created_at: string;
+}
+
+export interface GanttTask extends Task {
+  phase_name?: string;
+  depends_on_title?: string;
+  parent_title?: string;
+  gantt_status: GanttStatus;
+  latest_update_id?: string;
+  latest_update_at?: string;
+  latest_blocker?: string;
+}
+
+export interface PlanningAssignee {
+  id: string;
+  name: string;
+  role_code: string;
+  role_name: string;
+  team_id?: string;
+  team_name?: string;
+}
+
+export type GanttProjectRole = 'PROJECT_MANAGER' | 'TEAM_LEAD' | 'BUSINESS_HEAD' | 'CEO' | 'CTO' | 'SYSTEM_ADMIN' | 'NONE';
+
+export interface PlanningProjectSummary {
+  id: string;
+  code: string;
+  name: string;
+  customer_name: string;
+  pm_id: string;
+  pm_name: string;
+  team_lead_id?: string;
+  team_lead_name?: string;
+  progress: number;
+  health: ProjectHealth;
+  status: ProjectStatus;
+  plan_initialized?: boolean;
+  start_date?: string;
+  target_completion?: string;
+  canManage: boolean;
+  canViewGantt: boolean;
+  canEditGantt: boolean;
+  canManageGantt: boolean;
+  projectRole: GanttProjectRole;
+  taskCount: number;
+  delayedCount: number;
+  blockedCount: number;
+  milestoneCount: number;
+}
+
+export interface PlanningPlanPayload {
+  project: Project;
+  canManage: boolean;
+  canViewGantt: boolean;
+  canEditGantt: boolean;
+  canManageGantt: boolean;
+  projectRole: GanttProjectRole;
+  phases: ProjectPhase[];
+  tasks: GanttTask[];
+  teams: Array<{ id: string; name: string; team_lead_id?: string; team_lead_name?: string }>;
+  assignees: PlanningAssignee[];
+  delayed: GanttTask[];
+  blocked: GanttTask[];
 }
 
 export interface DashboardMetrics {
@@ -607,6 +858,15 @@ export interface DashboardMetrics {
 export type ProjectHealth = 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
 export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
 
+export interface ProjectRemark {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_role: string;
+  comment: string;
+  created_at: string;
+}
+
 export interface Project {
   id: string;
   code: string;
@@ -614,12 +874,23 @@ export interface Project {
   customer_name: string;
   pm_id: string;
   pm_name: string;
+  team_lead_id?: string;
+  team_lead_name?: string;
   progress: number;
   health: ProjectHealth;
   status: ProjectStatus;
   issue?: string;
   lead_id?: string;
+  lead_number?: string;
   team_ids?: string[];
+  value?: number;
+  start_date?: string;
+  target_completion?: string;
+  current_phase?: string;
+  last_update_at?: string;
+  progress_locked_by_pm?: boolean;
+  plan_initialized?: boolean;
+  remarks?: ProjectRemark[];
   created_at: string;
   updated_at: string;
 }
@@ -728,4 +999,330 @@ export interface CeoDashboardPayload {
   criticalIssues: CriticalIssue[];
   escalations: Escalation[];
   recentActivity: AuditLog[];
+  dailyWork?: {
+    projectsWithRecentProgress: number;
+    projectsWithNoRecentUpdate: number;
+    blockedTasks: number;
+    majorBlockers: Array<{ project: string; customer: string; summary: string; href: string }>;
+    teamActivity: number;
+  };
+}
+
+export type DailyWorkStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'BLOCKED' | 'COMPLETED';
+export type DailyUpdateSubmissionStatus = 'DRAFT' | 'SUBMITTED';
+export type WorkAssignmentSource = 'TASK' | 'FEASIBILITY_ALLOCATION' | 'FEASIBILITY_ASSIGNMENT' | 'LEAD' | 'PROJECT';
+
+export interface DailyUpdateComment {
+  id: string;
+  user_id: string;
+  user_name: string;
+  comment: string;
+  created_at: string;
+}
+
+export interface DailyUpdate {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_role?: string;
+  team_id?: string;
+  team_name?: string;
+  assignment_id: string;
+  assignment_source: WorkAssignmentSource;
+  task_id?: string;
+  lead_id?: string;
+  lead_number?: string;
+  project_id?: string;
+  project_code?: string;
+  project_name: string;
+  customer_name: string;
+  task_title: string;
+  work_date: string;
+  work_completed: string;
+  progress_percent: number;
+  hours_worked: number;
+  work_status: DailyWorkStatus;
+  blocker?: string;
+  dependency?: string;
+  support_required?: string;
+  next_plan: string;
+  attachments: string[];
+  submission_status: DailyUpdateSubmissionStatus;
+  submitted_at?: string;
+  summary?: string;
+  pm_comments?: DailyUpdateComment[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkAssignment {
+  id: string;
+  source: WorkAssignmentSource;
+  task_id?: string;
+  lead_id?: string;
+  lead_number?: string;
+  project_id?: string;
+  project_code?: string;
+  project_name: string;
+  customer_name: string;
+  task_title: string;
+  workflow_stage: string;
+  due_date?: string;
+  priority: PriorityLevel;
+  current_status: string;
+  last_update_at?: string;
+  assigned_to_id: string;
+  assigned_to: string;
+  progress_percent: number;
+  blocked: boolean;
+  blocker?: string;
+  task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
+  start_date?: string;
+}
+
+export interface ProjectActivityItem {
+  id: string;
+  at: string;
+  kind: 'DAILY_UPDATE' | 'AUDIT' | 'ESCALATION' | 'ASSIGNMENT' | 'PM_COMMENT';
+  title: string;
+  detail: string;
+  actor?: string;
+  status?: string;
+  href?: string;
+}
+
+export interface ProjectTeamView {
+  id: string;
+  name: string;
+  team_lead_id?: string;
+  team_lead_name?: string;
+  members: Array<{ id: string; name: string; role_name: string; open_tasks: number }>;
+  workload: { total: number; open: number };
+}
+
+export interface ProjectDetailPayload {
+  project: Project;
+  lead: {
+    id: string;
+    lead_number: string;
+    title: string;
+    status: string;
+    pipeline_stage?: string;
+    expected_value?: number;
+  } | null;
+  canManage: boolean;
+  currentStatus: {
+    phase: string;
+    current_task: string;
+    current_owner: string;
+    current_blocker?: string;
+    last_update?: string;
+    next_milestone?: { name: string; date?: string; owner?: string; delayed?: boolean };
+  };
+  teams: ProjectTeamView[];
+  progress: number;
+  dailyWork: {
+    latestEmployee?: DailyUpdate;
+    latestTeamLead?: DailyUpdate;
+    latestPmRemark?: ProjectRemark;
+    recentBlockers: DailyUpdate[];
+    recentCompleted: DailyUpdate[];
+  };
+  delayedMilestones: Array<{ name: string; date?: string; owner?: string }>;
+  escalations: Escalation[];
+  activity: ProjectActivityItem[];
+}
+
+export interface DailyUpdateSummary {
+  submittedToday: number;
+  pendingToday: number;
+  blocked: number;
+  completed: number;
+  projectsNeedingAttention: number;
+  staleAssignments: number;
+  updatesToday: DailyUpdate[];
+  blockedUpdates: DailyUpdate[];
+  staleItems: WorkAssignment[];
+  pendingItems: WorkAssignment[];
+  projectsWithRecentProgress?: number;
+  projectsWithNoRecentUpdate?: number;
+  blockedTasks?: number;
+  majorBlockers?: Array<{ project: string; customer: string; summary: string; href: string }>;
+  teamActivity?: number;
+}
+
+export type ConversationType = 'DIRECT' | 'GROUP' | 'ANNOUNCEMENT';
+
+export interface Conversation {
+  id: string;
+  type: ConversationType;
+  name?: string;
+  description?: string;
+  pair_key?: string;
+  merged_into?: string;
+  deleted_at?: string;
+  created_by: string;
+  created_by_id: string;
+  project_id?: string;
+  audience?: 'ALL' | 'PROJECT' | 'TEAMS';
+  team_ids?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationParticipant {
+  id: string;
+  conversation_id: string;
+  user_id: string;
+  role: 'ADMIN' | 'MEMBER';
+  joined_at: string;
+  left_at?: string;
+  last_read_at?: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversation_id: string;
+  conversation_type?: ConversationType;
+  sender_id: string;
+  sender_name: string;
+  message: string;
+  message_type: ChatMessageType;
+  attachment_id?: string;
+  file_name?: string;
+  file_size?: string;
+  mime_type?: string;
+  link_url?: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+}
+
+export interface EntityDocument {
+  id: string;
+  file_name: string;
+  original_file_name: string;
+  file_type: string;
+  file_size: string;
+  file_url?: string;
+  mime_type?: string;
+  uploaded_by: string;
+  uploaded_by_id: string;
+  uploaded_at: string;
+  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
+  entity_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConversationSummary extends Conversation {
+  unread_count: number;
+  last_message?: string;
+  last_message_at?: string;
+  last_message_type?: ChatMessageType;
+  member_count?: number;
+  other_user_id?: string;
+  other_user_name?: string;
+  other_user_role?: string;
+  participant_names?: string[];
+}
+
+export type ForumCategory =
+  | 'GENERAL'
+  | 'ANNOUNCEMENT'
+  | 'PROJECT_DISCUSSION'
+  | 'TECHNICAL'
+  | 'SUPPORT'
+  | 'FEEDBACK'
+  | 'IDEAS'
+  | 'OTHER';
+
+export type ForumReactionKind = 'LIKE' | 'LOVE' | 'CHECK' | 'CLAP' | 'CELEBRATE';
+
+export type ForumThreadKind = 'DISCUSSION' | 'QUESTION' | 'IDEA';
+
+export interface ForumTag {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface ForumPost {
+  id: string;
+  title: string;
+  body: string;
+  body_text: string;
+  category: ForumCategory;
+  tags: string[];
+  thread_kind?: ForumThreadKind;
+  author_id: string;
+  author_name: string;
+  author_role: string;
+  pinned: boolean;
+  locked: boolean;
+  deleted_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForumComment {
+  id: string;
+  post_id: string;
+  parent_id?: string;
+  author_id: string;
+  author_name: string;
+  author_role: string;
+  body: string;
+  body_text: string;
+  deleted_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ForumReaction {
+  id: string;
+  target_type: 'POST' | 'COMMENT';
+  target_id: string;
+  user_id: string;
+  kind: ForumReactionKind;
+  created_at: string;
+}
+
+export interface ForumPostSummary extends ForumPost {
+  comment_count: number;
+  attachment_count: number;
+  attachment_types: string[];
+  reaction_counts: Partial<Record<ForumReactionKind, number>>;
+  my_reactions: ForumReactionKind[];
+  participant_count: number;
+  last_reply_at?: string;
+  last_reply_author?: string;
+  last_reply_preview?: string;
+}
+
+export interface ForumPostDetail extends ForumPostSummary {
+  attachments: EntityDocument[];
+}
+
+export interface ForumCommentView extends ForumComment {
+  attachments: EntityDocument[];
+  reaction_counts: Partial<Record<ForumReactionKind, number>>;
+  my_reactions: ForumReactionKind[];
+}
+
+export interface ForumLiveMessage {
+  id: string;
+  author_id: string;
+  author_name: string;
+  author_role: string;
+  body: string;
+  created_at: string;
+}
+
+export interface PresenceUser {
+  id: string;
+  name: string;
+  role_name: string;
+  team_name?: string;
+  last_seen_at: string;
 }

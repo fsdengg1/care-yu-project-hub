@@ -309,6 +309,39 @@ export default function CEODashboard({ user }: DashboardProps) {
         </div>
       </section>
 
+      <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-slate-200">Daily work visibility</h2>
+          <Link href="/daily-updates" className="inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-400 hover:underline">
+            Open <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          {[
+            { label: 'Projects with recent progress', value: data?.dailyWork?.projectsWithRecentProgress ?? 0 },
+            { label: 'No recent update', value: data?.dailyWork?.projectsWithNoRecentUpdate ?? 0 },
+            { label: 'Blocked tasks', value: data?.dailyWork?.blockedTasks ?? 0 },
+            { label: 'Team activity', value: data?.dailyWork?.teamActivity ?? 0 },
+            { label: 'Open escalations', value: data?.escalations.length ?? 0 },
+          ].map((card) => (
+            <div key={card.label} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">{card.label}</div>
+              <div className="mt-1 text-xl font-bold text-slate-100">{card.value}</div>
+            </div>
+          ))}
+        </div>
+        {(data?.dailyWork?.majorBlockers ?? []).length > 0 && (
+          <div className="mt-4 space-y-2">
+            {(data?.dailyWork?.majorBlockers ?? []).map((item, index) => (
+              <Link key={`${item.project}-${index}`} href={item.href} className="block rounded-lg border border-rose-900/40 bg-rose-950/20 p-3 hover:border-rose-700">
+                <div className="text-[11px] font-bold text-rose-300">{item.summary}</div>
+                <div className="text-xs text-slate-400">{item.customer} – {item.project}</div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="mb-4 flex items-center justify-between">

@@ -26,6 +26,7 @@ const STORAGE_KEYS = {
   NOTIFS: 'cya_notifs_v6',
   CURRENT_USER: 'cya_current_user_v6',
   AUTH_TOKEN: 'cya_auth_token_v6',
+  SETUP_TOKEN: 'cya_password_setup_token',
   LEADS: 'cya_leads_v6',
   LEAD_ACTIVITIES: 'cya_lead_activities_v6',
   LEAD_COMMENTS: 'cya_lead_comments_v6',
@@ -187,6 +188,7 @@ export class StorageService {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
     sessionStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
     this.clearAuthToken();
+    this.clearPasswordSetupToken();
   }
 
   static getAuthToken(): string | null {
@@ -209,6 +211,21 @@ export class StorageService {
     if (!this.isBrowser) return;
     localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
     sessionStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
+  }
+
+  static getPasswordSetupToken(): string | null {
+    if (!this.isBrowser) return null;
+    return sessionStorage.getItem(STORAGE_KEYS.SETUP_TOKEN);
+  }
+
+  static setPasswordSetupToken(token: string) {
+    if (!this.isBrowser) return;
+    sessionStorage.setItem(STORAGE_KEYS.SETUP_TOKEN, token);
+  }
+
+  static clearPasswordSetupToken() {
+    if (!this.isBrowser) return;
+    sessionStorage.removeItem(STORAGE_KEYS.SETUP_TOKEN);
   }
 
   // ============================================================
@@ -402,6 +419,24 @@ export class StorageService {
     all.unshift(newDoc);
     localStorage.setItem(STORAGE_KEYS.LEAD_DOCUMENTS, JSON.stringify(all));
     return newDoc;
+  }
+
+  static replaceLeadDocuments(leadId: string, documents: LeadDocument[]) {
+    if (!this.isBrowser) return;
+    const stored = localStorage.getItem(STORAGE_KEYS.LEAD_DOCUMENTS);
+    const all: LeadDocument[] = stored ? JSON.parse(stored) : [];
+    const others = all.filter((item) => item.lead_id !== leadId);
+    localStorage.setItem(STORAGE_KEYS.LEAD_DOCUMENTS, JSON.stringify([...documents, ...others]));
+  }
+
+  static removeLeadDocument(leadId: string, documentId: string) {
+    if (!this.isBrowser) return;
+    const stored = localStorage.getItem(STORAGE_KEYS.LEAD_DOCUMENTS);
+    const all: LeadDocument[] = stored ? JSON.parse(stored) : [];
+    localStorage.setItem(
+      STORAGE_KEYS.LEAD_DOCUMENTS,
+      JSON.stringify(all.filter((item) => !(item.id === documentId && item.lead_id === leadId)))
+    );
   }
 
   // ============================================================

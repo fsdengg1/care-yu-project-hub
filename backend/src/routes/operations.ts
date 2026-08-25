@@ -2,49 +2,14 @@ import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
 import { store } from '../store/db.js';
-import { DailyUpdate, Task } from '../types.js';
+import { createWorkTask } from '../lib/workTasks.js';
 
 const router = Router();
 
 router.post('/tasks', requireAuth, requirePermission('create:task'), (req: AuthedRequest, res) => {
-  const user = req.user!;
-  const now = new Date().toISOString();
-  const task: Task = {
-    id: `task-${Date.now()}`,
-    lead_id: req.body?.lead_id || '',
-    title: req.body?.title || 'Untitled task',
-    description: req.body?.description,
-    status: 'TODO',
-    priority: req.body?.priority || 'Medium',
-    due_date: req.body?.due_date,
-    assigned_to: req.body?.assigned_to || user.name,
-    assigned_to_id: req.body?.assigned_to_id || user.id,
-    created_by: user.name,
-    created_by_id: user.id,
-    created_at: now,
-    updated_at: now,
-  };
-  const tasks = store.getTasks();
-  tasks.unshift(task);
-  store.saveTasks(tasks);
-  return res.status(201).json({ task });
-});
-
-router.post('/daily-updates', requireAuth, requirePermission('submit:daily-update'), (req: AuthedRequest, res) => {
-  const user = req.user!;
-  const update: DailyUpdate = {
-    id: `upd-${Date.now()}`,
-    user_id: user.id,
-    user_name: user.name,
-    task_id: req.body?.task_id,
-    project_id: req.body?.project_id,
-    summary: req.body?.summary || '',
-    created_at: new Date().toISOString(),
-  };
-  const updates = store.getDailyUpdates();
-  updates.unshift(update);
-  store.saveDailyUpdates(updates);
-  return res.status(201).json({ update });
+  const result = createWorkTask(req.user!, req.body || {});
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.status(201).json({ task: result.task });
 });
 
 router.post('/feasibility', requireAuth, requirePermission('create:feasibility'), (req: AuthedRequest, res) => {

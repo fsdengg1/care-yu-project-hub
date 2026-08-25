@@ -1,7 +1,8 @@
 import React from 'react';
+import '@/components/auth/auth.css';
 
 export const metadata = {
-  title: 'Sign In — Careyu Automation',
+  title: 'Authentication — CareYu Automation',
 };
 
 export default function AuthLayout({
@@ -9,9 +10,5 @@ export default function AuthLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <div className="min-h-screen bg-[#F4F7FB] text-slate-900 antialiased">
-      {children}
-    </div>
-  );
+  return <div className="auth-surface min-h-dvh antialiased">{children}</div>;
 }

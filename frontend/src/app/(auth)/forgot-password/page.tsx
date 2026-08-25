@@ -1,34 +1,81 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import Link from 'next/link';
-import CareyuLogo from '@/components/brand/CareyuLogo';
+import { CheckCircle2, Mail } from 'lucide-react';
+import AuthShell from '@/components/auth/AuthShell';
+import AuthField from '@/components/auth/AuthField';
+import AuthButton from '@/components/auth/AuthButton';
+import { forgotPasswordWithApi, isValidEmail } from '@/lib/auth';
 
 export default function ForgotPasswordPage() {
+  const [email, setEmail] = useState('');
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    if (!email.trim()) {
+      setFieldError('Work email is required.');
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setFieldError('Please enter a valid work email address.');
+      return;
+    }
+    setFieldError(null);
+    setLoading(true);
+    const result = await forgotPasswordWithApi(email);
+    setLoading(false);
+    if (!result.ok) {
+      setError(result.error || 'Unable to process your request. Please try again.');
+      return;
+    }
+    setSuccess(result.message);
+  };
+
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-10">
-      <div className="w-full max-w-[440px]">
-        <div className="mb-8">
-          <CareyuLogo />
+    <AuthShell
+      title="Forgot Your Password?"
+      subtitle="Enter your CareYu work email and we'll send you a secure reset link."
+      showFlow={false}
+      compact
+    >
+      {success && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{success}</span>
         </div>
-        <div className="rounded-2xl border border-slate-200/80 bg-white p-8 shadow-[0_12px_40px_rgba(15,36,68,0.08)]">
-          <h1 className="text-2xl font-semibold tracking-tight text-[#0B1F3A]">Forgot Password</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-500">
-            Password resets are handled by your system administrator. Contact Admin to restore access to
-            your Careyu Automation account.
-          </p>
-          <a
-            href="mailto:admin@careyu.com"
-            className="mt-6 flex w-full items-center justify-center rounded-xl bg-[#1D4ED8] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#1E40AF]"
-          >
-            Contact Admin
-          </a>
-          <Link
-            href="/login"
-            className="mt-4 block text-center text-sm font-medium text-[#1D4ED8] hover:text-[#1E40AF]"
-          >
-            Back to Sign In
-          </Link>
-        </div>
-      </div>
-    </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <AuthField
+          id="forgot-email"
+          label="Work Email"
+          icon={Mail}
+          type="email"
+          value={email}
+          placeholder="Enter your work email"
+          autoComplete="email"
+          error={fieldError || undefined}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setFieldError(null);
+          }}
+        />
+        {error && <p className="text-[13px] text-[color:var(--auth-error)]">{error}</p>}
+        <AuthButton loading={loading} loadingText="Sending Reset Link...">
+          Send Reset Link
+        </AuthButton>
+      </form>
+
+      <Link href="/login" className="auth-link mt-5 block text-center text-sm">
+        Back to Sign In
+      </Link>
+    </AuthShell>
   );
 }

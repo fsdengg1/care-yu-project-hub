@@ -3,11 +3,21 @@
 import React, { useEffect, useState } from 'react';
 import { User } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
+import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
+import { DailyUpdateSummary } from '@/lib/types';
 import { Users, Scan, ArrowRight, Clock, CheckCircle2 } from 'lucide-react';
 import Link from 'next/link';
+import PendingActionsCard from '@/components/work/PendingActionsCard';
 
 export default function TeamLeadDashboard({ user }: { user: User }) {
   const [assignments, setAssignments] = useState(StorageService.getFeasibilityTeamAssignmentsForTeamLead(user.id));
+  const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      setSummary(await DailyUpdatesApi.summary());
+    })();
+  }, []);
 
   const pendingReview = assignments.filter(a => a.status === 'PENDING_TEAM_LEAD_REVIEW');
   const inProgress = assignments.filter(a => a.status === 'IN_PROGRESS' || a.status === 'ALLOCATED_TO_TEAM_MEMBER');
@@ -22,6 +32,8 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
         <p className="text-slate-400 text-xs mt-0.5">Feasibility tasks assigned to your team. Open each Lead to review and allocate.</p>
       </div>
 
+      <PendingActionsCard />
+
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Pending Review', value: pendingReview.length, color: 'text-amber-400' },
@@ -33,6 +45,20 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
             <div className="text-slate-400">{m.label}</div>
             <div className={`text-2xl font-bold mt-2 ${m.color}`}>{m.value}</div>
           </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: 'Team updates today', value: summary?.submittedToday ?? 0 },
+          { label: 'Pending today', value: summary?.pendingToday ?? 0 },
+          { label: 'Blocked', value: summary?.blocked ?? 0 },
+          { label: 'No recent update', value: summary?.staleAssignments ?? 0 },
+        ].map((card) => (
+          <Link key={card.label} href="/daily-updates" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 hover:border-cyan-800">
+            <div className="text-slate-400">{card.label}</div>
+            <div className="mt-2 text-2xl font-bold text-slate-100">{card.value}</div>
+          </Link>
         ))}
       </div>
 

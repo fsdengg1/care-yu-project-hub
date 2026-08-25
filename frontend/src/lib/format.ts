@@ -38,6 +38,22 @@ export function formatClock(iso: string): string {
   return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
+export const WORK_STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: 'Not Started',
+  IN_PROGRESS: 'In Progress',
+  BLOCKED: 'Blocked',
+  COMPLETED: 'Completed',
+  TODO: 'Not Started',
+  DONE: 'Completed',
+};
+
+export function formatLongDate(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
+  if (Number.isNaN(+date)) return value;
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 export const PIPELINE_STAGE_LABELS: Record<string, string> = {
   PROJECT_INPUT: 'Project Input',
   PM_REVIEW: 'PM Review',

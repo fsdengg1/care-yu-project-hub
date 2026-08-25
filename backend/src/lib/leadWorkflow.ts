@@ -16,6 +16,7 @@ import {
   Team,
   User,
 } from '../types.js';
+import { findPm as resolveProjectManager, transferLeadResponsibility } from './responsibility.js';
 
 export function parseMoney(raw: unknown): number {
   const numeric = Number(String(raw ?? '').replace(/[₹,\s]/g, ''));
@@ -166,8 +167,8 @@ export function transitionLead(
   return updated;
 }
 
-export function findPm(): User | undefined {
-  return store.getUsers().find((user) => user.role_code === 'PROJECT_MANAGER' && user.status === 'ACTIVE');
+export function findPm(lead?: Lead): User | undefined {
+  return resolveProjectManager(lead);
 }
 
 export function isProcurementTeam(team: Team): boolean {
@@ -183,6 +184,7 @@ export function isProcurementUser(user: User): boolean {
 
 export function canOwnLead(user: User, lead: Lead): boolean {
   if (['SYSTEM_ADMIN', 'PROJECT_MANAGER', 'CEO', 'CTO'].includes(user.role_code)) return true;
+  if (lead.responsible_user_id === user.id) return true;
   if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
   if (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
@@ -283,7 +285,7 @@ export function assignTeamToLead(
   teamId: string,
   teamLeadId?: string,
   notes?: string
-): { lead: Lead; assignment: FeasibilityTeamAssignment } {
+): { lead: Lead; assignment: FeasibilityTeamAssignment; previousResponsibleUserId?: string } {
   const team = store.getTeams().find((item) => item.id === teamId && item.status === 'ACTIVE');
   if (!team) {
     throw Object.assign(new Error('Selected team was not found in Organization Management.'), { status: 400 });
@@ -319,7 +321,7 @@ export function assignTeamToLead(
   assignments.unshift(assignment);
   store.saveFeasibilityTeamAssignments(assignments);
 
-  const updated = transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Assigned to functional team', {
+  const updatedBase = transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Assigned to functional team', {
     assigned_team_id: team.id,
     assigned_team_name: team.name,
     assigned_team_lead_id: assignedLead?.id,
@@ -328,21 +330,23 @@ export function assignTeamToLead(
     pm_name: user.role_code === 'PROJECT_MANAGER' ? user.name : lead.pm_name || findPm()?.name,
     pm_review_notes: notes || lead.pm_review_notes,
     reviewed_at: new Date().toISOString(),
-    accepted_at: new Date().toISOString(),
+    accepted_at: lead.accepted_at || new Date().toISOString(),
   });
 
+  let updated = updatedBase;
+  let previousId = updatedBase.responsible_user_id;
   if (assignedLead?.id) {
-    notify({
-      recipient_id: assignedLead.id,
-      type: 'FEASIBILITY_ASSIGNED_TO_TEAM_LEAD',
-      title: `Feasibility assigned: ${lead.lead_number}`,
-      message: `${user.name} assigned "${lead.title}" (${lead.customer_name}) to ${team.name}.`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
-    });
+    const transferred = transferLeadResponsibility(
+      updatedBase,
+      assignedLead,
+      user,
+      notes || `Assigned to ${team.name}`
+    );
+    updated = saveLead(transferred.lead);
+    previousId = transferred.previous?.id;
   }
 
-  return { lead: updated, assignment };
+  return { lead: updated, assignment, previousResponsibleUserId: previousId };
 }
 
 export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; project: Project } {
@@ -360,11 +364,16 @@ export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; proj
         pm_id: lead.pm_id || existing.pm_id || pm?.id || user.id,
         pm_name: lead.pm_name || existing.pm_name || pm?.name || user.name,
         status: existing.status === 'CANCELLED' ? 'ACTIVE' : existing.status,
+        value: existing.value ?? quotationValue,
+        start_date: existing.start_date || existing.created_at.slice(0, 10),
+        current_phase: existing.current_phase || 'EXECUTION',
         team_ids: existing.team_ids?.length
           ? existing.team_ids
           : lead.assigned_team_id
             ? [lead.assigned_team_id]
             : existing.team_ids,
+        team_lead_id: existing.team_lead_id || lead.assigned_team_lead_id,
+        team_lead_name: existing.team_lead_name || lead.assigned_team_lead_name,
         updated_at: now,
       }
     : {
@@ -379,6 +388,13 @@ export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; proj
         status: 'ACTIVE',
         lead_id: lead.id,
         team_ids: lead.assigned_team_id ? [lead.assigned_team_id] : [],
+        team_lead_id: lead.assigned_team_lead_id,
+        team_lead_name: lead.assigned_team_lead_name,
+        value: quotationValue,
+        start_date: now.slice(0, 10),
+        target_completion: new Date(Date.now() + 90 * 24 * 3600000).toISOString().slice(0, 10),
+        current_phase: 'EXECUTION',
+        last_update_at: now,
         created_at: now,
         updated_at: now,
       };
@@ -447,6 +463,13 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
   }
 
   for (const lead of leads) {
+    if (lead.responsible_user_id === user.id && lead.pending_action !== false && !['DRAFT', 'ORDER_CONVERTED', 'LOST', 'ON_HOLD'].includes(lead.status)) {
+      const already = items.some((item) => item.lead_id === lead.id);
+      if (!already) {
+        items.push(workItem(lead, 'PM_REVIEW', `Action required: ${lead.status.replace(/_/g, ' ').toLowerCase()}.`));
+      }
+    }
+
     if (!canOwnLead(user, lead) && user.role_code !== 'PROJECT_MANAGER' && user.role_code !== 'SYSTEM_ADMIN') {
       const assigned =
         lead.assigned_team_lead_id === user.id ||
@@ -558,8 +581,12 @@ export function buildBusinessHeadDashboard(user: User) {
   };
 }
 
-export function addDocument(lead: Lead, user: User, body: Partial<LeadDocument>): LeadDocument {
+export function addDocument(lead: Lead, user: User, body: Partial<LeadDocument> & { file_data?: string; mime_type?: string }): LeadDocument {
   const docs = store.getLeadDocuments();
+  const existing = docs.find(
+    (item) => item.lead_id === lead.id && item.file_name.toLowerCase() === String(body.file_name || '').toLowerCase()
+  );
+  if (existing) return existing;
   const doc: LeadDocument = {
     id: newId('doc'),
     lead_id: lead.id,
@@ -570,7 +597,9 @@ export function addDocument(lead: Lead, user: User, body: Partial<LeadDocument>)
     uploaded_by_id: user.id,
     upload_date: new Date().toISOString(),
     category: (body.category as LeadDocument['category']) || 'Other',
-    file_url: body.file_url,
+    file_url: body.file_url || body.file_data,
+    mime_type: body.mime_type,
+    upload_status: 'UPLOADED',
   };
   docs.unshift(doc);
   store.saveLeadDocuments(docs);
@@ -584,6 +613,17 @@ export function addDocument(lead: Lead, user: User, body: Partial<LeadDocument>)
     entity_id: lead.id,
   });
   return doc;
+}
+
+export function removeDocument(lead: Lead, user: User, documentId: string) {
+  const docs = store.getLeadDocuments();
+  const index = docs.findIndex((item) => item.id === documentId && item.lead_id === lead.id);
+  if (index === -1) return null;
+  const removed = docs[index];
+  docs.splice(index, 1);
+  store.saveLeadDocuments(docs);
+  audit(user, lead, 'DOCUMENT_REMOVED', `${user.name} removed ${removed.file_name} from ${lead.lead_number}.`);
+  return removed;
 }
 
 export function appendNegotiation(lead: Lead, user: User, body: Partial<NegotiationEntry>): Lead {

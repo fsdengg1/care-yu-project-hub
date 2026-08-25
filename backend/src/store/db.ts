@@ -2,19 +2,33 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   AuditLog,
+  AssignmentHistory,
+  ChatMessage,
+  Conversation,
+  ConversationParticipant,
   DailyUpdate,
+  EntityDocument,
   Escalation,
   FeasibilityEmployeeAllocation,
   FeasibilityTeamAssignment,
+  ForumComment,
+  ForumLiveMessage,
+  ForumPost,
+  ForumReaction,
+  ForumTag,
   Lead,
   LeadActivity,
   LeadComment,
   LeadDocument,
   LeadStatusHistory,
+  NotificationDelivery,
   NotificationItem,
+  OutboundEmail,
   ProcurementRequest,
   Project,
+  ProjectPhase,
   Role,
+  StageTransition,
   Task,
   Team,
   User,
@@ -32,6 +46,15 @@ import {
   INITIAL_TASKS,
   INITIAL_DAILY_UPDATES,
 } from '../data/seed.js';
+import {
+  COLLECTION_NAMES,
+  CollectionName,
+  closePool,
+  ensureSchema,
+  loadAllCollections,
+  pingDatabase,
+  saveAllCollections,
+} from './postgres.js';
 
 interface DbShape {
   users: User[];
@@ -51,10 +74,45 @@ interface DbShape {
   leadStatusHistory: LeadStatusHistory[];
   feasibilityTeamAssignments: FeasibilityTeamAssignment[];
   feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[];
+  projectPhases: ProjectPhase[];
+  conversations: Conversation[];
+  conversationParticipants: ConversationParticipant[];
+  chatMessages: ChatMessage[];
+  entityDocuments: EntityDocument[];
+  stageTransitions: StageTransition[];
+  outboundEmails: OutboundEmail[];
+  forumPosts: ForumPost[];
+  forumComments: ForumComment[];
+  forumReactions: ForumReaction[];
+  forumTags: ForumTag[];
+  forumLiveMessages: ForumLiveMessage[];
+  assignmentHistory: AssignmentHistory[];
+  notificationDeliveries: NotificationDelivery[];
 }
 
-const dataDir = path.join(process.cwd(), 'data');
-const dbPath = path.join(dataDir, 'db.json');
+const localDbPath = path.join(process.cwd(), 'data', 'db.json');
+
+let cache: DbShape | null = null;
+let writeChain: Promise<void> = Promise.resolve();
+let initialized = false;
+
+function mergeProjects(stored: Project[] | undefined, seed: Project[]): Project[] {
+  return mergeById(stored, seed).map((project) => {
+    const fromSeed = seed.find((item) => item.id === project.id);
+    if (!fromSeed) return project;
+    return {
+      ...project,
+      value: project.value ?? fromSeed.value,
+      start_date: project.start_date || fromSeed.start_date,
+      target_completion: project.target_completion || fromSeed.target_completion,
+      current_phase: project.current_phase || fromSeed.current_phase,
+      lead_id: project.lead_id || fromSeed.lead_id,
+      team_ids: project.team_ids?.length ? project.team_ids : fromSeed.team_ids,
+      team_lead_id: project.team_lead_id || fromSeed.team_lead_id,
+      team_lead_name: project.team_lead_name || fromSeed.team_lead_name,
+    };
+  });
+}
 
 function mergeById<T extends { id: string }>(stored: T[] | undefined, seed: T[]): T[] {
   const current = stored ?? [];
@@ -66,8 +124,18 @@ function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
   const leadership = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm']);
   return mergeById(stored, seed).map((user) => {
     const fromSeed = seed.find((item) => item.id === user.id);
-    if (!fromSeed || !leadership.has(user.id)) return user;
-    return { ...user, name: fromSeed.name, role_name: fromSeed.role_name, role_code: fromSeed.role_code };
+    const withVerified: User = {
+      ...user,
+      // Existing/seeded accounts are treated as verified unless explicitly pending signup verification.
+      email_verified: user.email_verified ?? true,
+    };
+    if (!fromSeed || !leadership.has(user.id)) return withVerified;
+    return {
+      ...withVerified,
+      name: fromSeed.name,
+      role_name: fromSeed.role_name,
+      role_code: fromSeed.role_code,
+    };
   });
 }
 
@@ -148,39 +216,65 @@ function refreshTeamCounts(db: DbShape): DbShape {
   return db;
 }
 
-function loadDb(): DbShape {
-  if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-  if (!fs.existsSync(dbPath)) {
-    const initial = refreshTeamCounts({
-      users: INITIAL_USERS,
-      roles: INITIAL_ROLES,
-      teams: INITIAL_TEAMS,
-      leads: INITIAL_LEADS,
-      projects: INITIAL_PROJECTS,
-      escalations: INITIAL_ESCALATIONS,
-      procurementRequests: INITIAL_PROCUREMENT_REQUESTS,
-      audits: INITIAL_AUDITS,
-      notifications: INITIAL_NOTIFICATIONS,
-      tasks: INITIAL_TASKS,
-      dailyUpdates: INITIAL_DAILY_UPDATES,
-      leadDocuments: [],
-      leadComments: [],
-      leadActivities: [],
-      leadStatusHistory: [],
-      feasibilityTeamAssignments: [],
-      feasibilityEmployeeAllocations: [],
-    });
-    fs.writeFileSync(dbPath, JSON.stringify(initial, null, 2));
-    return initial;
-  }
+function emptyDb(): DbShape {
+  return {
+    users: [],
+    roles: [],
+    teams: [],
+    leads: [],
+    projects: [],
+    escalations: [],
+    procurementRequests: [],
+    audits: [],
+    notifications: [],
+    tasks: [],
+    dailyUpdates: [],
+    leadDocuments: [],
+    leadComments: [],
+    leadActivities: [],
+    leadStatusHistory: [],
+    feasibilityTeamAssignments: [],
+    feasibilityEmployeeAllocations: [],
+    projectPhases: [],
+    conversations: [],
+    conversationParticipants: [],
+    chatMessages: [],
+    entityDocuments: [],
+    stageTransitions: [],
+    outboundEmails: [],
+    forumPosts: [],
+    forumComments: [],
+    forumReactions: [],
+    forumTags: [],
+    forumLiveMessages: [],
+    assignmentHistory: [],
+    notificationDeliveries: [],
+  };
+}
 
-  const parsed = JSON.parse(fs.readFileSync(dbPath, 'utf8')) as Partial<DbShape>;
-  const merged = refreshTeamCounts({
+function readLocalDbFile(): Partial<DbShape> | null {
+  if (!fs.existsSync(localDbPath)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(localDbPath, 'utf8')) as Partial<DbShape>;
+  } catch {
+    return null;
+  }
+}
+
+function collectionsHaveData(parsed: Partial<DbShape> | Record<CollectionName, unknown[]>): boolean {
+  return COLLECTION_NAMES.some((name) => {
+    const value = (parsed as Record<string, unknown[]>)[name];
+    return Array.isArray(value) && value.length > 0;
+  });
+}
+
+function buildMergedDb(parsed: Partial<DbShape>): DbShape {
+  return refreshTeamCounts({
     users: mergeUsers(parsed.users, INITIAL_USERS),
     roles: mergeRoles(parsed.roles, INITIAL_ROLES),
     teams: mergeTeams(parsed.teams, INITIAL_TEAMS),
     leads: mergeLeads(parsed.leads, INITIAL_LEADS),
-    projects: mergeById(parsed.projects, INITIAL_PROJECTS),
+    projects: mergeProjects(parsed.projects, INITIAL_PROJECTS),
     escalations: mergeById(parsed.escalations, INITIAL_ESCALATIONS),
     procurementRequests: mergeById(parsed.procurementRequests, INITIAL_PROCUREMENT_REQUESTS),
     audits: mergeAudits(parsed.audits, INITIAL_AUDITS),
@@ -193,13 +287,125 @@ function loadDb(): DbShape {
     leadStatusHistory: parsed.leadStatusHistory ?? [],
     feasibilityTeamAssignments: parsed.feasibilityTeamAssignments ?? [],
     feasibilityEmployeeAllocations: parsed.feasibilityEmployeeAllocations ?? [],
+    projectPhases: parsed.projectPhases ?? [],
+    conversations: parsed.conversations ?? [],
+    conversationParticipants: parsed.conversationParticipants ?? [],
+    chatMessages: parsed.chatMessages ?? [],
+    entityDocuments: parsed.entityDocuments ?? [],
+    stageTransitions: parsed.stageTransitions ?? [],
+    outboundEmails: parsed.outboundEmails ?? [],
+    forumPosts: parsed.forumPosts ?? [],
+    forumComments: parsed.forumComments ?? [],
+    forumReactions: parsed.forumReactions ?? [],
+    forumTags: parsed.forumTags ?? [],
+    forumLiveMessages: parsed.forumLiveMessages ?? [],
+    assignmentHistory: parsed.assignmentHistory ?? [],
+    notificationDeliveries: parsed.notificationDeliveries ?? [],
   });
-  saveDb(merged);
-  return merged;
+}
+
+function toCollections(db: DbShape): Record<CollectionName, unknown[]> {
+  const out = {} as Record<CollectionName, unknown[]>;
+  for (const name of COLLECTION_NAMES) {
+    out[name] = (db[name] as unknown[]) ?? [];
+  }
+  return out;
+}
+
+function countRecords(db: DbShape): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const name of COLLECTION_NAMES) {
+    counts[name] = db[name]?.length ?? 0;
+  }
+  return counts;
+}
+
+async function persistDb(db: DbShape): Promise<void> {
+  await saveAllCollections(toCollections(db));
+}
+
+function enqueuePersist(db: DbShape): void {
+  writeChain = writeChain
+    .then(() => persistDb(db))
+    .catch((error) => {
+      console.error('[store] Failed to persist to Postgres:', error);
+    });
+}
+
+function loadDb(): DbShape {
+  if (!cache) {
+    throw new Error('Store not initialized. Call initStore() before handling requests.');
+  }
+  return cache;
 }
 
 function saveDb(db: DbShape) {
-  fs.writeFileSync(dbPath, JSON.stringify(db, null, 2));
+  cache = db;
+  enqueuePersist(db);
+}
+
+export async function initStore(options?: { forceImportLocal?: boolean }): Promise<{
+  source: 'postgres' | 'local-db.json' | 'seed';
+  counts: Record<string, number>;
+}> {
+  await pingDatabase();
+  await ensureSchema();
+
+  const fromPostgres = await loadAllCollections();
+  const postgresHasData = collectionsHaveData(fromPostgres);
+  const localFile = readLocalDbFile();
+  const localHasData = Boolean(localFile && collectionsHaveData(localFile));
+
+  let source: 'postgres' | 'local-db.json' | 'seed' = 'seed';
+  let parsed: Partial<DbShape> = emptyDb();
+
+  if (options?.forceImportLocal && localHasData && localFile) {
+    parsed = localFile;
+    source = 'local-db.json';
+  } else if (postgresHasData) {
+    parsed = fromPostgres as Partial<DbShape>;
+    source = 'postgres';
+  } else if (localHasData && localFile) {
+    parsed = localFile;
+    source = 'local-db.json';
+  } else {
+    parsed = {
+      users: INITIAL_USERS,
+      roles: INITIAL_ROLES,
+      teams: INITIAL_TEAMS,
+      leads: INITIAL_LEADS,
+      projects: INITIAL_PROJECTS,
+      escalations: INITIAL_ESCALATIONS,
+      procurementRequests: INITIAL_PROCUREMENT_REQUESTS,
+      audits: INITIAL_AUDITS,
+      notifications: INITIAL_NOTIFICATIONS,
+      tasks: INITIAL_TASKS,
+      dailyUpdates: INITIAL_DAILY_UPDATES,
+    };
+    source = 'seed';
+  }
+
+  const merged = buildMergedDb(parsed);
+  cache = merged;
+  await persistDb(merged);
+  initialized = true;
+
+  return { source, counts: countRecords(merged) };
+}
+
+export async function flushStore(): Promise<void> {
+  await writeChain;
+}
+
+export async function shutdownStore(): Promise<void> {
+  await flushStore();
+  await closePool();
+  initialized = false;
+  cache = null;
+}
+
+export function isStoreInitialized(): boolean {
+  return initialized;
 }
 
 export const store = {
@@ -211,6 +417,11 @@ export const store = {
   },
   getTeams(): Team[] {
     return loadDb().teams;
+  },
+  saveTeams(teams: Team[]) {
+    const db = loadDb();
+    db.teams = teams;
+    saveDb(refreshTeamCounts(db));
   },
   getLeads(): Lead[] {
     return loadDb().leads;
@@ -329,6 +540,118 @@ export const store = {
   saveFeasibilityEmployeeAllocations(feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[]) {
     const db = loadDb();
     db.feasibilityEmployeeAllocations = feasibilityEmployeeAllocations;
+    saveDb(db);
+  },
+  getProjectPhases(): ProjectPhase[] {
+    return loadDb().projectPhases ?? [];
+  },
+  saveProjectPhases(projectPhases: ProjectPhase[]) {
+    const db = loadDb();
+    db.projectPhases = projectPhases;
+    saveDb(db);
+  },
+  getConversations(): Conversation[] {
+    return loadDb().conversations ?? [];
+  },
+  saveConversations(conversations: Conversation[]) {
+    const db = loadDb();
+    db.conversations = conversations;
+    saveDb(db);
+  },
+  getConversationParticipants(): ConversationParticipant[] {
+    return loadDb().conversationParticipants ?? [];
+  },
+  saveConversationParticipants(conversationParticipants: ConversationParticipant[]) {
+    const db = loadDb();
+    db.conversationParticipants = conversationParticipants;
+    saveDb(db);
+  },
+  getChatMessages(): ChatMessage[] {
+    return loadDb().chatMessages ?? [];
+  },
+  saveChatMessages(chatMessages: ChatMessage[]) {
+    const db = loadDb();
+    db.chatMessages = chatMessages;
+    saveDb(db);
+  },
+  getEntityDocuments(): EntityDocument[] {
+    return loadDb().entityDocuments ?? [];
+  },
+  saveEntityDocuments(entityDocuments: EntityDocument[]) {
+    const db = loadDb();
+    db.entityDocuments = entityDocuments;
+    saveDb(db);
+  },
+  getStageTransitions(): StageTransition[] {
+    return loadDb().stageTransitions ?? [];
+  },
+  saveStageTransitions(stageTransitions: StageTransition[]) {
+    const db = loadDb();
+    db.stageTransitions = stageTransitions;
+    saveDb(db);
+  },
+  getOutboundEmails(): OutboundEmail[] {
+    return loadDb().outboundEmails ?? [];
+  },
+  saveOutboundEmails(outboundEmails: OutboundEmail[]) {
+    const db = loadDb();
+    db.outboundEmails = outboundEmails;
+    saveDb(db);
+  },
+  getForumPosts(): ForumPost[] {
+    return loadDb().forumPosts ?? [];
+  },
+  saveForumPosts(forumPosts: ForumPost[]) {
+    const db = loadDb();
+    db.forumPosts = forumPosts;
+    saveDb(db);
+  },
+  getForumComments(): ForumComment[] {
+    return loadDb().forumComments ?? [];
+  },
+  saveForumComments(forumComments: ForumComment[]) {
+    const db = loadDb();
+    db.forumComments = forumComments;
+    saveDb(db);
+  },
+  getForumReactions(): ForumReaction[] {
+    return loadDb().forumReactions ?? [];
+  },
+  saveForumReactions(forumReactions: ForumReaction[]) {
+    const db = loadDb();
+    db.forumReactions = forumReactions;
+    saveDb(db);
+  },
+  getForumTags(): ForumTag[] {
+    return loadDb().forumTags ?? [];
+  },
+  saveForumTags(forumTags: ForumTag[]) {
+    const db = loadDb();
+    db.forumTags = forumTags;
+    saveDb(db);
+  },
+  getForumLiveMessages(): ForumLiveMessage[] {
+    return loadDb().forumLiveMessages ?? [];
+  },
+  saveForumLiveMessages(forumLiveMessages: ForumLiveMessage[]) {
+    const db = loadDb();
+    db.forumLiveMessages = forumLiveMessages;
+    saveDb(db);
+  },
+  getAssignmentHistory(): AssignmentHistory[] {
+    return loadDb().assignmentHistory ?? [];
+  },
+  saveAssignmentHistory(assignmentHistory: AssignmentHistory[]) {
+    const db = loadDb();
+    db.assignmentHistory = assignmentHistory;
+    saveDb(db);
+  },
+  getNotificationDeliveries(): NotificationDelivery[] {
+    return loadDb().notificationDeliveries ?? [];
+  },
+  saveNotificationDeliveries(notificationDeliveries: NotificationDelivery[]) {
+    const db = loadDb();
+    db.notificationDeliveries = notificationDeliveries;
     saveDb(db);
   },
   appendAudit(entry: Omit<AuditLog, 'id' | 'created_at'>): AuditLog {

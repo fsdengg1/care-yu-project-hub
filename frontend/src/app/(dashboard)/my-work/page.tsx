@@ -1,13 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { LeadApi } from '@/lib/leadApi';
+import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
+import { TasksApi } from '@/lib/tasksApi';
+import { UsersApi } from '@/lib/usersApi';
+import { ProjectsApi } from '@/lib/projectsApi';
 import { StorageService } from '@/lib/storage';
-import { MyWorkItem, User } from '@/lib/types';
-import { LEAD_STATUS_LABELS } from '@/lib/format';
+import { MyWorkItem, Project, User, WorkAssignment } from '@/lib/types';
+import { formatLongDate, LEAD_STATUS_LABELS, PIPELINE_STAGE_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
+import { canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
 import {
-  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2
+  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
 } from 'lucide-react';
 
 const GROUP_META: Record<string, { title: string; icon: React.ReactNode }> = {
@@ -26,26 +31,101 @@ const GROUP_META: Record<string, { title: string; icon: React.ReactNode }> = {
 
 const ORDER = ['CREATE', 'DRAFT', 'RETURNED', 'PM_REVIEW', 'ASSIGN', 'FEASIBILITY', 'FEASIBILITY_APPROVAL', 'COSTING', 'COSTING_APPROVAL', 'QUOTATION', 'NEGOTIATION'];
 
+type WorkFilter = 'ALL' | 'PROJECT' | 'NON_PROJECT' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED';
+
+function assignmentType(item: WorkAssignment) {
+  return item.task_type || (item.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK');
+}
+
+function matchesFilter(item: WorkAssignment, filter: WorkFilter) {
+  const today = new Date().toISOString().slice(0, 10);
+  const type = assignmentType(item);
+  const done = item.current_status === 'COMPLETED' || item.current_status === 'DONE';
+  if (filter === 'PROJECT') return type === 'PROJECT_TASK';
+  if (filter === 'NON_PROJECT') return type === 'NON_PROJECT_TASK';
+  if (filter === 'COMPLETED') return done;
+  if (filter === 'OVERDUE') return Boolean(item.due_date && item.due_date < today && !done);
+  if (filter === 'TODAY') return item.due_date === today;
+  if (filter === 'UPCOMING') return Boolean(item.due_date && item.due_date > today && !done);
+  return true;
+}
+
 export default function MyAssignedWorkPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
   const [groups, setGroups] = useState<Record<string, MyWorkItem[]>>({});
   const [items, setItems] = useState<MyWorkItem[]>([]);
+  const [assignments, setAssignments] = useState<WorkAssignment[]>([]);
+  const [filter, setFilter] = useState<WorkFilter>('ALL');
+  const [showCreate, setShowCreate] = useState(false);
+  const [users, setUsers] = useState<User[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    title: '',
+    description: '',
+    task_type: 'PROJECT_TASK' as 'PROJECT_TASK' | 'NON_PROJECT_TASK',
+    project_id: '',
+    assigned_to_id: '',
+    start_date: '',
+    due_date: '',
+    priority: 'Medium',
+  });
+
+  const loadAssignments = async () => {
+    setAssignments(await DailyUpdatesApi.assignments(true));
+  };
 
   useEffect(() => {
     const user = StorageService.getCurrentUser();
     if (!user) return;
     setCurrentUser(user);
+    setFocusTaskId(new URLSearchParams(window.location.search).get('task'));
     void (async () => {
       const result = await LeadApi.myWork();
       setGroups(result.groups);
       setItems(result.items);
+      await loadAssignments();
+      if (canCreateWorkTask(user)) {
+        const listed = await UsersApi.list();
+        setUsers(listed.users.filter((item) => item.status === 'ACTIVE'));
+        const projectResult = await ProjectsApi.list('ALL');
+        setProjects(projectResult.projects);
+      }
     })();
   }, []);
+
+  const visibleAssignments = useMemo(
+    () => assignments.filter((item) => matchesFilter(item, filter)),
+    [assignments, filter]
+  );
 
   if (!currentUser) return null;
 
   const actionable = items.filter((item) => item.category !== 'CREATE');
   const isBH = ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(currentUser.role_code);
+  const canCreate = canCreateWorkTask(currentUser);
+
+  const createTask = async () => {
+    setCreateError(null);
+    const result = await TasksApi.create({
+      title: form.title,
+      description: form.description,
+      task_type: form.task_type,
+      project_id: form.task_type === 'PROJECT_TASK' ? form.project_id : undefined,
+      assigned_to_id: form.assigned_to_id || currentUser.id,
+      start_date: form.start_date || undefined,
+      due_date: form.due_date || undefined,
+      priority: form.priority,
+    });
+    if (!result.ok) {
+      setCreateError(result.message);
+      return;
+    }
+    setShowCreate(false);
+    setForm({ title: '', description: '', task_type: 'PROJECT_TASK', project_id: '', assigned_to_id: '', start_date: '', due_date: '', priority: 'Medium' });
+    await loadAssignments();
+  };
 
   return (
     <div className="space-y-6 text-xs">
@@ -58,6 +138,147 @@ export default function MyAssignedWorkPage() {
           Tasks for <span className="font-semibold text-cyan-300">{currentUser.name}</span> based on role, workflow state, and assignment.
         </p>
       </div>
+
+      {(assignments.length > 0 || canCreate) && (
+        <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+          <div className="flex flex-col gap-3 border-b border-slate-800 pb-2 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-bold text-slate-100">Assigned execution work</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              {canCreate && (
+                <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white">
+                  <Plus className="h-3 w-3" /> Create Task
+                </button>
+              )}
+              <Link href="/daily-updates" className="text-cyan-400 hover:underline">Daily Work Updates</Link>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {([
+              ['ALL', 'All'],
+              ['PROJECT', 'Project Tasks'],
+              ['NON_PROJECT', 'Non-Project Tasks'],
+              ['OVERDUE', 'Overdue'],
+              ['TODAY', 'Today'],
+              ['UPCOMING', 'Upcoming'],
+              ['COMPLETED', 'Completed'],
+            ] as Array<[WorkFilter, string]>).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                  filter === key ? 'border-cyan-600 bg-cyan-600 text-white' : 'border-slate-700 text-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left">
+              <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="p-2">Task</th>
+                  <th className="p-2">Project</th>
+                  <th className="p-2">Due Date</th>
+                  <th className="p-2">Priority</th>
+                  <th className="p-2">Status</th>
+                  <th className="p-2">Last update</th>
+                  <th className="p-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                {visibleAssignments.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={focusTaskId && (item.task_id === focusTaskId || item.id === focusTaskId) ? 'bg-cyan-950/40' : undefined}
+                  >
+                    <td className="p-2 font-semibold text-slate-100">{item.task_title}</td>
+                    <td className="p-2">
+                      {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
+                      {assignmentType(item) === 'NON_PROJECT_TASK' ? 'No Project' : item.project_name}
+                    </td>
+                    <td className="p-2">{formatLongDate(item.due_date)}</td>
+                    <td className="p-2">{item.priority}</td>
+                    <td className="p-2">
+                      {WORK_STATUS_LABELS[item.current_status] || item.current_status}
+                      {item.blocked && item.blocker && (
+                        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-rose-300">
+                          <AlertTriangle className="h-3 w-3" /> {item.blocker}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-2">{formatLongDate(item.last_update_at)}</td>
+                    <td className="p-2 text-right">
+                      {currentUser && canSubmitDailyUpdate(currentUser) && (
+                        <Link
+                          href={`/daily-updates/new?assignment=${encodeURIComponent(item.id)}`}
+                          className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500"
+                        >
+                          <Plus className="h-3 w-3" /> Add Daily Update
+                        </Link>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {visibleAssignments.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-4 text-center text-slate-500">No tasks in this filter.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {showCreate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-5 text-xs">
+            <h3 className="text-sm font-bold text-slate-100">Create task</h3>
+            <div className="mt-3 space-y-3">
+              <div>
+                <div className="mb-1 font-medium text-slate-400">Task Type</div>
+                <label className="mr-4 text-slate-200">
+                  <input type="radio" className="mr-1" checked={form.task_type === 'PROJECT_TASK'} onChange={() => setForm({ ...form, task_type: 'PROJECT_TASK' })} />
+                  Project Task
+                </label>
+                <label className="text-slate-200">
+                  <input type="radio" className="mr-1" checked={form.task_type === 'NON_PROJECT_TASK'} onChange={() => setForm({ ...form, task_type: 'NON_PROJECT_TASK', project_id: '' })} />
+                  Non-Project Task
+                </label>
+              </div>
+              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Task title" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              {form.task_type === 'PROJECT_TASK' && (
+                <select value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                  <option value="">Project *</option>
+                  {projects.map((project) => (
+                    <option key={project.id} value={project.id}>{project.name}</option>
+                  ))}
+                </select>
+              )}
+              <select value={form.assigned_to_id} onChange={(e) => setForm({ ...form, assigned_to_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                <option value="">Assigned To</option>
+                {users.map((item) => (
+                  <option key={item.id} value={item.id}>{item.name}</option>
+                ))}
+              </select>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+                <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              </div>
+              <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                {['Low', 'Medium', 'High', 'Critical'].map((item) => <option key={item}>{item}</option>)}
+              </select>
+              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" rows={3} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              {createError && <div className="rounded border border-rose-900 bg-rose-950/40 px-3 py-2 text-rose-300">{createError}</div>}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowCreate(false)} className="rounded border border-slate-700 px-3 py-1.5">Cancel</button>
+              <button onClick={() => void createTask()} className="rounded bg-cyan-600 px-3 py-1.5 font-bold text-white">Create</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isBH && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -114,10 +335,10 @@ export default function MyAssignedWorkPage() {
         );
       })}
 
-      {actionable.length === 0 && !isBH && (
+      {actionable.length === 0 && assignments.length === 0 && !isBH && (
         <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/90 p-12 text-center text-slate-500">
           <Inbox className="mx-auto h-8 w-8 text-slate-600" />
-          <p>No feasibility assignments allocated to you yet.</p>
+          <p>No work assigned to you yet. New project and team allocations appear here automatically.</p>
         </div>
       )}
 

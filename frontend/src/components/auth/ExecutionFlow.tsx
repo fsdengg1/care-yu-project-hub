@@ -11,7 +11,7 @@ const STEPS = [
 export default function ExecutionFlow() {
   return (
     <div className="w-full max-w-xl">
-      <p className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+      <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-300/90">
         Delivery workflow
       </p>
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -19,14 +19,17 @@ export default function ExecutionFlow() {
           const Icon = step.icon;
           return (
             <React.Fragment key={step.label}>
-              <div className="flex min-w-[92px] flex-1 flex-col items-center rounded-2xl border border-white/10 bg-white/5 px-3 py-4 text-center backdrop-blur-sm">
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/20 text-blue-200 ring-1 ring-blue-400/20">
-                  <Icon className="h-5 w-5" />
+              <div
+                className="flex min-w-[72px] flex-1 flex-col items-center rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-3 text-center shadow-[0_8px_24px_rgba(0,0,0,0.12)] backdrop-blur-[2px]"
+                style={{ animationDelay: `${index * 70}ms` }}
+              >
+                <div className="mb-2 flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/20 text-blue-200 ring-1 ring-blue-300/25">
+                  <Icon className="h-3.5 w-3.5" />
                 </div>
-                <span className="text-xs font-semibold text-white">{step.label}</span>
+                <span className="text-[11px] font-semibold tracking-wide text-white">{step.label}</span>
               </div>
               {index < STEPS.length - 1 && (
-                <ArrowRight className="hidden h-4 w-4 shrink-0 text-blue-300/80 sm:block" aria-hidden="true" />
+                <ArrowRight className="hidden h-3.5 w-3.5 shrink-0 text-blue-300/70 sm:block" aria-hidden="true" />
               )}
             </React.Fragment>
           );

@@ -78,6 +78,61 @@
   }
 }
 
+/* Official Care Yu Automation lockup — full artwork, no cropped icon overlay */
+.careyu-lockup {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.careyu-lockup--on-light {
+  padding: 0.22rem 0.4rem;
+  border-radius: 0.65rem;
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.06);
+}
+
+/* On navy brand panels: tight light plate so PNG artwork stays readable without a huge white slab */
+.careyu-lockup--on-dark {
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.careyu-logo-img {
+  display: block;
+  height: 2.55rem;
+  width: auto;
+  max-width: min(190px, 100%);
+  object-fit: contain;
+}
+
+.careyu-lockup--on-dark .careyu-logo-img {
+  height: 2.35rem;
+  max-width: min(180px, 100%);
+}
+
+.auth-signup-logo.careyu-lockup--on-dark .careyu-logo-img {
+  height: auto;
+  width: 172px;
+  max-width: 172px;
+}
+
+.careyu-lockup--compact .careyu-logo-img {
+  height: 2.05rem;
+  max-width: min(160px, 100%);
+}
+
+.auth-brand-logo.careyu-lockup--on-dark {
+  padding: 0.4rem 0.65rem;
+}
+
+.auth-brand-logo .careyu-logo-img {
+  height: 2.5rem;
+  max-width: 186px;
+}
+
 html.light .theme-app ::-webkit-scrollbar-track {
   background: #eef2f7;
 }

@@ -264,6 +264,26 @@ export const INITIAL_USERS: User[] = [
     updated_at: '2026-01-05T00:00:00Z'
   },
   {
+    id: 'u-robotlead1',
+    employee_id: 'CYA-012A',
+    name: 'Robotics Lead',
+    email: 'robotlead1@careyu.ai',
+    phone: '',
+    role_id: 'r-tl',
+    role_code: 'TEAM_LEAD',
+    role_name: 'Team Lead',
+    team_id: 't-robotics',
+    team_name: 'Robotics & Solutions Team',
+    team_lead_id: 'u-tl-rob',
+    team_lead_name: 'Aakash',
+    reporting_manager_id: 'u-pm',
+    status: 'ACTIVE',
+    account_status: 'ACTIVE',
+    email_verified: true,
+    created_at: '2026-01-05T00:00:00Z',
+    updated_at: '2026-01-05T00:00:00Z'
+  },
+  {
     id: 'u-emp-sw',
     employee_id: 'CYA-020',
     name: 'Karthik',

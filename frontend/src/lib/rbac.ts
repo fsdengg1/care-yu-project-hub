@@ -51,13 +51,26 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     href: '/projects/planning',
     iconName: 'GanttChartSquare',
     category: 'projects',
-    allowedRoles: ['CEO', 'CTO', 'PROJECT_MANAGER', 'PROJECT_ENGINEER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN']
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'PROJECT_MANAGER', 'TEAM_LEAD', 'SYSTEM_ADMIN']
   },
   {
     name: 'My Assigned Work',
     href: '/my-work',
     iconName: 'CheckSquare',
     category: 'team_work'
+  },
+  {
+    name: 'Messages',
+    href: '/messages',
+    iconName: 'MessageSquare',
+    category: 'team_work'
+  },
+  {
+    name: 'CEO Chat',
+    href: '/ceo-chat',
+    iconName: 'MessageSquare',
+    category: 'team_work',
+    allowedRoles: ['CEO']
   },
   {
     name: 'Daily Work Updates',
@@ -85,6 +98,12 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'system'
   },
   {
+    name: 'Settings',
+    href: '/settings',
+    iconName: 'Settings',
+    category: 'system'
+  },
+  {
     name: 'User Management',
     href: '/users',
     iconName: 'UserCheck',
@@ -109,7 +128,6 @@ export const NAVIGATION_ITEMS: NavItem[] = [
 
 const CEO_HIDDEN_HREFS = new Set([
   '/my-work',
-  '/daily-updates',
   '/users',
   '/roles',
 ]);
@@ -121,6 +139,38 @@ export function isCeoViewOnly(user: User | null | undefined): boolean {
 export function canCreateLead(user: User | null | undefined): boolean {
   if (!user) return false;
   return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canAccessGanttPlanning(user: User | null | undefined): boolean {
+  if (!user) return false;
+  if (user.role_code === 'ENG_DIRECTOR') return false;
+  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'BUSINESS_HEAD', 'CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canOpenProjectGantt(
+  user: User | null | undefined,
+  project?: { pm_id?: string; team_lead_id?: string } | null
+): boolean {
+  if (!canAccessGanttPlanning(user) || !user) return false;
+  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+  if (user.role_code === 'PROJECT_MANAGER') return !project || project.pm_id === user.id;
+  if (user.role_code === 'TEAM_LEAD') return Boolean(project && project.team_lead_id === user.id);
+  return false;
+}
+
+export function canCreateAnnouncement(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['CEO', 'CTO', 'BUSINESS_HEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canModerateForum(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['TEAM_LEAD', 'PROJECT_MANAGER', 'SYSTEM_ADMIN', 'CEO', 'CTO'].includes(user.role_code);
+}
+
+export function canCreateWorkTask(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function canPerformPmOperations(user: User | null | undefined): boolean {
@@ -138,6 +188,16 @@ export function canPrepareCosting(user: User | null | undefined): boolean {
   if (user.role_code === 'PROCUREMENT' || user.role_code === 'SYSTEM_ADMIN') return true;
   const hay = `${user.team_name || ''} ${user.role_name || ''}`.toLowerCase();
   return hay.includes('procurement') || hay.includes('costing');
+}
+
+export function canSubmitDailyUpdate(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['EMPLOYEE', 'TEAM_LEAD', 'PROCUREMENT', 'EXECUTION', 'PROJECT_ENGINEER', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canReviewDailyUpdates(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['TEAM_LEAD', 'PROJECT_MANAGER', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function canHandleCommercial(user: User | null | undefined): boolean {

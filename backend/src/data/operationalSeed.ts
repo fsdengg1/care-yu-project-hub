@@ -5,6 +5,7 @@ import {
   LeadStatus,
   NotificationItem,
   PipelineStage,
+  DailyUpdate,
   ProcurementRequest,
   Project,
   Task,
@@ -12,6 +13,11 @@ import {
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600000).toISOString();
 const daysAgo = (days: number) => hoursAgo(days * 24);
+function addDays(iso: string, days: number) {
+  const date = new Date(iso);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
 
 function makeLead(params: {
   id: string;
@@ -233,6 +239,10 @@ export const INITIAL_PROJECTS: Project[] = [
     issue: 'Conveyor integration blocked',
     lead_id: 'lead-001',
     team_ids: ['t-sw', 't-robotics', 't-execution'],
+    team_lead_id: 'u-tl-sw',
+    team_lead_name: 'Arun',
+    value: 2500000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(40),
     updated_at: hoursAgo(2),
   },
@@ -246,9 +256,13 @@ export const INITIAL_PROJECTS: Project[] = [
     progress: 48,
     health: 'AT_RISK',
     status: 'ACTIVE',
-    issue: 'Procurement',
+    issue: 'Procurement delay',
     lead_id: 'lead-002',
     team_ids: ['t-procurement', 't-execution'],
+    team_lead_id: 'u-tl-proc',
+    team_lead_name: 'Suresh',
+    value: 1800000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(32),
     updated_at: hoursAgo(5),
   },
@@ -265,6 +279,10 @@ export const INITIAL_PROJECTS: Project[] = [
     issue: 'Camera delay',
     lead_id: 'lead-003',
     team_ids: ['t-vision'],
+    team_lead_id: 'u-tl-vis',
+    team_lead_name: 'Vani',
+    value: 1500000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(28),
     updated_at: hoursAgo(26),
   },
@@ -280,6 +298,10 @@ export const INITIAL_PROJECTS: Project[] = [
     status: 'ACTIVE',
     lead_id: 'lead-006',
     team_ids: ['t-robotics', 't-execution'],
+    team_lead_id: 'u-tl-rob',
+    team_lead_name: 'Aakash',
+    value: 900000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(24),
     updated_at: hoursAgo(6),
   },
@@ -295,6 +317,10 @@ export const INITIAL_PROJECTS: Project[] = [
     status: 'ACTIVE',
     lead_id: 'lead-007',
     team_ids: ['t-sw', 't-execution'],
+    team_lead_id: 'u-tl-sw',
+    team_lead_name: 'Arun',
+    value: 800000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(22),
     updated_at: hoursAgo(9),
   },
@@ -310,6 +336,10 @@ export const INITIAL_PROJECTS: Project[] = [
     status: 'ACTIVE',
     lead_id: 'lead-008',
     team_ids: ['t-vision', 't-sw'],
+    team_lead_id: 'u-tl-vis',
+    team_lead_name: 'Vani',
+    value: 750000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(18),
     updated_at: hoursAgo(11),
   },
@@ -325,6 +355,10 @@ export const INITIAL_PROJECTS: Project[] = [
     status: 'ACTIVE',
     lead_id: 'lead-011',
     team_ids: ['t-robotics'],
+    team_lead_id: 'u-tl-rob',
+    team_lead_name: 'Aakash',
+    value: 2100000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(16),
     updated_at: hoursAgo(14),
   },
@@ -340,10 +374,19 @@ export const INITIAL_PROJECTS: Project[] = [
     status: 'ACTIVE',
     issue: 'Resource shortage',
     team_ids: ['t-robotics', 't-sw'],
+    team_lead_id: 'u-tl-rob',
+    team_lead_name: 'Aakash',
+    value: 1100000,
+    current_phase: 'EXECUTION',
     created_at: daysAgo(10),
     updated_at: hoursAgo(7),
   },
-];
+].map((project) => ({
+  ...project,
+  start_date: project.created_at.slice(0, 10),
+  target_completion: addDays(project.created_at, project.progress >= 60 ? 45 : 75),
+  last_update_at: project.updated_at,
+})) as Project[];
 
 export const INITIAL_PROCUREMENT_REQUESTS: ProcurementRequest[] = [
   {
@@ -457,7 +500,7 @@ export const INITIAL_ESCALATIONS: Escalation[] = [
 
 export const INITIAL_TASKS: Task[] = [];
 
-export const INITIAL_DAILY_UPDATES: { id: string; user_id: string; user_name: string; summary: string; created_at: string }[] = [];
+export const INITIAL_DAILY_UPDATES: DailyUpdate[] = [];
 
 export const INITIAL_AUDITS: AuditLog[] = [
   {

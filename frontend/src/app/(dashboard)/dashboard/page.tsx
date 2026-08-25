@@ -1,40 +1,38 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { StorageService } from '@/lib/storage';
 import { getDashboardPath } from '@/lib/auth';
-import { User } from '@/lib/types';
+import { useAuth } from '@/components/auth/AuthProvider';
 import CEODashboard from '@/components/dashboards/CEODashboard';
 import SalesDashboard from '@/components/dashboards/SalesDashboard';
 import ProcurementDashboard from '@/components/dashboards/ProcurementDashboard';
 
 export default function DashboardDispatcherPage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const { user, loading } = useAuth();
+  const path = user ? getDashboardPath(user.role_code) : null;
 
   useEffect(() => {
-    const user = StorageService.getCurrentUser();
+    if (loading) return;
     if (!user) {
       router.replace('/login');
       return;
     }
-    const path = getDashboardPath(user.role_code);
-    if (path !== '/dashboard') {
+    if (path && path !== '/dashboard') {
       router.replace(path);
-      return;
     }
-    setCurrentUser(user);
-  }, [router]);
+  }, [loading, path, router, user]);
 
-  if (!currentUser) return null;
+  if (loading || !user) return null;
+  if (path !== '/dashboard') return null;
 
-  switch (currentUser.role_code) {
+  switch (user.role_code) {
     case 'SALES':
-      return <SalesDashboard user={currentUser} />;
+      return <SalesDashboard user={user} />;
     case 'PROCUREMENT':
-      return <ProcurementDashboard user={currentUser} />;
+      return <ProcurementDashboard user={user} />;
     default:
-      return <CEODashboard user={currentUser} />;
+      return <CEODashboard user={user} />;
   }
 }

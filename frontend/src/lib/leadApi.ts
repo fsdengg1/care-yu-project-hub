@@ -24,6 +24,9 @@ export interface BusinessHeadDashboard {
 
 function syncPayload(payload: LeadWorkflowPayload) {
   StorageService.upsertLead(payload.lead);
+  if (payload.documents) {
+    StorageService.replaceLeadDocuments(payload.lead.id, payload.documents);
+  }
   if (payload.assignments?.length) {
     const existing = StorageService.getFeasibilityTeamAssignments().filter((item) => item.lead_id !== payload.lead.id);
     StorageService.saveFeasibilityTeamAssignments([...payload.assignments, ...existing]);
@@ -95,6 +98,21 @@ export const LeadApi = {
     return null;
   },
 
+  async accept(id: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/accept`, { method: 'POST', body: '{}' });
+    if (result.ok) return syncPayload(result.data);
+    return result;
+  },
+
+  async forward(id: string, body: { responsible_user_id: string; reason?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/forward`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return result;
+  },
+
   async pmReview(id: string, body: { action: 'approve_assign' | 'return'; team_id?: string; team_lead_id?: string; notes?: string; reason?: string }) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/pm-review`, {
       method: 'POST',
@@ -164,13 +182,52 @@ export const LeadApi = {
     return null;
   },
 
-  async addDocument(id: string, body: { file_name: string; category: string; file_type?: string }) {
-    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/documents`, {
+  async addDocument(id: string, body: {
+    file_name: string;
+    category: string;
+    file_type?: string;
+    file_size?: string;
+    file_url?: string;
+    mime_type?: string;
+  }) {
+    const result = await call<LeadWorkflowPayload & { document?: import('./types').LeadDocument }>(`/api/leads/${id}/documents`, {
       method: 'POST',
       body: JSON.stringify(body),
     });
     if (result.ok) return syncPayload(result.data);
-    return null;
+    const user = StorageService.getCurrentUser();
+    const lead = StorageService.getLeadById(id);
+    if (!user || !lead) return null;
+    StorageService.addLeadDocument({
+      lead_id: id,
+      file_name: body.file_name,
+      file_type: body.file_type || 'Document',
+      file_size: body.file_size || '—',
+      uploaded_by: user.name,
+      uploaded_by_id: user.id,
+      category: (body.category as import('./types').LeadDocument['category']) || 'Other',
+      file_url: body.file_url,
+      mime_type: body.mime_type,
+      upload_status: 'UPLOADED',
+    });
+    return {
+      lead,
+      documents: StorageService.getLeadDocuments(id),
+    } as LeadWorkflowPayload;
+  },
+
+  async deleteDocument(id: string, documentId: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/documents/${documentId}`, {
+      method: 'DELETE',
+    });
+    if (result.ok) return syncPayload(result.data);
+    StorageService.removeLeadDocument(id, documentId);
+    const lead = StorageService.getLeadById(id);
+    if (!lead) return null;
+    return {
+      lead,
+      documents: StorageService.getLeadDocuments(id),
+    } as LeadWorkflowPayload;
   },
 
   async myWork(): Promise<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }> {

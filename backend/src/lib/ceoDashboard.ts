@@ -6,6 +6,8 @@ import {
   PipelineStage,
   Project,
 } from '../types.js';
+import { buildExecutiveDailyWork } from './dailyUpdates.js';
+import { persistRefreshedProjects, syncConvertedLeadsToProjects } from './projects.js';
 
 const CLOSED_STAGES: PipelineStage[] = ['CONVERTED', 'REJECTED', 'CANCELLED'];
 
@@ -61,8 +63,9 @@ function relativeHrefForEscalation(id: string) {
 }
 
 export function buildCeoDashboard(): CeoDashboardPayload {
+  syncConvertedLeadsToProjects();
   const leads = store.getLeads();
-  const projects = store.getProjects();
+  const projects = persistRefreshedProjects();
   const teams = store.getTeams();
   const users = store.getUsers();
   const escalations = store.getEscalations();
@@ -189,6 +192,7 @@ export function buildCeoDashboard(): CeoDashboardPayload {
     criticalIssues,
     escalations: openEscalations,
     recentActivity: [...audits].sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at)).slice(0, 8),
+    dailyWork: buildExecutiveDailyWork(),
   };
 }
 
