@@ -421,7 +421,10 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
   await persistDb(merged);
   initialized = true;
 
-  return { source, counts: countRecords(merged) };
+  const { ensureRobotLeadAccount } = await import('../lib/robotLead.js');
+  await ensureRobotLeadAccount();
+
+  return { source, counts: countRecords(loadDb()) };
 }
 
 export async function flushStore(): Promise<void> {
