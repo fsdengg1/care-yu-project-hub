@@ -56,6 +56,7 @@ import {
   pingDatabase,
   saveAllCollections,
 } from './postgres.js';
+import { isSmokeTestAccount } from '../lib/smokeTestAccounts.js';
 
 interface DbShape {
   users: User[];
@@ -160,7 +161,7 @@ function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
       role_code: fromSeed.role_code,
     };
   });
-  return stripIncompleteSignupUsers(merged);
+  return stripIncompleteSignupUsers(merged).filter((user) => !isSmokeTestAccount(user));
 }
 
 function mergeRoles(stored: Role[] | undefined, seed: Role[]): Role[] {
@@ -326,7 +327,7 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     forumLiveMessages: parsed.forumLiveMessages ?? [],
     assignmentHistory: parsed.assignmentHistory ?? [],
     notificationDeliveries: parsed.notificationDeliveries ?? [],
-    pendingSignups: parsed.pendingSignups ?? [],
+    pendingSignups: (parsed.pendingSignups ?? []).filter((item) => !isSmokeTestAccount(item)),
   });
 }
 
@@ -511,7 +512,7 @@ export const store = {
   },
   saveUsers(users: User[]) {
     const db = loadDb();
-    db.users = stripIncompleteSignupUsers(users);
+    db.users = stripIncompleteSignupUsers(users).filter((user) => !isSmokeTestAccount(user));
     saveDb(refreshTeamCounts(db));
   },
   saveLeads(leads: Lead[]) {

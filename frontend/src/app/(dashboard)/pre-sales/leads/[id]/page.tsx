@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
-import { LEAD_STATUS_LABELS, formatRelativeTime } from '@/lib/format';
+import { LEAD_STATUS_LABELS, formatRelativeTime, formatInrCompact } from '@/lib/format';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
   FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory
@@ -17,7 +17,7 @@ import {
   Info, Zap
 } from 'lucide-react';
 
-type TabKey = 'overview' | 'customer' | 'requirement' | 'technical' | 'commercial' | 'feasibility' | 'documents' | 'communication' | 'timeline' | 'review';
+type TabKey = 'overview' | 'customer' | 'requirement' | 'technical' | 'commercial' | 'feasibility' | 'costing' | 'documents' | 'communication' | 'timeline' | 'review';
 
 export default function LeadDetailPage() {
   const params = useParams();
@@ -106,6 +106,22 @@ export default function LeadDetailPage() {
     const u = StorageService.getCurrentUser();
     setCurrentUser(u);
     loadData();
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (
+      tab === 'overview' ||
+      tab === 'customer' ||
+      tab === 'requirement' ||
+      tab === 'technical' ||
+      tab === 'commercial' ||
+      tab === 'feasibility' ||
+      tab === 'costing' ||
+      tab === 'documents' ||
+      tab === 'communication' ||
+      tab === 'timeline' ||
+      tab === 'review'
+    ) {
+      setActiveTab(tab);
+    }
   }, [loadData]);
 
   if (!currentUser || !lead) {
@@ -335,6 +351,7 @@ export default function LeadDetailPage() {
     { key: 'technical', label: 'Technical Inputs' },
     { key: 'commercial', label: 'Commercial' },
     { key: 'feasibility', label: `Feasibility Teams (${teamAssignments.length})` },
+    { key: 'costing', label: 'Solution & Costing' },
     { key: 'documents', label: `Documents (${documents.length})` },
     { key: 'communication', label: `Customer Comm. (${activities.length})` },
     { key: 'timeline', label: 'Activity Timeline' },
@@ -782,6 +799,33 @@ export default function LeadDetailPage() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {activeTab === 'costing' && (
+        <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
+          <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-2">Solution & Costing</h3>
+          {lead.costing ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-slate-300">
+                <div>Status: <span className="font-bold text-slate-100">{lead.costing.status}</span></div>
+                <div>Total: <span className="font-bold text-emerald-400">{formatInrCompact(lead.costing.total_estimated_cost)}</span></div>
+                <div>Stage: <span className="font-medium text-slate-200">{LEAD_STATUS_LABELS[lead.status] || lead.status}</span></div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
+                <div>BOM / components: <span className="text-slate-100">{lead.costing.bom_components || '—'}</span></div>
+                <div>Vendor requirements: <span className="text-slate-100">{lead.costing.vendor_requirements || '—'}</span></div>
+                <div>Component costs: <span className="text-slate-100">{formatInrCompact(lead.costing.component_costs)}</span></div>
+                <div>Procurement costs: <span className="text-slate-100">{formatInrCompact(lead.costing.procurement_costs)}</span></div>
+                <div>Engineering costs: <span className="text-slate-100">{formatInrCompact(lead.costing.engineering_costs)}</span></div>
+                <div>Software costs: <span className="text-slate-100">{formatInrCompact(lead.costing.software_costs)}</span></div>
+              </div>
+            </>
+          ) : (
+            <div className="p-8 text-center text-slate-500">
+              Costing is not started yet. It appears after feasibility is approved. Use the Solution &amp; Costing panel above this lead when the opportunity reaches costing.
+            </div>
+          )}
         </div>
       )}
 

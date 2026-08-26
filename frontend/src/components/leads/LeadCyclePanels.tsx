@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
-import { canHandleCommercial, canPerformPmOperations, canPrepareCosting } from '@/lib/rbac';
+import { canHandleCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
 import { formatInrCompact } from '@/lib/format';
 import {
@@ -53,7 +53,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     || (currentUser.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head')
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
   const isAssignedTL = currentUser.role_code === 'TEAM_LEAD' && (lead.assigned_team_lead_id === currentUser.id || currentUser.team_id === lead.assigned_team_id);
+  const canFeasibility = canPrepareFeasibility(currentUser) && (
+    isAssignedTL ||
+    currentUser.team_id === lead.assigned_team_id ||
+    lead.assigned_team_lead_id === currentUser.id
+  );
+  const canViewFeasibility = canFeasibility || isPM || isCeoViewOnly(currentUser) || ['CTO', 'ENG_DIRECTOR', 'BUSINESS_HEAD'].includes(currentUser.role_code);
   const canCost = canPrepareCosting(currentUser);
+  const canViewCosting = canCost || isPM || isOwner || isCeoViewOnly(currentUser) || ['CTO', 'ENG_DIRECTOR'].includes(currentUser.role_code);
   const approvedFeasibility = lead.feasibility_study?.status === 'APPROVED';
   const approvedCosting = lead.costing?.status === 'APPROVED';
 
@@ -198,7 +205,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {(isAssignedTL || isPM) && ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED', 'FEASIBILITY_SUBMITTED'].includes(lead.status) && (
+      {canViewFeasibility && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED', 'FEASIBILITY_SUBMITTED'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <h3 className="flex items-center gap-2 text-sm font-bold text-slate-100"><FileText className="h-4 w-4 text-cyan-400" /> Feasibility Study</h3>
@@ -209,7 +216,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               <AlertTriangle className="mr-1 inline h-4 w-4" /> {lead.feasibility_return_reason || 'PM returned this feasibility for correction.'}
             </div>
           )}
-          {field('Technical feasibility', study.technical_feasibility, (v) => setStudy({ ...study, technical_feasibility: v }), 3, approvedFeasibility && !isAssignedTL)}
+          {field('Technical feasibility', study.technical_feasibility, (v) => setStudy({ ...study, technical_feasibility: v }), 3, approvedFeasibility || !canFeasibility)}
           {field('Required resources', study.required_resources, (v) => setStudy({ ...study, required_resources: v }), 2, approvedFeasibility)}
           {field('Proposed solution', study.proposed_solution, (v) => setStudy({ ...study, proposed_solution: v }), 3, approvedFeasibility)}
           {field('Major constraints', study.major_constraints, (v) => setStudy({ ...study, major_constraints: v }), 2, approvedFeasibility)}
@@ -219,7 +226,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           </div>
           {field('Technical assumptions', study.technical_assumptions, (v) => setStudy({ ...study, technical_assumptions: v }), 2, approvedFeasibility)}
           {field('Team remarks', study.team_remarks, (v) => setStudy({ ...study, team_remarks: v }), 2, approvedFeasibility)}
-          {isAssignedTL && !approvedFeasibility && lead.status !== 'FEASIBILITY_SUBMITTED' && (
+          {canFeasibility && !approvedFeasibility && lead.status !== 'FEASIBILITY_SUBMITTED' && (
             <div className="flex flex-wrap items-center gap-2">
               <input
                 value={feasibilityDoc}
@@ -257,7 +264,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {(canCost || isPM || isOwner) && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED', 'COSTING_SUBMITTED', 'QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
+      {canViewCosting && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED', 'COSTING_SUBMITTED', 'QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
             <Calculator className="h-4 w-4 text-cyan-400" /> Procurement / Costing

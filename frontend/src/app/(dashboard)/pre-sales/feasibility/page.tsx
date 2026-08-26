@@ -56,14 +56,16 @@ export default function FeasibilityStudiesPage() {
   if (!currentUser) return null;
 
   const isPM = currentUser.role_code === 'PROJECT_MANAGER' || currentUser.role_code === 'SYSTEM_ADMIN';
-  const isViewer = currentUser.role_code === 'CEO' || isPM;
+  const isViewer = ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'PROCUREMENT'].includes(currentUser.role_code) || isPM;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
 
   const visible = assignments.filter(a => {
     if (isViewer) return true;
     if (isTL) return a.team_lead_id === currentUser.id || a.team_id === currentUser.team_id;
-    // Employee: show allocations via my-work page
-    return false;
+    if (a.team_id && a.team_id === currentUser.team_id) return true;
+    return StorageService.getFeasibilityAllocationsByAssignmentId(a.id).some(
+      (allocation) => allocation.employee_id === currentUser.id
+    );
   });
   const tlPending = visible.filter((a) => a.status === 'PENDING_TEAM_LEAD_REVIEW');
   const isCEO = currentUser.role_code === 'CEO';

@@ -34,6 +34,8 @@ export function isAllowedWorkEmail(email: string): boolean {
   return allowed.includes(domain);
 }
 
+export { isSmokeTestAccount } from './smokeTestAccounts.js';
+
 export function effectiveAccountStatus(user: User): AccountStatus {
   if (user.status === 'INACTIVE') return 'DISABLED';
   if (user.account_status === 'DISABLED') return 'DISABLED';

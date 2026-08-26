@@ -22,22 +22,19 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     name: 'Leads & Pipeline',
     href: '/pre-sales/leads',
     iconName: 'Building2',
-    category: 'pre_sales',
-    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SALES', 'SYSTEM_ADMIN']
+    category: 'pre_sales'
   },
   {
     name: 'Feasibility Studies',
     href: '/pre-sales/feasibility',
     iconName: 'Scan',
-    category: 'pre_sales',
-    allowedRoles: ['CEO', 'CTO', 'PROJECT_MANAGER', 'ENG_DIRECTOR', 'TEAM_LEAD', 'EMPLOYEE', 'SYSTEM_ADMIN']
+    category: 'pre_sales'
   },
   {
     name: 'Solution & Costing',
     href: '/pre-sales/costing',
     iconName: 'Calculator',
-    category: 'pre_sales',
-    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'PROCUREMENT', 'SYSTEM_ADMIN']
+    category: 'pre_sales'
   },
   {
     name: 'Active Projects',

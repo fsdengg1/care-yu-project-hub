@@ -58,7 +58,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   PROJECT_ENGINEER: ['view:leads', 'create:task', 'view:projects', 'view:notifications', 'submit:daily-update', 'view:daily-updates'],
   TEAM_LEAD: ['view:leads', 'create:task', 'assign:task', 'create:feasibility', 'view:notifications', 'submit:daily-update', 'view:daily-updates', 'view:projects'],
   EMPLOYEE: ['view:leads', 'submit:daily-update', 'create:feasibility', 'view:notifications', 'view:daily-updates', 'view:projects'],
-  EXECUTION: ['submit:daily-update', 'view:notifications', 'view:daily-updates', 'view:projects'],
+  EXECUTION: ['view:leads', 'submit:daily-update', 'view:notifications', 'view:daily-updates', 'view:projects'],
   PROCUREMENT: ['view:leads', 'view:projects', 'create:costing', 'view:notifications', 'submit:daily-update', 'view:daily-updates'],
   SYSTEM_ADMIN: ['*'],
 };

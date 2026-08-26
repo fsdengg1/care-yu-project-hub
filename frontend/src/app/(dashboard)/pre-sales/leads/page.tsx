@@ -71,18 +71,28 @@ export default function LeadsListPage() {
   const isPM = currentUser.role_code === 'PROJECT_MANAGER';
   const isBH = currentUser.role_code === 'BUSINESS_HEAD';
   const isED = currentUser.role_code === 'ENG_DIRECTOR';
+  const isCTO = currentUser.role_code === 'CTO';
+  const isTL = currentUser.role_code === 'TEAM_LEAD';
+  const isProcurement = currentUser.role_code === 'PROCUREMENT';
+  const isEmployee = currentUser.role_code === 'EMPLOYEE' || currentUser.role_code === 'PROJECT_ENGINEER' || currentUser.role_code === 'EXECUTION';
 
   const visibleLeads = leads.filter(lead => {
-    // Role level check
-    if (isCEO || isAdmin || isPM) {
-      // CEO/Admin/PM see all leads
+    if (isCEO || isAdmin || isPM || isCTO) {
+      // Leadership / PM see the full pipeline
     } else if (isBH) {
       if (lead.business_vertical !== 'Business Head' && lead.created_by_id !== currentUser.id) return false;
     } else if (isED) {
       if (lead.business_vertical !== 'Engineering Director' && lead.created_by_id !== currentUser.id) return false;
-    } else {
-      // Sales / Creator
-      if (lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) return false;
+    } else if (isTL) {
+      if (lead.assigned_team_id !== currentUser.team_id && lead.assigned_team_lead_id !== currentUser.id) return false;
+    } else if (isProcurement) {
+      if (!['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'QUOTATION', 'NEGOTIATION'].includes(lead.status) && lead.pipeline_stage !== 'COSTING') {
+        return false;
+      }
+    } else if (isEmployee) {
+      if (lead.assigned_team_id !== currentUser.team_id) return false;
+    } else if (lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) {
+      return false;
     }
 
     // Search query
