@@ -26,7 +26,21 @@ backend/data/db.json
 
 # misc
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
 *.pem
+*.key
+*.p12
+*.pfx
+
+# IDE
+.idea/
+.vscode/
+.cursor/
+
+# logs
+*.log
 
 # debug
 npm-debug.log*

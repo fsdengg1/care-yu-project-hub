@@ -64,15 +64,7 @@ export default function SettingsPage() {
       setUser(result.data.user);
       StorageService.setCurrentUser(result.data.user);
       if (result.data.user.notification_preferences) {
-        setPrefs({
-          email_enabled: true,
-          in_app_enabled: true,
-          assignment: true,
-          forward: true,
-          reminder: true,
-          approval: true,
-          ...result.data.user.notification_preferences,
-        });
+        setPrefs((current) => ({ ...current, ...result.data.user.notification_preferences }));
       }
       if (['SYSTEM_ADMIN', 'CEO', 'CTO'].includes(result.data.user.role_code)) {
         void apiRequest<{

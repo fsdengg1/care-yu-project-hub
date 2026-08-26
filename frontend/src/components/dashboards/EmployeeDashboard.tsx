@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { User, WorkAssignment, DailyUpdateSummary } from '@/lib/types';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { formatLongDate, WORK_STATUS_LABELS } from '@/lib/format';
-import { CheckSquare, Inbox } from 'lucide-react';
+import { CheckSquare, Inbox, Plus } from 'lucide-react';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 
 export default function EmployeeDashboard({ user }: { user: User }) {
