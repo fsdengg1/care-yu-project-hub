@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts",
-    "build": "tsc --noEmit",
+    "start": "node dist/index.js",
+    "build": "tsc && node -e \"console.log('Backend compiled to dist/')\"",
+    "typecheck": "tsc --noEmit",
     "db:ensure": "tsx scripts/ensure-database.ts",
     "db:migrate": "tsx scripts/migrate-to-postgres.ts",
     "db:migrate:force": "tsx scripts/migrate-to-postgres.ts --force-local",
