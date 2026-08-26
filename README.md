@@ -28,5 +28,4 @@ npm run dev
 
 - Frontend: http://localhost:3000/login
 - Backend: http://localhost:4000/api/health
-
-Sign in with any seeded work email and password `Careyu@123`.
+`.
