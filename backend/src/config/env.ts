@@ -79,6 +79,42 @@ function firstEmailAddress(raw: string | undefined, fallback: string): string {
   return parseEmailList(raw)[0] || fallback;
 }
 
+function normalizeOrigin(value: string): string {
+  return value.trim().replace(/\/$/, '');
+}
+
+function localhostAlias(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (url.hostname === 'localhost') {
+      url.hostname = '127.0.0.1';
+      return url.origin;
+    }
+    if (url.hostname === '127.0.0.1') {
+      url.hostname = 'localhost';
+      return url.origin;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseCorsOrigins(): string[] {
+  const listed = (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
+    .split(',')
+    .map(normalizeOrigin)
+    .filter(Boolean);
+  const frontend = normalizeOrigin(process.env.FRONTEND_URL ?? '');
+  const origins = new Set(listed);
+  if (frontend) origins.add(frontend);
+  for (const origin of [...origins]) {
+    const alias = localhostAlias(origin);
+    if (alias) origins.add(alias);
+  }
+  return [...origins];
+}
+
 export const env = {
   port: Number(process.env.PORT ?? 4000),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -123,10 +159,7 @@ export const env = {
   enableDevRolePreview:
     (process.env.ENABLE_DEV_ROLE_PREVIEW ?? 'false').toLowerCase() === 'true' &&
     (process.env.NODE_ENV ?? 'development') !== 'production',
-  corsOrigins: (process.env.CORS_ORIGIN ?? 'http://localhost:3000')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  corsOrigins: parseCorsOrigins(),
   reminderAfterHours: Number(process.env.REMINDER_AFTER_HOURS ?? 24),
   maxReminders: Number(process.env.MAX_REMINDERS ?? 3),
   escalationAfterReminders: Number(process.env.ESCALATION_AFTER_REMINDERS ?? 3),

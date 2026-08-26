@@ -9,6 +9,7 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Careyu Automation — Project Management Tool",
   description: "Manage projects, teams and execution in one place.",
+  referrer: "same-origin",
 };
 
 export default function RootLayout({

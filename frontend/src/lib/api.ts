@@ -1,6 +1,30 @@
 import { StorageService } from './storage';
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+function isLoopbackHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function resolveApiBaseUrl() {
+  const configured = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '');
+
+  if (typeof window !== 'undefined') {
+    const { hostname, origin } = window.location;
+    if (isLoopbackHost(hostname)) {
+      return '';
+    }
+    if (!configured) return '';
+    try {
+      if (new URL(configured).origin === origin) return '';
+    } catch {
+      return '';
+    }
+    return configured;
+  }
+
+  return configured;
+}
+
+export const API_URL = resolveApiBaseUrl();
 
 export async function apiRequest<T>(
   path: string,
@@ -19,6 +43,8 @@ export async function apiRequest<T>(
     const response = await fetch(`${API_URL}${path}`, {
       ...options,
       headers,
+      credentials: 'same-origin',
+      referrerPolicy: 'same-origin',
     });
 
     const payload = await response.json().catch(() => ({}));

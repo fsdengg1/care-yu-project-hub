@@ -23,36 +23,60 @@ import emailRouter from './routes/email.js';
 
 const app = express();
 
+function isLoopbackHost(hostname: string) {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function isPrivateLanHost(hostname: string) {
+  return (
+    /^10\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname)
+  );
+}
+
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) return true;
-  if (env.corsOrigins.includes(origin)) return true;
-  if (env.nodeEnv === 'production') return false;
+  const incoming = origin.replace(/\/$/, '');
+  if (env.corsOrigins.includes(incoming)) return true;
   try {
-    const url = new URL(origin);
+    const url = new URL(incoming);
+    const swapped = new URL(incoming);
+    if (url.hostname === 'localhost') swapped.hostname = '127.0.0.1';
+    else if (url.hostname === '127.0.0.1') swapped.hostname = 'localhost';
+    if (swapped.origin !== url.origin && env.corsOrigins.includes(swapped.origin)) return true;
+    if (env.nodeEnv === 'production') return false;
     if (!['http:', 'https:'].includes(url.protocol)) return false;
-    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '::1') return true;
-    if (/^10\./.test(url.hostname) || /^192\.168\./.test(url.hostname)) return true;
-    if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(url.hostname)) return true;
-    return false;
+    return isLoopbackHost(url.hostname) || isPrivateLanHost(url.hostname);
   } catch {
     return false;
   }
 }
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (isAllowedOrigin(origin)) {
-        callback(null, origin || true);
-        return;
-      }
-      callback(null, false);
-    },
-    credentials: true,
-    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, origin || true);
+      return;
+    }
+    callback(null, false);
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+  exposedHeaders: ['Content-Type'],
+  optionsSuccessStatus: 204,
+  maxAge: 86400,
+};
+
+app.use((_req, res, next) => {
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  next();
+});
+app.use(cors(corsOptions));
+app.options('/{*path}', cors(corsOptions));
 app.use(express.json({ limit: '20mb' }));
 
 app.get('/api/health', (_req, res) => {
