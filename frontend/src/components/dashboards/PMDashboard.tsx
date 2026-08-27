@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { User, DailyUpdate, DailyUpdateSummary, WorkAssignment } from '@/lib/types';
+import { User, DailyUpdate, DailyUpdateSummary, FeasibilitySuggestion, FeasibilityTeamAssignment, WorkAssignment } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
+import { LeadApi } from '@/lib/leadApi';
 import { formatLongDate, WORK_STATUS_LABELS } from '@/lib/format';
 import { GanttChartSquare, Scan, ShieldAlert, MessageSquare, Inbox, ArrowRight, FileText, Clock } from 'lucide-react';
 import Link from 'next/link';
@@ -17,8 +18,8 @@ function statusClass(status: string) {
 }
 
 export default function PMDashboard({ user }: { user: User }) {
-  const [assignments, setAssignments] = useState(StorageService.getFeasibilityTeamAssignments());
-  const [suggestions, setSuggestions] = useState(StorageService.getFeasibilitySuggestions());
+  const [assignments, setAssignments] = useState<FeasibilityTeamAssignment[]>([]);
+  const [suggestions, setSuggestions] = useState<FeasibilitySuggestion[]>([]);
   const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
   const [updates, setUpdates] = useState<DailyUpdate[]>([]);
   const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([]);
@@ -26,6 +27,9 @@ export default function PMDashboard({ user }: { user: User }) {
 
   useEffect(() => {
     void (async () => {
+      await LeadApi.list();
+      setAssignments(StorageService.getFeasibilityTeamAssignments());
+      setSuggestions(StorageService.getFeasibilitySuggestions());
       const [nextSummary, list] = await Promise.all([DailyUpdatesApi.summary(), DailyUpdatesApi.list()]);
       setSummary(nextSummary);
       setUpdates(list.updates.filter((item) => item.submission_status === 'SUBMITTED'));

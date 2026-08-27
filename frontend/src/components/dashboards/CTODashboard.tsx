@@ -1,10 +1,29 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Cpu, Layers, ShieldCheck, Workflow } from 'lucide-react';
-import { User } from '@/lib/types';
+import { Team, User } from '@/lib/types';
+import { apiRequest } from '@/lib/api';
 
 export default function CTODashboard({ user }: { user: User }) {
+  const [teamCount, setTeamCount] = useState(0);
+
+  useEffect(() => {
+    void (async () => {
+      const result = await apiRequest<{ teams: Team[] }>('/api/teams');
+      if (result.ok) {
+        setTeamCount(result.data.teams.filter((team) => team.status === 'ACTIVE').length);
+      }
+    })();
+  }, []);
+
+  const cards = [
+    { label: 'Engineering Workstreams', value: '0', note: 'No active technical streams', icon: Workflow },
+    { label: 'Platform Delivery', value: '0', note: 'No in-flight platform work', icon: Layers },
+    { label: 'Quality Gates', value: 'On Track', note: 'No open architecture risks', icon: ShieldCheck },
+    { label: 'Teams Reporting', value: String(teamCount), note: teamCount ? 'Active functional teams' : 'No teams reporting yet', icon: Cpu },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900 to-blue-950/40 p-6 md:flex-row md:items-center md:justify-between">
@@ -20,12 +39,7 @@ export default function CTODashboard({ user }: { user: User }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: 'Engineering Workstreams', value: '0', note: 'No active technical streams', icon: Workflow },
-          { label: 'Platform Delivery', value: '0', note: 'No in-flight platform work', icon: Layers },
-          { label: 'Quality Gates', value: 'On Track', note: 'No open architecture risks', icon: ShieldCheck },
-          { label: 'Teams Reporting', value: '5', note: 'Software, Vision, Robotics, Proc., Exec.', icon: Cpu },
-        ].map((card) => {
+        {cards.map((card) => {
           const Icon = card.icon;
           return (
             <div key={card.label} className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-sm">

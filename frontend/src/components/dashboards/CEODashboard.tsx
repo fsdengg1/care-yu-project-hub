@@ -257,7 +257,14 @@ export default function CEODashboard({ user }: DashboardProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800 text-slate-300">
-                {(data?.projects.items ?? []).map((project) => (
+                {(data?.projects.items ?? []).length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-xs text-slate-500">
+                      No projects found.
+                    </td>
+                  </tr>
+                ) : (
+                  (data?.projects.items ?? []).map((project) => (
                   <tr key={project.id} className="cursor-pointer hover:bg-slate-800/40">
                     <td className="py-2">
                       <Link href="/projects/active" className="font-semibold text-slate-100">
@@ -271,7 +278,8 @@ export default function CEODashboard({ user }: DashboardProps) {
                     </td>
                     <td className="py-2 text-slate-400">{project.issue || '—'}</td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -307,6 +315,9 @@ export default function CEODashboard({ user }: DashboardProps) {
             );
           })}
         </div>
+        {(data?.pipeline.activeLeads ?? 0) === 0 && (
+          <p className="mt-4 text-center text-xs text-slate-500">No leads in the pipeline yet.</p>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
@@ -351,7 +362,10 @@ export default function CEODashboard({ user }: DashboardProps) {
             </span>
           </div>
           <div className="space-y-3">
-            {openEscalations.map((item) => (
+            {openEscalations.length === 0 ? (
+              <p className="text-xs text-slate-500">No open escalations.</p>
+            ) : (
+              openEscalations.map((item) => (
               <Link
                 key={item.id}
                 href={`/dashboard/ceo/escalations/${item.id}`}
@@ -367,7 +381,8 @@ export default function CEODashboard({ user }: DashboardProps) {
                   <span>{formatRelativeTime(item.created_at)}</span>
                 </div>
               </Link>
-            ))}
+              ))
+            )}
           </div>
         </section>
 

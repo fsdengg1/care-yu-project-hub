@@ -340,7 +340,12 @@ export default function LeadsListPage() {
                 <tr>
                   <td colSpan={8} className="p-12 text-center text-slate-500 text-xs">
                     <Inbox className="w-8 h-8 mx-auto mb-2 text-slate-600" />
-                    No Leads created yet.
+                    <p>No leads found.</p>
+                    {canCreateLead(currentUser) && (
+                      <Link href="/pre-sales/leads/create" className="mt-3 inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-cyan-500">
+                        <Plus className="h-3.5 w-3.5" /> Create New Lead
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ) : (

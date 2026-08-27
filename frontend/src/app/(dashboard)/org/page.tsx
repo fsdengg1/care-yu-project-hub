@@ -18,6 +18,7 @@ import EmployeeActionModal, {
 } from '@/components/org/EmployeeActionModal';
 import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports } from '@/components/org/orgHierarchy';
 import { UsersApi } from '@/lib/usersApi';
+import { LeadApi } from '@/lib/leadApi';
 
 type Selection =
   | { kind: 'person'; nodeId: string; userId: string; reportingContextId?: string }
@@ -56,7 +57,7 @@ export default function OrganizationManagementPage() {
     setRoles(StorageService.getRoles());
     setCurrentUser(StorageService.getCurrentUser());
 
-    const leads = StorageService.getLeads();
+    const leads = await LeadApi.list();
     setActiveProjects(leads.filter((lead) => ACTIVE_PROJECT_STATUSES.has(lead.status)).length);
 
     const assignments = StorageService.getFeasibilityTeamAssignments();

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
 import { publicUser, isPendingSignupOnly, isSmokeTestAccount } from '../lib/authUser.js';
-import { createUser, deleteUser, updateUser } from '../lib/users.js';
+import { createUser, deleteUser, updateOwnProfile, updateUser } from '../lib/users.js';
 import { store } from '../store/db.js';
 import { DEFAULT_NOTIFICATION_PREFERENCES, userPreferences } from '../lib/responsibility.js';
 import { NotificationPreferences } from '../types.js';
@@ -49,6 +49,13 @@ router.patch('/me/notification-preferences', requireAuth, (req: AuthedRequest, r
   };
   store.saveUsers(users);
   return res.json({ user: publicUser(users[index]) });
+});
+
+router.patch('/me', requireAuth, (req: AuthedRequest, res) => {
+  const result = updateOwnProfile(req.user!, req.body || {});
+  if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'User not found.' });
+  if ('error' in result) return res.status(400).json({ message: result.error });
+  return res.json({ user: publicUser(result.user) });
 });
 
 router.post('/', requireAuth, requirePermission('manage:users'), (req: AuthedRequest, res) => {

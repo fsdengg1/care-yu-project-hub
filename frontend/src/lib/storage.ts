@@ -1,4 +1,4 @@
-import { INITIAL_USERS, INITIAL_ROLES, INITIAL_TEAMS, INITIAL_AUDITS, INITIAL_NOTIFICATIONS } from './seedData';
+import { INITIAL_USERS, INITIAL_ROLES, INITIAL_TEAMS } from './seedData';
 import {
   User,
   Role,
@@ -22,21 +22,20 @@ const STORAGE_KEYS = {
   USERS: 'cya_users_v6',
   ROLES: 'cya_roles_v6',
   TEAMS: 'cya_teams_v6',
-  AUDITS: 'cya_audits_v6',
-  NOTIFS: 'cya_notifs_v6',
+  AUDITS: 'cya_audits_v7',
+  NOTIFS: 'cya_notifs_v7',
   CURRENT_USER: 'cya_current_user_v6',
   AUTH_TOKEN: 'cya_auth_token_v6',
   SETUP_TOKEN: 'cya_password_setup_token',
-  LEADS: 'cya_leads_v6',
-  LEAD_ACTIVITIES: 'cya_lead_activities_v6',
-  LEAD_COMMENTS: 'cya_lead_comments_v6',
-  LEAD_STATUS_HISTORY: 'cya_lead_history_v6',
-  LEAD_DOCUMENTS: 'cya_lead_documents_v6',
-  // Phase 3A corrected entities
-  FEASIBILITY_TEAM_ASSIGNMENTS: 'cya_fta_v6',
-  FEASIBILITY_EMPLOYEE_ALLOCATIONS: 'cya_fea_v6',
-  FEASIBILITY_SUGGESTIONS: 'cya_fs_v6',
-  TASKS: 'cya_tasks_v6',
+  LEADS: 'cya_leads_v7',
+  LEAD_ACTIVITIES: 'cya_lead_activities_v7',
+  LEAD_COMMENTS: 'cya_lead_comments_v7',
+  LEAD_STATUS_HISTORY: 'cya_lead_history_v7',
+  LEAD_DOCUMENTS: 'cya_lead_documents_v7',
+  FEASIBILITY_TEAM_ASSIGNMENTS: 'cya_fta_v7',
+  FEASIBILITY_EMPLOYEE_ALLOCATIONS: 'cya_fea_v7',
+  FEASIBILITY_SUGGESTIONS: 'cya_fs_v7',
+  TASKS: 'cya_tasks_v7',
 };
 
 export class StorageService {
@@ -118,13 +117,9 @@ export class StorageService {
   // AUDIT LOG
   // ============================================================
   static getAudits(): AuditLog[] {
-    if (!this.isBrowser) return INITIAL_AUDITS;
+    if (!this.isBrowser) return [];
     const stored = localStorage.getItem(STORAGE_KEYS.AUDITS);
-    if (!stored) {
-      localStorage.setItem(STORAGE_KEYS.AUDITS, JSON.stringify(INITIAL_AUDITS));
-      return INITIAL_AUDITS;
-    }
-    return JSON.parse(stored);
+    return stored ? JSON.parse(stored) : [];
   }
 
   static logAudit(audit: Omit<AuditLog, 'id' | 'created_at'>) {
@@ -139,10 +134,9 @@ export class StorageService {
   // NOTIFICATIONS
   // ============================================================
   static getNotifications(recipientId?: string): NotificationItem[] {
-    if (!this.isBrowser) return INITIAL_NOTIFICATIONS;
+    if (!this.isBrowser) return [];
     const stored = localStorage.getItem(STORAGE_KEYS.NOTIFS);
-    let notifs: NotificationItem[] = stored ? JSON.parse(stored) : INITIAL_NOTIFICATIONS;
-    if (!stored) localStorage.setItem(STORAGE_KEYS.NOTIFS, JSON.stringify(INITIAL_NOTIFICATIONS));
+    const notifs: NotificationItem[] = stored ? JSON.parse(stored) : [];
     if (recipientId) return notifs.filter(n => n.recipient_id === recipientId || recipientId === 'u-ceo');
     return notifs;
   }

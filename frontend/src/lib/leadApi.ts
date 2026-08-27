@@ -40,16 +40,13 @@ async function call<T>(path: string, options?: RequestInit) {
 
 export const LeadApi = {
   async list(): Promise<Lead[]> {
-    const result = await call<{ leads: Lead[] }>('/api/leads');
-    if (!result.ok) return StorageService.getLeads();
-    const local = StorageService.getLeads();
-    const byId = new Map(result.data.leads.map((lead) => [lead.id, lead]));
-    for (const lead of local) {
-      if (!byId.has(lead.id)) byId.set(lead.id, lead);
+    const result = await call<{ leads: Lead[]; assignments?: FeasibilityTeamAssignment[] }>('/api/leads');
+    if (!result.ok) return [];
+    StorageService.saveLeads(result.data.leads);
+    if (result.data.assignments) {
+      StorageService.saveFeasibilityTeamAssignments(result.data.assignments);
     }
-    const merged = Array.from(byId.values());
-    StorageService.saveLeads(merged);
-    return merged;
+    return result.data.leads;
   },
 
   async get(id: string): Promise<LeadWorkflowPayload | null> {
@@ -76,8 +73,7 @@ export const LeadApi = {
       body: JSON.stringify(body),
     });
     if (result.ok) return syncPayload(result.data);
-    const created = StorageService.createLead(body as Omit<Lead, 'id' | 'lead_number' | 'created_at' | 'updated_at'>);
-    return { lead: created } as LeadWorkflowPayload;
+    return null;
   },
 
   async update(id: string, body: Partial<Lead>) {
@@ -86,10 +82,7 @@ export const LeadApi = {
       body: JSON.stringify(body),
     });
     if (result.ok) return syncPayload(result.data);
-    const user = StorageService.getCurrentUser();
-    if (!user) return null;
-    const lead = StorageService.updateLead(id, body, user.id, user.name);
-    return { lead } as LeadWorkflowPayload;
+    return null;
   },
 
   async submit(id: string) {

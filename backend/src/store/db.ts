@@ -34,19 +34,7 @@ import {
   Team,
   User,
 } from '../types.js';
-import {
-  INITIAL_ROLES,
-  INITIAL_TEAMS,
-  INITIAL_USERS,
-  INITIAL_AUDITS,
-  INITIAL_NOTIFICATIONS,
-  INITIAL_LEADS,
-  INITIAL_PROJECTS,
-  INITIAL_ESCALATIONS,
-  INITIAL_PROCUREMENT_REQUESTS,
-  INITIAL_TASKS,
-  INITIAL_DAILY_UPDATES,
-} from '../data/seed.js';
+import { INITIAL_ROLES, INITIAL_TEAMS, INITIAL_USERS } from '../data/seed.js';
 import {
   COLLECTION_NAMES,
   CollectionName,
@@ -91,7 +79,46 @@ interface DbShape {
   assignmentHistory: AssignmentHistory[];
   notificationDeliveries: NotificationDelivery[];
   pendingSignups: PendingSignup[];
+  systemMeta: SystemMetaRecord[];
 }
+
+interface SystemMetaRecord {
+  id: string;
+  demoOperationalPurgedAt?: string;
+}
+
+const LIVE_META_ID = 'pms-live';
+
+const OPERATIONAL_COLLECTION_KEYS = [
+  'leads',
+  'projects',
+  'escalations',
+  'procurementRequests',
+  'audits',
+  'notifications',
+  'tasks',
+  'dailyUpdates',
+  'leadDocuments',
+  'leadComments',
+  'leadActivities',
+  'leadStatusHistory',
+  'feasibilityTeamAssignments',
+  'feasibilityEmployeeAllocations',
+  'projectPhases',
+  'conversations',
+  'conversationParticipants',
+  'chatMessages',
+  'entityDocuments',
+  'stageTransitions',
+  'outboundEmails',
+  'forumPosts',
+  'forumComments',
+  'forumReactions',
+  'forumTags',
+  'forumLiveMessages',
+  'assignmentHistory',
+  'notificationDeliveries',
+] as const;
 
 const localDbPath = path.join(process.cwd(), 'data', 'db.json');
 
@@ -99,22 +126,32 @@ let cache: DbShape | null = null;
 let writeChain: Promise<void> = Promise.resolve();
 let initialized = false;
 
-function mergeProjects(stored: Project[] | undefined, seed: Project[]): Project[] {
-  return mergeById(stored, seed).map((project) => {
-    const fromSeed = seed.find((item) => item.id === project.id);
-    if (!fromSeed) return project;
-    return {
-      ...project,
-      value: project.value ?? fromSeed.value,
-      start_date: project.start_date || fromSeed.start_date,
-      target_completion: project.target_completion || fromSeed.target_completion,
-      current_phase: project.current_phase || fromSeed.current_phase,
-      lead_id: project.lead_id || fromSeed.lead_id,
-      team_ids: project.team_ids?.length ? project.team_ids : fromSeed.team_ids,
-      team_lead_id: project.team_lead_id || fromSeed.team_lead_id,
-      team_lead_name: project.team_lead_name || fromSeed.team_lead_name,
-    };
+function isDemoOperationalPurged(parsed: Partial<DbShape>): boolean {
+  return (parsed.systemMeta ?? []).some((item) => item.id === LIVE_META_ID && Boolean(item.demoOperationalPurgedAt));
+}
+
+function hasOperationalRecords(parsed: Partial<DbShape>): boolean {
+  return OPERATIONAL_COLLECTION_KEYS.some((key) => {
+    const value = parsed[key];
+    return Array.isArray(value) && value.length > 0;
   });
+}
+
+function withPurgedOperationalData(parsed: Partial<DbShape>): Partial<DbShape> {
+  const next: Partial<DbShape> = { ...parsed };
+  for (const key of OPERATIONAL_COLLECTION_KEYS) {
+    next[key] = [];
+  }
+  next.systemMeta = [{ id: LIVE_META_ID, demoOperationalPurgedAt: new Date().toISOString() }];
+  return next;
+}
+
+function prepareLiveOperationalData(parsed: Partial<DbShape>): Partial<DbShape> {
+  if (isDemoOperationalPurged(parsed)) return parsed;
+  if (hasOperationalRecords(parsed)) {
+    console.info('[store] Purging demo/sample operational collections for live production');
+  }
+  return withPurgedOperationalData(parsed);
 }
 
 function mergeById<T extends { id: string }>(stored: T[] | undefined, seed: T[]): T[] {
@@ -187,31 +224,8 @@ function alignStoredLead(lead: Lead): Lead {
   return lead;
 }
 
-function mergeLeads(stored: Lead[] | undefined, seed: Lead[]): Lead[] {
-  const current = stored ?? [];
-  const known = new Set(current.map((item) => item.id));
-  const merged = [...current, ...seed.filter((item) => !known.has(item.id))];
-  return merged.map((lead) => {
-    const userModified = Boolean(lead.updated_at && lead.created_at && lead.updated_at !== lead.created_at);
-    if (userModified) return alignStoredLead(lead);
-    const fromSeed = seed.find((item) => item.id === lead.id);
-    if (!fromSeed) return alignStoredLead(lead);
-    return alignStoredLead({
-      ...lead,
-      status: fromSeed.status,
-      pipeline_stage: fromSeed.pipeline_stage,
-      expected_value: lead.expected_value ?? fromSeed.expected_value,
-      estimated_opportunity_value: lead.estimated_opportunity_value ?? fromSeed.estimated_opportunity_value,
-    });
-  });
-}
-
-function mergeAudits(stored: AuditLog[] | undefined, seed: AuditLog[]): AuditLog[] {
-  return mergeById(stored, seed).map((log) => {
-    const fromSeed = seed.find((item) => item.id === log.id);
-    if (!fromSeed?.entity_name) return log;
-    return { ...log, entity_name: fromSeed.entity_name };
-  });
+function normalizeLeads(stored: Lead[] | undefined): Lead[] {
+  return (stored ?? []).map(alignStoredLead);
 }
 
 function mergeTeams(stored: Team[] | undefined, seed: Team[]): Team[] {
@@ -275,6 +289,7 @@ function emptyDb(): DbShape {
     assignmentHistory: [],
     notificationDeliveries: [],
     pendingSignups: [],
+    systemMeta: [],
   };
 }
 
@@ -299,14 +314,14 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     users: mergeUsers(parsed.users, INITIAL_USERS),
     roles: mergeRoles(parsed.roles, INITIAL_ROLES),
     teams: mergeTeams(parsed.teams, INITIAL_TEAMS),
-    leads: mergeLeads(parsed.leads, INITIAL_LEADS),
-    projects: mergeProjects(parsed.projects, INITIAL_PROJECTS),
-    escalations: mergeById(parsed.escalations, INITIAL_ESCALATIONS),
-    procurementRequests: mergeById(parsed.procurementRequests, INITIAL_PROCUREMENT_REQUESTS),
-    audits: mergeAudits(parsed.audits, INITIAL_AUDITS),
-    notifications: mergeById(parsed.notifications, INITIAL_NOTIFICATIONS),
-    tasks: mergeById(parsed.tasks, INITIAL_TASKS),
-    dailyUpdates: mergeById(parsed.dailyUpdates, INITIAL_DAILY_UPDATES),
+    leads: normalizeLeads(parsed.leads),
+    projects: parsed.projects ?? [],
+    escalations: parsed.escalations ?? [],
+    procurementRequests: parsed.procurementRequests ?? [],
+    audits: parsed.audits ?? [],
+    notifications: parsed.notifications ?? [],
+    tasks: parsed.tasks ?? [],
+    dailyUpdates: parsed.dailyUpdates ?? [],
     leadDocuments: parsed.leadDocuments ?? [],
     leadComments: parsed.leadComments ?? [],
     leadActivities: parsed.leadActivities ?? [],
@@ -328,6 +343,9 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     assignmentHistory: parsed.assignmentHistory ?? [],
     notificationDeliveries: parsed.notificationDeliveries ?? [],
     pendingSignups: (parsed.pendingSignups ?? []).filter((item) => !isSmokeTestAccount(item)),
+    systemMeta: parsed.systemMeta?.length
+      ? parsed.systemMeta
+      : [{ id: LIVE_META_ID, demoOperationalPurgedAt: new Date().toISOString() }],
   });
 }
 
@@ -400,17 +418,12 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
       users: INITIAL_USERS,
       roles: INITIAL_ROLES,
       teams: INITIAL_TEAMS,
-      leads: INITIAL_LEADS,
-      projects: INITIAL_PROJECTS,
-      escalations: INITIAL_ESCALATIONS,
-      procurementRequests: INITIAL_PROCUREMENT_REQUESTS,
-      audits: INITIAL_AUDITS,
-      notifications: INITIAL_NOTIFICATIONS,
-      tasks: INITIAL_TASKS,
-      dailyUpdates: INITIAL_DAILY_UPDATES,
     };
     source = 'seed';
   }
+
+  parsed = prepareLiveOperationalData(parsed);
+  console.info('[store] Live production mode enabled (operational demo seed is not merged)');
 
   const merged = buildMergedDb(parsed);
   const removedIncomplete = (parsed.users ?? []).filter(isIncompleteSignupAccount).length;

@@ -18,13 +18,12 @@ export default function FeasibilityStudiesPage() {
   useEffect(() => {
     const u = StorageService.getCurrentUser();
     setCurrentUser(u);
-    const all = StorageService.getFeasibilityTeamAssignments();
-    setAssignments(all);
     void (async () => {
       const apiLeads = await LeadApi.list();
+      const storedAssignments = StorageService.getFeasibilityTeamAssignments();
       const fromLeads: FeasibilityTeamAssignment[] = apiLeads
         .filter((lead) => Boolean(lead.assigned_team_id) && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(lead.status))
-        .filter((lead) => !all.some((item) => item.lead_id === lead.id && item.team_id === lead.assigned_team_id))
+        .filter((lead) => !storedAssignments.some((item) => item.lead_id === lead.id && item.team_id === lead.assigned_team_id))
         .map((lead) => ({
           id: `fta-${lead.id}`,
           lead_id: lead.id,
@@ -42,7 +41,7 @@ export default function FeasibilityStudiesPage() {
           created_at: lead.updated_at,
           updated_at: lead.updated_at,
         }));
-      setAssignments([...all, ...fromLeads]);
+      setAssignments([...storedAssignments, ...fromLeads]);
       const map: Record<string, Lead> = {};
       apiLeads.forEach((l) => { map[l.id] = l; });
       setLeadsMap(map);
@@ -85,7 +84,7 @@ export default function FeasibilityStudiesPage() {
       return {
         lead,
         teams: teams.length ? teams.join(', ') : 'Unassigned',
-        owner: project?.pm_name || lead.sales_owner || 'Arivan',
+        owner: project?.pm_name || lead.sales_owner || '—',
       };
     });
 

@@ -1,5 +1,6 @@
 import { store } from '../store/db.js';
 import { Team, User } from '../types.js';
+import { isAllowedWorkEmail } from './authUser.js';
 import { newId } from './leadWorkflow.js';
 
 const PROTECTED_DELETE_ROLES = new Set(['CEO']);
@@ -149,6 +150,19 @@ export function updateUser(actor: User, userId: string, body: UserInput) {
   }
 
   users[index] = next;
+
+  if (next.name !== current.name) {
+    for (let i = 0; i < users.length; i += 1) {
+      if (users[i].id === next.id) continue;
+      if (users[i].reporting_manager_id === next.id) {
+        users[i] = { ...users[i], reporting_manager_name: next.name };
+      }
+      if (users[i].team_lead_id === next.id) {
+        users[i] = { ...users[i], team_lead_name: next.name };
+      }
+    }
+  }
+
   store.saveUsers(users);
 
   if (previousTeamId && previousTeamId !== next.team_id && current.role_code === 'TEAM_LEAD') {
@@ -167,6 +181,23 @@ export function updateUser(actor: User, userId: string, body: UserInput) {
     description: `${actor.name} updated ${next.name} (${next.role_name}).`,
   });
   return { user: next };
+}
+
+export function updateOwnProfile(actor: User, body: Pick<UserInput, 'name' | 'phone' | 'email'>) {
+  const name = body.name?.trim();
+  if (!name || name.length < 2) return { error: 'Please enter your full name.' } as const;
+
+  const input: UserInput = { name };
+  if (body.phone !== undefined) input.phone = body.phone;
+  if (body.email !== undefined) {
+    const email = body.email.trim().toLowerCase();
+    if (!isAllowedWorkEmail(email)) {
+      return { error: 'Please use your CareYu work email address.' } as const;
+    }
+    input.email = email;
+  }
+
+  return updateUser(actor, actor.id, input);
 }
 
 export function deleteUser(actor: User, userId: string) {

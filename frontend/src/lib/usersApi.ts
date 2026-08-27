@@ -67,6 +67,13 @@ export const UsersApi = {
     });
   },
 
+  async updateMe(body: Pick<UserPayload, 'name' | 'phone' | 'email'>) {
+    return apiRequest<{ user: User }>('/api/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
   async updateNotificationPreferences(body: NonNullable<User['notification_preferences']>) {
     return apiRequest<{ user: User }>('/api/users/me/notification-preferences', {
       method: 'PATCH',

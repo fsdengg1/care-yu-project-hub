@@ -1,23 +1,25 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { User } from '@/lib/types';
+import { DailyUpdateSummary, FeasibilityTeamAssignment, User } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
-import { DailyUpdateSummary } from '@/lib/types';
-import { Users, Scan, ArrowRight, Clock, CheckCircle2 } from 'lucide-react';
+import { LeadApi } from '@/lib/leadApi';
+import { Users, ArrowRight, Clock } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 
 export default function TeamLeadDashboard({ user }: { user: User }) {
-  const [assignments, setAssignments] = useState(StorageService.getFeasibilityTeamAssignmentsForTeamLead(user.id));
+  const [assignments, setAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
 
   useEffect(() => {
     void (async () => {
+      await LeadApi.list();
+      setAssignments(StorageService.getFeasibilityTeamAssignmentsForTeamLead(user.id));
       setSummary(await DailyUpdatesApi.summary());
     })();
-  }, []);
+  }, [user.id]);
 
   const pendingReview = assignments.filter(a => a.status === 'PENDING_TEAM_LEAD_REVIEW');
   const inProgress = assignments.filter(a => a.status === 'IN_PROGRESS' || a.status === 'ALLOCATED_TO_TEAM_MEMBER');

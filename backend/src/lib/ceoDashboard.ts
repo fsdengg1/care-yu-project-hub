@@ -184,7 +184,7 @@ export function buildCeoDashboard(): CeoDashboardPayload {
     },
     projectManager: {
       id: pm?.id ?? 'u-pm',
-      name: pm?.name ?? 'Arivan',
+      name: pm?.name ?? 'Project Manager',
       activeProjects: activeProjects.length,
       pendingReviews: stages.pmReview,
       escalations: openEscalations.length,

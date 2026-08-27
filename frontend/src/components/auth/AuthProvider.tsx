@@ -14,6 +14,7 @@ type AuthContextValue = {
   isAuthenticated: boolean;
   loading: boolean;
   refreshUser: () => Promise<boolean>;
+  applyUser: (next: User) => void;
   logout: () => Promise<void>;
 };
 
@@ -46,6 +47,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     StorageService.setCurrentUser(me.data.user, rememberSession());
     setUser(me.data.user);
     return true;
+  }, []);
+
+  const applyUser = useCallback((next: User) => {
+    StorageService.setCurrentUser(next, rememberSession());
+    setUser(next);
   }, []);
 
   const logout = useCallback(async () => {
@@ -83,9 +89,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isAuthenticated: Boolean(user),
       loading,
       refreshUser,
+      applyUser,
       logout,
     }),
-    [user, loading, refreshUser, logout]
+    [user, loading, refreshUser, applyUser, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

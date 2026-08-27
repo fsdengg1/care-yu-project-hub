@@ -91,7 +91,10 @@ export default function SalesDashboard({ user }: { user: User }) {
         {!data?.leads?.length ? (
           <div className="space-y-2 p-8 text-center">
             <Inbox className="mx-auto h-6 w-6 text-slate-600" />
-            <p className="text-xs font-medium text-slate-300">No sales leads recorded yet.</p>
+            <p className="text-xs font-medium text-slate-300">No leads found.</p>
+            <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+              <Plus className="h-3.5 w-3.5" /> Create New Lead
+            </Link>
           </div>
         ) : (
           <div className="divide-y divide-slate-800/60">

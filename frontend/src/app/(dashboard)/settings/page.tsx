@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Bell, CheckCircle2, KeyRound, Loader2, Mail, Shield, User } from 'lucide-react';
 import PasswordRequirements from '@/components/auth/PasswordRequirements';
@@ -13,6 +13,7 @@ import { apiRequest } from '@/lib/api';
 import { StorageService } from '@/lib/storage';
 import { UsersApi } from '@/lib/usersApi';
 import { NotificationPreferences, User as AppUser } from '@/lib/types';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 const STATUS_LABELS: Record<string, string> = {
   ACTIVE: 'Active',
@@ -24,7 +25,13 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function SettingsPage() {
+  const { applyUser } = useAuth();
   const [user, setUser] = useState<AppUser | null>(null);
+  const [profileName, setProfileName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -59,10 +66,19 @@ export default function SettingsPage() {
   useEffect(() => {
     const stored = StorageService.getCurrentUser();
     setUser(stored);
+    if (stored) {
+      setProfileName(stored.name || '');
+      setProfileEmail(stored.email || '');
+      setProfilePhone(stored.phone || '');
+    }
     void apiRequest<{ user: AppUser }>('/api/auth/me').then((result) => {
       if (!result.ok) return;
       setUser(result.data.user);
       StorageService.setCurrentUser(result.data.user);
+      applyUser(result.data.user);
+      setProfileName(result.data.user.name || '');
+      setProfileEmail(result.data.user.email || '');
+      setProfilePhone(result.data.user.phone || '');
       if (result.data.user.notification_preferences) {
         setPrefs((current) => ({ ...current, ...result.data.user.notification_preferences }));
       }
@@ -81,21 +97,43 @@ export default function SettingsPage() {
         });
       }
     });
-  }, []);
+  }, [applyUser]);
 
   const hasPassword = user?.has_password !== false;
   const accountStatus = user?.account_status || 'ACTIVE';
 
-  const profileRows = useMemo(() => {
-    if (!user) return [];
-    return [
-      { label: 'Full Name', value: user.name },
-      { label: 'Work Email', value: user.email },
-      { label: 'Role', value: user.role_name },
-      { label: 'Reporting Manager', value: user.reporting_manager_name || 'Not assigned' },
-      { label: 'Account Status', value: STATUS_LABELS[accountStatus] || accountStatus },
-    ];
-  }, [user, accountStatus]);
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    const errors: Record<string, string> = {};
+    if (!profileName.trim() || profileName.trim().length < 2) {
+      errors.name = 'Please enter your full name.';
+    }
+    if (!profileEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(profileEmail.trim())) {
+      errors.email = 'Enter a valid work email address.';
+    }
+    setProfileErrors(errors);
+    if (Object.keys(errors).length) return;
+
+    setProfileSaving(true);
+    const result = await UsersApi.updateMe({
+      name: profileName.trim(),
+      email: profileEmail.trim(),
+      phone: profilePhone.trim(),
+    });
+    setProfileSaving(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setUser(result.data.user);
+    applyUser(result.data.user);
+    setProfileName(result.data.user.name || '');
+    setProfileEmail(result.data.user.email || '');
+    setProfilePhone(result.data.user.phone || '');
+    setSuccess('Profile updated. Your name will show on the dashboard.');
+  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,19 +199,109 @@ export default function SettingsPage() {
         <p className="mt-1 text-sm text-slate-400">Manage your CareYu profile and account security.</p>
       </div>
 
+      {error && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-sm text-red-300">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+      {success && (
+        <div className="flex items-start gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 px-3 py-2.5 text-sm text-emerald-300">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{success}</span>
+        </div>
+      )}
+
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm">
         <div className="mb-5 flex items-center gap-2">
           <User className="h-4 w-4 text-cyan-400" />
           <h2 className="text-lg font-semibold text-slate-100">Profile</h2>
         </div>
-        <dl className="grid gap-4 sm:grid-cols-2">
-          {profileRows.map((row) => (
-            <div key={row.label} className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
-              <dt className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{row.label}</dt>
-              <dd className="mt-1 text-sm font-medium text-slate-200">{row.value}</dd>
+        <p className="mb-4 text-sm text-slate-400">
+          Update your name and contact details. The dashboard header uses this name after you save.
+        </p>
+        <form onSubmit={handleSaveProfile} className="space-y-4" noValidate>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Full Name</label>
+              <input
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 px-3.5 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                autoComplete="name"
+              />
+              {profileErrors.name && <p className="mt-1.5 text-xs text-red-400">{profileErrors.name}</p>}
             </div>
-          ))}
-        </dl>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Work Email</label>
+              <input
+                type="email"
+                value={profileEmail}
+                onChange={(e) => setProfileEmail(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 px-3.5 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                autoComplete="email"
+              />
+              {profileErrors.email && <p className="mt-1.5 text-xs text-red-400">{profileErrors.email}</p>}
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Phone</label>
+              <input
+                value={profilePhone}
+                onChange={(e) => setProfilePhone(e.target.value)}
+                className="w-full rounded-xl border border-slate-700 bg-slate-950 py-2.5 px-3.5 text-sm text-slate-100 outline-none focus:border-cyan-500"
+                autoComplete="tel"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Employee ID</label>
+              <input
+                value={user.employee_id || '—'}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 px-3.5 text-sm text-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Role</label>
+              <input
+                value={user.role_name}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 px-3.5 text-sm text-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Team</label>
+              <input
+                value={user.team_name || 'Not assigned'}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 px-3.5 text-sm text-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Reporting Manager</label>
+              <input
+                value={user.reporting_manager_name || 'Not assigned'}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 px-3.5 text-sm text-slate-400"
+              />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">Account Status</label>
+              <input
+                value={STATUS_LABELS[accountStatus] || accountStatus}
+                readOnly
+                className="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-950/60 py-2.5 px-3.5 text-sm text-slate-400"
+              />
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={profileSaving}
+            className="inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-80"
+          >
+            {profileSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Save profile
+          </button>
+        </form>
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 shadow-sm">
@@ -181,19 +309,6 @@ export default function SettingsPage() {
           <Shield className="h-4 w-4 text-cyan-400" />
           <h2 className="text-lg font-semibold text-slate-100">Security</h2>
         </div>
-
-        {error && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-sm text-red-300">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-        {success && (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/40 px-3 py-2.5 text-sm text-emerald-300">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{success}</span>
-          </div>
-        )}
 
         <form onSubmit={hasPassword ? handleChangePassword : handleCreatePassword} className="space-y-4" noValidate>
           <div className="flex items-center gap-2 text-sm text-slate-300">
@@ -380,7 +495,7 @@ export default function SettingsPage() {
               return;
             }
             setUser(result.data.user);
-            StorageService.setCurrentUser(result.data.user);
+            applyUser(result.data.user);
             setSuccess('Notification preferences saved.');
           }}
           className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-cyan-500 disabled:opacity-80"

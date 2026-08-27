@@ -1,10 +1,47 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Scan, Users, Wrench, Gauge } from 'lucide-react';
 import { User } from '@/lib/types';
+import { LeadApi } from '@/lib/leadApi';
 
 export default function EngineeringDashboard({ user }: { user: User }) {
+  const [feasibilityCount, setFeasibilityCount] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
+
+  useEffect(() => {
+    void (async () => {
+      const leads = await LeadApi.list();
+      setFeasibilityCount(
+        leads.filter(
+          (lead) =>
+            lead.pipeline_stage === 'FEASIBILITY' ||
+            lead.status === 'ACCEPTED_FOR_FEASIBILITY' ||
+            lead.status === 'FEASIBILITY_IN_PROGRESS' ||
+            lead.status === 'FEASIBILITY_SUBMITTED'
+        ).length
+      );
+      setReviewCount(leads.filter((lead) => lead.status === 'FEASIBILITY_SUBMITTED').length);
+    })();
+  }, []);
+
+  const cards = [
+    {
+      label: 'Feasibility Studies',
+      value: String(feasibilityCount),
+      note: feasibilityCount ? 'Studies currently in the pipeline' : 'No studies in progress',
+      icon: Scan,
+    },
+    { label: 'Engineering Capacity', value: 'Available', note: 'Teams ready for allocation', icon: Users },
+    { label: 'Technical Progress', value: '0%', note: 'No active engineering milestones', icon: Gauge },
+    {
+      label: 'Solution Reviews',
+      value: String(reviewCount),
+      note: reviewCount ? 'Pending technical reviews' : 'No pending technical reviews',
+      icon: Wrench,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6">
@@ -18,12 +55,7 @@ export default function EngineeringDashboard({ user }: { user: User }) {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[
-          { label: 'Feasibility Studies', value: '0', note: 'No studies in progress', icon: Scan },
-          { label: 'Engineering Capacity', value: 'Available', note: 'Teams ready for allocation', icon: Users },
-          { label: 'Technical Progress', value: '0%', note: 'No active engineering milestones', icon: Gauge },
-          { label: 'Solution Reviews', value: '0', note: 'No pending technical reviews', icon: Wrench },
-        ].map((card) => {
+        {cards.map((card) => {
           const Icon = card.icon;
           return (
             <div key={card.label} className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">

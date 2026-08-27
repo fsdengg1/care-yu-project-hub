@@ -618,18 +618,6 @@ export const INITIAL_USERS: User[] = [
   }
 ];
 
-export const INITIAL_AUDITS: AuditLog[] = [
-  {
-    id: 'log-001',
-    user_id: 'u-admin',
-    user_name: 'System Administrator',
-    user_role: 'System Administrator',
-    entity_type: 'SYSTEM',
-    entity_id: 'sys-init',
-    action: 'SYSTEM_INITIALIZED',
-    description: 'Care Yu Automation — Project Hub Phase 1 clean foundation initialized.',
-    created_at: new Date(Date.now() - 3600000 * 24).toISOString()
-  }
-];
+export const INITIAL_AUDITS: AuditLog[] = [];
 
 export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];

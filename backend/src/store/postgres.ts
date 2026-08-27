@@ -35,7 +35,8 @@ export type CollectionName =
   | 'forumLiveMessages'
   | 'assignmentHistory'
   | 'notificationDeliveries'
-  | 'pendingSignups';
+  | 'pendingSignups'
+  | 'systemMeta';
 
 export const COLLECTION_NAMES: CollectionName[] = [
   'users',
@@ -70,6 +71,7 @@ export const COLLECTION_NAMES: CollectionName[] = [
   'assignmentHistory',
   'notificationDeliveries',
   'pendingSignups',
+  'systemMeta',
 ];
 
 let pool: pg.Pool | null = null;

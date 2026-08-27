@@ -26,7 +26,7 @@ export default function CeoProjectManagerPage() {
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
           <Users className="h-4 w-4" /> Project Management
         </div>
-        <h1 className="mt-1 text-xl font-bold text-slate-100">{data?.name ?? 'Arivan'}</h1>
+        <h1 className="mt-1 text-xl font-bold text-slate-100">{data?.name ?? 'Project Manager'}</h1>
         <p className="mt-1 text-xs text-slate-400">Accountable for execution. CEO view is read-only.</p>
       </div>
 

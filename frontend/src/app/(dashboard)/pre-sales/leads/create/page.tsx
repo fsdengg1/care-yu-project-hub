@@ -6,13 +6,12 @@ import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
 import { BusinessVertical, CustomerType, LeadCustomField, LeadDocument, PriorityLevel, User } from '@/lib/types';
-import { VISION_DEMO_LEAD } from '@/lib/demoVisionLead';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
 import LeadDocumentUpload from '@/components/leads/LeadDocumentUpload';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import SubmitLeadModal from '@/components/leads/SubmitLeadModal';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Plus, Save, Send, Sparkles } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Plus, Save, Send } from 'lucide-react';
 
 const SOLUTION_OPTIONS = [
   'Vision Inspection System',
@@ -253,6 +252,7 @@ function CreateLeadForm() {
         return updated?.lead.id || existingId;
       }
       const created = await LeadApi.create(payload);
+      if (!created?.lead) throw new Error('Unable to save the draft.');
       const id = created.lead.id;
       leadIdRef.current = id;
       setLeadId(id);
@@ -386,17 +386,6 @@ function CreateLeadForm() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            onClick={() => {
-              setFormData((prev) => ({ ...prev, ...VISION_DEMO_LEAD, project_description: VISION_DEMO_LEAD.detailed_requirement, required_solution: 'Vision Inspection System', customer_challenge: VISION_DEMO_LEAD.customer_objective }));
-              setValidationError(null);
-            }}
-            className="flex items-center gap-2 rounded-lg bg-violet-700 px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-violet-600"
-            data-demo="load-vision"
-          >
-            <Sparkles className="h-4 w-4" /> Load Vision Demo
-          </button>
-          <button
-            type="button"
             disabled={busy || !canEdit}
             onClick={() => void handleSaveDraft()}
             className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
@@ -443,13 +432,13 @@ function CreateLeadForm() {
             </div>
             <div className="md:col-span-2">
               <label className="mb-1 block font-semibold text-slate-300">Lead Title *</label>
-              <input type="text" required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Automotive Brake Disc Vision Inspection System" className={fieldClass(missing.includes('title'))} />
+              <input type="text" required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Vision inspection cell" className={fieldClass(missing.includes('title'))} />
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Customer Name *</label>
-              <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Brakes India Pvt Ltd" className={fieldClass(missing.includes('customer_name'))} />
+              <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Customer company name" className={fieldClass(missing.includes('customer_name'))} />
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Customer Type</label>
@@ -496,11 +485,11 @@ function CreateLeadForm() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Contact Person *</label>
-              <input type="text" required value={formData.customer_contact} onChange={(e) => setFormData({ ...formData, customer_contact: e.target.value })} placeholder="e.g. Mr. K. R. Sundaram" className={fieldClass(missing.includes('customer_contact'))} />
+              <input type="text" required value={formData.customer_contact} onChange={(e) => setFormData({ ...formData, customer_contact: e.target.value })} placeholder="e.g. Contact person name" className={fieldClass(missing.includes('customer_contact'))} />
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Designation</label>
-              <input type="text" value={formData.customer_designation} onChange={(e) => setFormData({ ...formData, customer_designation: e.target.value })} placeholder="e.g. GM — Plant Automation" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <input type="text" value={formData.customer_designation} onChange={(e) => setFormData({ ...formData, customer_designation: e.target.value })} placeholder="e.g. Plant Manager" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Email Address</label>
@@ -514,11 +503,11 @@ function CreateLeadForm() {
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Customer Office Location</label>
-              <input type="text" value={formData.customer_location} onChange={(e) => setFormData({ ...formData, customer_location: e.target.value })} placeholder="e.g. Chennai, Tamil Nadu" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <input type="text" value={formData.customer_location} onChange={(e) => setFormData({ ...formData, customer_location: e.target.value })} placeholder="e.g. City, State" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Plant / Site Location</label>
-              <input type="text" value={formData.plant_location} onChange={(e) => setFormData({ ...formData, plant_location: e.target.value })} placeholder="e.g. Sriperumbudur Industrial Estate" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <input type="text" value={formData.plant_location} onChange={(e) => setFormData({ ...formData, plant_location: e.target.value })} placeholder="e.g. Plant / site location" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
             </div>
           </div>
         </FormSection>
@@ -535,7 +524,7 @@ function CreateLeadForm() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Application / Use Case *</label>
-              <input type="text" value={formData.application} onChange={(e) => setFormData({ ...formData, application: e.target.value })} placeholder="e.g. 2D Surface Defect & Dimension Verification" className={fieldClass(missing.includes('application'))} />
+              <input type="text" value={formData.application} onChange={(e) => setFormData({ ...formData, application: e.target.value })} placeholder="e.g. Surface inspection" className={fieldClass(missing.includes('application'))} />
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Expected Quantity</label>

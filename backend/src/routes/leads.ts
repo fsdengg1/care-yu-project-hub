@@ -166,7 +166,11 @@ router.get('/', requireAuth, requirePermission('view:leads', 'create:lead'), (re
     if (['CEO', 'CTO', 'SYSTEM_ADMIN', 'PROJECT_MANAGER'].includes(user.role_code)) return true;
     return canOwnLead(user, lead);
   });
-  res.json({ leads });
+  const leadIds = new Set(leads.map((lead) => lead.id));
+  res.json({
+    leads,
+    assignments: store.getFeasibilityTeamAssignments().filter((item) => leadIds.has(item.lead_id)),
+  });
 });
 
 router.get(
