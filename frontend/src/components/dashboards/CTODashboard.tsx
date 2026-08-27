@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { Cpu, Layers, ShieldCheck, Workflow } from 'lucide-react';
 import { Team, User } from '@/lib/types';
 import { apiRequest } from '@/lib/api';
+import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 
 export default function CTODashboard({ user }: { user: User }) {
   const [teamCount, setTeamCount] = useState(0);
@@ -55,6 +56,7 @@ export default function CTODashboard({ user }: { user: User }) {
           );
         })}
       </div>
+      <LeadPipelinePanel />
     </div>
   );
 }

@@ -14,6 +14,13 @@ import {
 } from '../lib/projects.js';
 import { getProjectPlan } from '../lib/planning.js';
 import { ProjectStatus } from '../types.js';
+import {
+  assignProject,
+  canEscalateProject,
+  completionBlockers,
+  markTlFinalReview,
+  reviewProjectIntake,
+} from '../lib/projectWorkflow.js';
 
 const router = Router();
 
@@ -95,28 +102,78 @@ router.patch(
     if (!canManageProject(user, project)) {
       return res.status(403).json({ message: 'Only the assigned Project Manager can update this project.' });
     }
+    if (req.body?.status === 'COMPLETED') {
+      const blocked = completionBlockers(project);
+      if (blocked) {
+        return res.status(400).json({ message: blocked });
+      }
+    }
     const updated = applyProjectPatch(user, project, req.body || {});
     return res.json({ project: updated, detail: buildProjectDetail(user, project.id) });
   }
 );
 
 router.post(
-  '/:id/escalate',
+  '/:id/assign',
   requireAuth,
-  requirePermission('escalate:issue', 'manage:project'),
+  requirePermission('manage:project'),
   (req: AuthedRequest, res) => {
     const user = req.user!;
     const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    if (!canManageProject(user, project)) {
-      return res.status(403).json({ message: 'Only the assigned Project Manager can escalate this project.' });
+    const result = assignProject(user, project, String(req.body?.assignee_id || ''));
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
+  }
+);
+
+router.post(
+  '/:id/intake',
+  requireAuth,
+  requirePermission('view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    const action = String(req.body?.action || '').toLowerCase() === 'return' ? 'return' : 'accept';
+    const result = reviewProjectIntake(user, project, action, req.body?.comments);
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
+  }
+);
+
+router.post(
+  '/:id/tl-review',
+  requireAuth,
+  requirePermission('view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    const result = markTlFinalReview(user, project, req.body?.comments);
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
+  }
+);
+
+router.post(
+  '/:id/escalate',
+  requireAuth,
+  requirePermission('escalate:issue', 'manage:project', 'view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    if (!canEscalateProject(user, project)) {
+      return res.status(403).json({ message: 'You cannot escalate this project.' });
     }
+    const issue = String(req.body?.issue || project.issue || '').trim();
+    if (!issue) return res.status(400).json({ message: 'Describe the issue to escalate.' });
     const escalation = escalateProject(user, project, {
-      issue: req.body?.issue,
+      issue,
       impact: req.body?.impact,
       severity: req.body?.severity,
     });
-    applyProjectPatch(user, project, {});
     return res.status(201).json({ escalation });
   }
 );

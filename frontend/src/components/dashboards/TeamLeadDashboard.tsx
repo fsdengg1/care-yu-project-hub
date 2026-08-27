@@ -1,23 +1,32 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { DailyUpdateSummary, FeasibilityTeamAssignment, User } from '@/lib/types';
+import { DailyUpdateSummary, FeasibilityTeamAssignment, Project, User } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { LeadApi } from '@/lib/leadApi';
+import { ProjectsApi } from '@/lib/projectsApi';
 import { Users, ArrowRight, Clock } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
+import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 
 export default function TeamLeadDashboard({ user }: { user: User }) {
   const [assignments, setAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
+  const [pendingProjects, setPendingProjects] = useState<Project[]>([]);
 
   useEffect(() => {
     void (async () => {
       await LeadApi.list();
       setAssignments(StorageService.getFeasibilityTeamAssignmentsForTeamLead(user.id));
       setSummary(await DailyUpdatesApi.summary());
+      const listed = await ProjectsApi.list('ACTIVE');
+      setPendingProjects(
+        listed.projects.filter(
+          (project) => project.team_lead_id === user.id && (project.intake_status === 'PENDING_TL_REVIEW' || !project.intake_status)
+        )
+      );
     })();
   }, [user.id]);
 
@@ -31,14 +40,31 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6 rounded-xl border border-slate-800">
         <div className="flex items-center gap-2 text-indigo-400 font-semibold uppercase tracking-wider text-xs"><Users className="w-4 h-4" /> Team Lead Dashboard</div>
         <h1 className="text-2xl font-bold text-slate-100 mt-1">{user.name}</h1>
-        <p className="text-slate-400 text-xs mt-0.5">Feasibility tasks assigned to your team. Open each Lead to review and allocate.</p>
+        <p className="text-slate-400 text-xs mt-0.5">Project intake, task breakdown, daily updates, and escalation for your team.</p>
       </div>
 
       <PendingActionsCard />
+      <LeadPipelinePanel />
+
+      {pendingProjects.length > 0 && (
+        <div className="bg-cyan-950/20 p-4 rounded-xl border border-cyan-800/60 space-y-3">
+          <div className="font-bold text-cyan-300 text-xs">Projects waiting for your accept / return ({pendingProjects.length})</div>
+          {pendingProjects.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}`} className="flex items-center justify-between py-2 border-t border-cyan-900/30 hover:text-cyan-200">
+              <div>
+                <span className="font-mono font-bold text-cyan-400 mr-2">{project.code}</span>
+                <span className="font-bold text-slate-100">{project.customer_name} – {project.name}</span>
+                <div className="text-slate-400 text-[11px] mt-0.5">PM: {project.pm_name}</div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-cyan-400" />
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Pending Review', value: pendingReview.length, color: 'text-amber-400' },
+          { label: 'Pending Review', value: pendingReview.length + pendingProjects.length, color: 'text-amber-400' },
           { label: 'In Progress', value: inProgress.length, color: 'text-emerald-400' },
           { label: 'Suggestions Sent', value: suggestions.length, color: 'text-orange-400' },
           { label: 'Awaiting Clarification', value: clarifications.length, color: 'text-cyan-400' },

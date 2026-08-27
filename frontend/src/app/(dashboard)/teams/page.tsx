@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { StorageService } from '@/lib/storage';
 import { Team, User } from '@/lib/types';
-import { MANAGEMENT_ROLES } from '@/components/org/orgHierarchy';
+import { MANAGEMENT_ROLES, isDisplayedTeamMember } from '@/components/org/orgHierarchy';
 import { Users, Plus, ShieldCheck, UserCheck, Cpu, HardHat, Camera, Bot, Wrench, ShoppingBag } from 'lucide-react';
 import { UsersApi, directoryStatus } from '@/lib/usersApi';
 import { apiRequest } from '@/lib/api';
@@ -67,11 +67,7 @@ export default function FunctionalTeamsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {teams.map(t => {
           const teamLead = users.find(u => u.id === t.team_lead_id);
-          const teamMembers = users.filter(
-            (u) =>
-              u.team_id === t.id ||
-              (!u.team_id && u.reporting_manager_id === t.team_lead_id)
-          );
+          const teamMembers = users.filter((u) => isDisplayedTeamMember(u, t, users) || u.id === t.team_lead_id);
 
           return (
             <div key={t.id} className="bg-slate-900/90 rounded-xl border border-slate-800 p-5 space-y-4 shadow-sm flex flex-col justify-between">

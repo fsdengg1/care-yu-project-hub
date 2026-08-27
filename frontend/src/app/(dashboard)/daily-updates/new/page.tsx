@@ -107,6 +107,10 @@ function NewDailyUpdateInner() {
       setError('Work completed today is required to submit.');
       return;
     }
+    if (submit && !form.next_plan.trim()) {
+      setError('Next action / ETA is required to submit.');
+      return;
+    }
     setSaving(true);
     const body = { ...payload, submission_status: (submit ? 'SUBMITTED' : 'DRAFT') as 'DRAFT' | 'SUBMITTED' };
     const result = draft
@@ -231,7 +235,7 @@ function NewDailyUpdateInner() {
           />
         </label>
         <label className="block">
-          <span className="mb-1 block font-semibold text-slate-300">Plan for next working day</span>
+          <span className="mb-1 block font-semibold text-slate-300">Next action / ETA *</span>
           <textarea
             rows={2}
             value={form.next_plan}

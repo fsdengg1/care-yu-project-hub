@@ -6,12 +6,14 @@ import { User } from '@/lib/types';
 import { LeadApi, BusinessHeadDashboard } from '@/lib/leadApi';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { formatInrCompact, LEAD_STATUS_LABELS } from '@/lib/format';
+import { canCreateLead } from '@/lib/rbac';
 import { Building2, Plus, Inbox, ArrowRight } from 'lucide-react';
 import { DailyUpdateSummary } from '@/lib/types';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 
 export default function SalesDashboard({ user }: { user: User }) {
   const isBH = user.role_code === 'BUSINESS_HEAD';
+  const canCreate = canCreateLead(user);
   const verticalName = isBH ? 'Business Head' : 'Sales';
   const [data, setData] = useState<BusinessHeadDashboard | null>(null);
   const [work, setWork] = useState<DailyUpdateSummary | null>(null);
@@ -40,9 +42,11 @@ export default function SalesDashboard({ user }: { user: User }) {
             Track customer opportunities under <span className="font-semibold text-cyan-300">{verticalName}</span> vertical.
           </p>
         </div>
-        <Link href="/pre-sales/leads/create" className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500">
-          <Plus className="h-4 w-4" /> Create New Lead
-        </Link>
+        {canCreate && (
+          <Link href="/pre-sales/leads/create" className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500">
+            <Plus className="h-4 w-4" /> Create New Lead
+          </Link>
+        )}
       </div>
 
       <PendingActionsCard />
@@ -92,9 +96,15 @@ export default function SalesDashboard({ user }: { user: User }) {
           <div className="space-y-2 p-8 text-center">
             <Inbox className="mx-auto h-6 w-6 text-slate-600" />
             <p className="text-xs font-medium text-slate-300">No leads found.</p>
-            <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
-              <Plus className="h-3.5 w-3.5" /> Create New Lead
-            </Link>
+            {canCreate ? (
+              <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                <Plus className="h-3.5 w-3.5" /> Create New Lead
+              </Link>
+            ) : (
+              <Link href="/pre-sales/leads" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                View lead pipeline <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
           </div>
         ) : (
           <div className="divide-y divide-slate-800/60">

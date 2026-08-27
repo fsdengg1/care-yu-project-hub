@@ -148,6 +148,9 @@ router.post(
       if (!String(body.work_completed || '').trim()) {
         return res.status(400).json({ message: 'Work completed today is required to submit.' });
       }
+      if (!String(body.next_plan || '').trim()) {
+        return res.status(400).json({ message: 'Next action / ETA is required to submit.' });
+      }
     }
 
     const now = new Date().toISOString();
@@ -250,6 +253,9 @@ router.patch(
       if (!String((body.work_completed ?? current.work_completed) || '').trim()) {
         return res.status(400).json({ message: 'Work completed today is required to submit.' });
       }
+      if (!String((body.next_plan ?? current.next_plan) || '').trim()) {
+        return res.status(400).json({ message: 'Next action / ETA is required to submit.' });
+      }
     }
 
     const now = new Date().toISOString();
@@ -347,7 +353,7 @@ router.post(
   (req: AuthedRequest, res) => {
     const user = req.user!;
     if (!canEscalateUpdates(user)) {
-      return res.status(403).json({ message: 'Only the project manager can escalate a daily-update blocker.' });
+      return res.status(403).json({ message: 'You cannot escalate this daily-update blocker.' });
     }
     const update = store.getDailyUpdates().find((item) => item.id === paramId(req));
     if (!update) return res.status(404).json({ message: 'Daily update not found.' });

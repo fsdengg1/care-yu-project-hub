@@ -292,5 +292,7 @@ export function entityActionUrl(entityType: string, entityId: string) {
   if (entityType === 'LEAD') return `/pre-sales/leads/${entityId}`;
   if (entityType === 'TASK') return `/my-work?task=${encodeURIComponent(entityId)}`;
   if (entityType === 'PROJECT') return `/projects/${entityId}`;
+  if (entityType === 'DAILY_UPDATE') return `/daily-updates/${entityId}`;
+  if (entityType === 'ESCALATION') return `/dashboard/ceo/escalations/${entityId}`;
   return '/notifications';
 }

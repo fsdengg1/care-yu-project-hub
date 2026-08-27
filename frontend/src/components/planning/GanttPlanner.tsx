@@ -317,9 +317,7 @@ export default function GanttPlanner({ user }: { user: User }) {
         <p className="mt-3 text-[11px] text-slate-500">
           {canManage
             ? 'Full planning control for projects assigned to you. Task progress is shared with Daily Work Updates and Active Projects.'
-            : user.role_code === 'TEAM_LEAD'
-              ? 'Read-only Gantt for projects where you are the assigned Team Lead.'
-              : 'Read-only management visibility of the execution plan and progress.'}
+            : 'Read-only management visibility of the execution plan and progress.'}
         </p>
       </div>
 

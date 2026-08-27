@@ -233,3 +233,27 @@ export function digestEmail(params: {
     }),
   };
 }
+
+export function handoverEmail(params: {
+  recipientName: string;
+  subject: string;
+  title: string;
+  intro: string;
+  actionRequired: string;
+  ctaLabel: string;
+  actionUrl: string;
+  details: Array<[string, string]>;
+}) {
+  return {
+    subject: params.subject,
+    ...workflowEmailContent({
+      title: params.title,
+      greeting: `Hello ${params.recipientName},`,
+      intro: params.intro,
+      details: [['Action required', params.actionRequired], ...params.details],
+      ctaLabel: params.ctaLabel,
+      ctaUrl: absoluteAppUrl(params.actionUrl),
+      closing: 'Open the item below to take the next action. This email was sent automatically by the CareYu workflow engine.',
+    }),
+  };
+}

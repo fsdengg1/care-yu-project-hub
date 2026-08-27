@@ -50,7 +50,7 @@ import {
   validateLeadPayload,
 } from '../lib/leadValidation.js';
 import { transact } from '../store/db.js';
-import { notifyStageCompleted } from '../lib/stages.js';
+import { dispatchHandover } from '../lib/lifecycleNotify.js';
 import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
 import { canAccessEntity } from '../lib/documents.js';
 import { notificationService } from '../lib/notificationService.js';
@@ -101,17 +101,30 @@ function forbidden(
 }
 
 function recordPmSubmissionNotification(lead: Lead, actor: User, pmId: string) {
-  store.appendNotification({
-    recipient_id: pmId,
-    sender_id: actor.id,
+  dispatchHandover({
+    recipientIds: [pmId],
+    actor,
+    entityType: 'LEAD',
+    entityId: lead.id,
+    entityName: lead.title,
+    customer: lead.customer_name,
+    title: `Project Submitted for PM Review – ${lead.title}`,
+    message: `${actor.name} submitted ${lead.lead_number} – ${lead.customer_name} for PM review.`,
+    actionRequired: 'Review Project',
+    ctaLabel: 'Open Project',
+    actionUrl: `/pre-sales/leads/${lead.id}`,
     type: 'NEW_LEAD_TO_PM',
-    title: 'New Lead Submitted for PM Review',
-    message: `Lead: ${lead.lead_number} – ${lead.customer_name}. Submitted by: ${actor.name}. Priority: ${String(lead.priority || 'Medium').toUpperCase()}.`,
-    entity_type: 'LEAD',
-    entity_id: lead.id,
-    action_url: `/pre-sales/leads/${lead.id}`,
-    priority: lead.priority === 'Critical' ? 'CRITICAL' : lead.priority === 'High' ? 'HIGH' : 'MEDIUM',
-    event_key: `LEAD_SUBMITTED_PM:${lead.id}:${pmId}:${lead.assigned_at || lead.submitted_at}`,
+    status: 'Submitted to PM',
+    dueDate: lead.customer_target_date || lead.expected_project_timeline,
+    assignedBy: actor.name,
+    details: [
+      ['Project name', lead.title],
+      ['Requirements', lead.requirement_summary || lead.detailed_requirement || lead.required_solution || ''],
+      ['Priority', String(lead.priority || 'Medium')],
+      ['Timeline', lead.expected_project_timeline || lead.customer_target_date || ''],
+    ],
+    priority: lead.priority === 'Critical' ? 'CRITICAL' : 'HIGH',
+    eventKey: `LEAD_SUBMITTED_PM:${lead.id}:${pmId}:${lead.submitted_at || lead.assigned_at}`,
   });
 }
 
@@ -255,6 +268,9 @@ router.get('/:id', requireAuth, requirePermission('view:leads', 'create:lead', '
 
 router.post('/', requireAuth, requirePermission('create:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
+  if (!['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) {
+    return forbidden(res, 'Only Business Head and Engineering Director can create leads.');
+  }
   const body = req.body ?? {};
   if (body.status && body.status !== 'DRAFT' && body.status !== 'SUBMITTED_TO_PM') {
     return res.status(403).json({ message: 'Status cannot be set directly. Use the workflow actions.' });
@@ -353,9 +369,6 @@ router.post('/', requireAuth, requirePermission('create:lead'), async (req: Auth
       if (!wantsSubmit) return lead;
       return submitExistingLead(lead, user, body);
     });
-    if (wantsSubmit && created.pm_id) {
-      await notifyPmAssignment(created, user);
-    }
     return res.status(201).json(payloadFor(created));
   } catch (error) {
     return workflowError(res, error);
@@ -404,7 +417,6 @@ router.post('/:id/submit', requireAuth, requirePermission('create:lead', 'edit:l
   if (!canEditProjectInput(user, lead)) return forbidden(res);
   try {
     const assigned = await transact(() => submitExistingLead(lead, user, (req.body ?? {}) as Record<string, unknown>));
-    await notifyPmAssignment(assigned, user);
     return res.json(payloadFor(assigned));
   } catch (error) {
     return workflowError(res, error);
@@ -703,23 +715,33 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
     notify({
       recipient_id: pm?.id || findPm()?.id || '',
       type: 'FEASIBILITY_SUBMITTED_TO_PM',
-      title: `Feasibility submitted: ${lead.lead_number}`,
+      title: `Feasibility Submitted – Review Required – ${lead.title}`,
       message: `${user.name} submitted feasibility for "${lead.title}".`,
       entity_type: 'LEAD',
       entity_id: lead.id,
+      action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
     });
     audit(user, updated, 'FEASIBILITY_SUBMITTED', `${user.name} submitted feasibility for ${lead.lead_number}.`);
-    notifyStageCompleted({
-      actor: user,
-      stageName: 'Feasibility',
-      stageId: `stage-feasibility-${lead.id}`,
-      projectName: lead.title,
-      lead: updated,
-      nextUser: findPm(),
-      nextStage: 'Planning',
-    });
   } else {
     audit(user, updated, 'FEASIBILITY_SAVED', `${user.name} saved feasibility for ${lead.lead_number}.`);
+    if (nextStatus === 'FEASIBILITY_IN_PROGRESS' && lead.status !== 'FEASIBILITY_IN_PROGRESS') {
+      dispatchHandover({
+        recipientIds: [updated.assigned_team_lead_id, updated.pm_id],
+        actor: user,
+        entityType: 'LEAD',
+        entityId: updated.id,
+        entityName: updated.title,
+        customer: updated.customer_name,
+        title: `Feasibility In Progress – ${updated.title}`,
+        message: `${user.name} started feasibility for ${updated.lead_number}.`,
+        actionRequired: 'Monitor feasibility progress',
+        ctaLabel: 'Open Feasibility',
+        actionUrl: `/pre-sales/leads/${updated.id}?tab=feasibility`,
+        type: 'FEASIBILITY_READY_TO_START',
+        status: 'Feasibility In Progress',
+        eventKey: `FEASIBILITY_STARTED:${updated.id}`,
+      });
+    }
   }
   return res.json(payloadFor(updated));
 });
@@ -748,11 +770,28 @@ router.post(
       notify({
         recipient_id: lead.assigned_team_lead_id || '',
         type: 'FEASIBILITY_RETURNED_TO_TEAM',
-        title: `Feasibility returned: ${lead.lead_number}`,
-        message: `${user.name} requested corrections: "${reason}"`,
+        title: `Feasibility Correction Required – ${lead.title}`,
+        message: `Feasibility requires correction. Please review the PM comments and resubmit.`,
         entity_type: 'LEAD',
         entity_id: lead.id,
+        action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
       });
+      const allocations = store
+        .getFeasibilityEmployeeAllocations()
+        .filter((item) => item.lead_id === lead.id);
+      for (const allocation of allocations) {
+        if (allocation.employee_id && allocation.employee_id !== lead.assigned_team_lead_id) {
+          notify({
+            recipient_id: allocation.employee_id,
+            type: 'FEASIBILITY_RETURNED_TO_TEAM',
+            title: `Feasibility Correction Required – ${lead.title}`,
+            message: `${user.name}: ${reason}`,
+            entity_type: 'LEAD',
+            entity_id: lead.id,
+            action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
+          });
+        }
+      }
       audit(user, updated, 'FEASIBILITY_RETURNED', `${user.name} returned feasibility for ${lead.lead_number}.`);
       return res.json(payloadFor(updated));
     }
@@ -770,8 +809,8 @@ router.post(
         notify({
           recipient_id: member.id,
           type: 'COSTING_ASSIGNED',
-          title: `Costing required: ${lead.lead_number}`,
-          message: `Feasibility approved for "${lead.title}". Prepare procurement and costing.`,
+          title: `Procurement Pending – ${lead.title}`,
+          message: `Feasibility approved for "${lead.title}". Start vendor identification, costing, and procurement documentation.`,
           entity_type: 'LEAD',
           entity_id: lead.id,
         });
@@ -828,21 +867,12 @@ router.post('/:id/costing', requireAuth, requirePermission('create:costing', 'vi
     notify({
       recipient_id: pm?.id || findPm()?.id || '',
       type: 'COSTING_SUBMITTED_TO_PM',
-      title: `Costing submitted: ${lead.lead_number}`,
-      message: `${user.name} submitted costing totalling ₹ ${record.total_estimated_cost.toLocaleString('en-IN')}.`,
+      title: `Procurement Submitted – Review Required – ${lead.title}`,
+      message: `${user.name} submitted procurement/costing totalling ₹ ${record.total_estimated_cost.toLocaleString('en-IN')}.`,
       entity_type: 'LEAD',
       entity_id: lead.id,
     });
     audit(user, updated, 'COSTING_SUBMITTED', `${user.name} submitted costing for ${lead.lead_number}.`);
-    notifyStageCompleted({
-      actor: user,
-      stageName: 'Costing',
-      stageId: `stage-costing-${lead.id}`,
-      projectName: lead.title,
-      lead: updated,
-      nextUser: findPm(),
-      nextStage: 'Quotation',
-    });
   }
   return res.json(payloadFor(updated));
 });
@@ -873,7 +903,7 @@ router.post(
           notify({
             recipient_id: member.id,
             type: 'COSTING_RETURNED',
-            title: `Costing returned: ${lead.lead_number}`,
+            title: `Procurement Correction Required – ${lead.title}`,
             message: `${user.name} requested revision: "${reason}"`,
             entity_type: 'LEAD',
             entity_id: lead.id,
@@ -900,7 +930,7 @@ router.post(
       notify({
         recipient_id: recipientId,
         type: 'QUOTATION_READY',
-        title: `Ready for quotation: ${lead.lead_number}`,
+        title: `Quotation Preparation Required – ${lead.title}`,
         message: `Costing approved for "${lead.title}". Prepare the customer quotation.`,
         entity_type: 'LEAD',
         entity_id: lead.id,
@@ -946,6 +976,25 @@ router.post(
       send ? 'QUOTATION_SENT' : 'QUOTATION_SAVED',
       `${user.name} ${send ? 'sent' : 'saved'} quotation for ${lead.lead_number}.`
     );
+    if (send) {
+      const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
+      dispatchHandover({
+        recipientIds: [pm?.id, updated.pm_id],
+        actor: user,
+        entityType: 'LEAD',
+        entityId: updated.id,
+        entityName: updated.title,
+        customer: updated.customer_name,
+        title: `Quotation Submitted – ${updated.title}`,
+        message: `${user.name} submitted the quotation. Negotiation can now begin.`,
+        actionRequired: 'Review quotation / follow negotiation',
+        ctaLabel: 'Open Lead',
+        actionUrl: `/pre-sales/leads/${updated.id}`,
+        type: 'QUOTATION_READY',
+        status: 'Quotation Submitted',
+        eventKey: `QUOTATION_SUBMITTED:${updated.id}:${updated.quotation?.sent_at || Date.now()}`,
+      });
+    }
     return res.json(payloadFor(updated));
   }
 );
@@ -970,29 +1019,28 @@ router.post(
         lead.status === 'NEGOTIATION' ? lead : transitionLead(lead, 'NEGOTIATION', user, 'Moved to negotiation');
       const withHistory = appendNegotiation(working, user, { ...req.body, action: 'CONVERT' });
       const result = convertLeadToProject(withHistory, user);
-      notify({
-        recipient_id: findPm()?.id || '',
+      const teamIds = result.project.team_ids || [];
+      const teamMembers = store
+        .getUsers()
+        .filter((item) => item.status === 'ACTIVE' && item.team_id && teamIds.includes(item.team_id))
+        .map((item) => item.id);
+      dispatchHandover({
+        recipientIds: [result.project.pm_id, result.project.team_lead_id, ...teamMembers],
+        actor: user,
+        entityType: 'PROJECT',
+        entityId: result.project.id,
+        entityName: result.project.name,
+        customer: result.project.customer_name,
+        title: `Order Converted – ${result.project.name}`,
+        message: `${user.name} converted ${lead.lead_number} to ${result.project.code}. Execution can begin.`,
+        actionRequired: 'Open project and assign execution work',
+        ctaLabel: 'Open Project',
+        actionUrl: `/projects/${result.project.id}`,
         type: 'LEAD_CONVERTED',
-        title: `Order converted: ${lead.lead_number}`,
-        message: `${user.name} converted "${lead.title}" to project ${result.project.code}.`,
-        entity_type: 'PROJECT',
-        entity_id: result.project.id,
+        status: 'Order Converted',
+        eventKey: `ORDER_CONVERTED:${result.project.id}`,
       });
       audit(user, result.lead, 'ORDER_CONVERTED', `${user.name} converted ${lead.lead_number} to ${result.project.code}.`);
-      const nextUser =
-        user.role_code === 'PROJECT_MANAGER'
-          ? store.findUserById(result.project.team_lead_id || '') || findPm()
-          : store.findUserById(result.project.pm_id) || findPm();
-      notifyStageCompleted({
-        actor: user,
-        stageName: 'Conversion',
-        stageId: `stage-converted-${lead.id}`,
-        projectName: result.project.name,
-        lead: result.lead,
-        project: result.project,
-        nextUser,
-        nextStage: 'Execution',
-      });
       return res.json({ ...payloadFor(result.lead), project: result.project });
     }
     if (action === 'LOST') {
@@ -1022,27 +1070,26 @@ router.post('/:id/convert', requireAuth, requirePermission('convert:lead', 'crea
     return res.status(400).json({ message: 'Only quoted opportunities can be converted to an order.' });
   }
   const result = convertLeadToProject(lead, user);
-  notify({
-    recipient_id: findPm()?.id || '',
-    type: 'LEAD_CONVERTED',
-    title: `Order converted: ${lead.lead_number}`,
-    message: `${user.name} converted "${lead.title}" to project ${result.project.code}.`,
-    entity_type: 'PROJECT',
-    entity_id: result.project.id,
-  });
-  const nextUser =
-    user.role_code === 'PROJECT_MANAGER'
-      ? store.findUserById(result.project.team_lead_id || '') || findPm()
-      : store.findUserById(result.project.pm_id) || findPm();
-  notifyStageCompleted({
+  const teamIds = result.project.team_ids || [];
+  const teamMembers = store
+    .getUsers()
+    .filter((item) => item.status === 'ACTIVE' && item.team_id && teamIds.includes(item.team_id))
+    .map((item) => item.id);
+  dispatchHandover({
+    recipientIds: [result.project.pm_id, result.project.team_lead_id, ...teamMembers],
     actor: user,
-    stageName: 'Conversion',
-    stageId: `stage-converted-${lead.id}`,
-    projectName: result.project.name,
-    lead: result.lead,
-    project: result.project,
-    nextUser,
-    nextStage: 'Execution',
+    entityType: 'PROJECT',
+    entityId: result.project.id,
+    entityName: result.project.name,
+    customer: result.project.customer_name,
+    title: `Order Converted – ${result.project.name}`,
+    message: `${user.name} converted ${lead.lead_number} to ${result.project.code}. Execution can begin.`,
+    actionRequired: 'Open project and assign execution work',
+    ctaLabel: 'Open Project',
+    actionUrl: `/projects/${result.project.id}`,
+    type: 'LEAD_CONVERTED',
+    status: 'Order Converted',
+    eventKey: `ORDER_CONVERTED:${result.project.id}`,
   });
   return res.json({ ...payloadFor(result.lead), project: result.project });
 });

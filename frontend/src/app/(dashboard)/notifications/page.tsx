@@ -65,7 +65,15 @@ export default function NotificationsPage() {
                 <NotificationGlyph item={n} />
                 {n.title}
               </span>
-              <span className="text-[10px] text-slate-500 font-mono">{formatRelativeTime(n.created_at)}</span>
+              <span className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+                {n.email_status && (
+                  <span className={n.email_status === 'FAILED' ? 'text-rose-300' : n.email_status === 'SENT' ? 'text-emerald-300' : 'text-slate-400'}>
+                    {n.email_status === 'SENT' ? 'Sent' : n.email_status === 'FAILED' ? 'Failed' : n.email_status}
+                  </span>
+                )}
+                <span>{n.read_status ? 'Read' : 'Unread'}</span>
+                <span>{formatRelativeTime(n.created_at)}</span>
+              </span>
             </div>
             <p className="text-slate-300">{n.message}</p>
           </Link>

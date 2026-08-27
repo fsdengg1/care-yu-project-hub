@@ -7,6 +7,7 @@ import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
 import { LEAD_STATUS_LABELS, formatRelativeTime, formatInrCompact } from '@/lib/format';
+import { canCreateLead } from '@/lib/rbac';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
   FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory
@@ -138,6 +139,7 @@ export default function LeadDetailPage() {
   const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
     || (currentUser.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head')
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
+  const canEditLeadForm = canCreateLead(currentUser);
   const canViewRestricted = isPM || isSalesOwner || isCEO || isAdmin || isBH;
 
   // TL can access this lead only if assigned
@@ -469,7 +471,7 @@ export default function LeadDetailPage() {
           <div className="text-slate-200 text-xs bg-slate-950/70 p-3 rounded border border-amber-900/60 font-mono">
             PM Request: &quot;{lead.pm_return_reason || 'Please provide additional information'}&quot;
           </div>
-          {isSalesOwner && (
+          {isSalesOwner && canEditLeadForm && (
             <div className="space-y-2 pt-1">
               <textarea rows={2} value={resubmitTechInput} onChange={e => setResubmitTechInput(e.target.value)} placeholder="Update requested technical inputs…" className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-100" />
               <div className="flex justify-end gap-2">
@@ -483,7 +485,7 @@ export default function LeadDetailPage() {
         </div>
       )}
 
-      {lead.status === 'DRAFT' && isSalesOwner && (
+      {lead.status === 'DRAFT' && isSalesOwner && canEditLeadForm && (
         <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl flex items-center justify-between gap-3">
           <div>
             <div className="font-bold text-slate-100">Draft — not yet submitted</div>

@@ -2,64 +2,74 @@ import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
 import { store } from '../store/db.js';
+import {
+  canActOnEscalation,
+  canViewEscalation,
+  nextEscalationLevel,
+  promoteEscalation,
+  resolveEscalation,
+} from '../lib/projectWorkflow.js';
 
 const router = Router();
 
-router.get('/', requireAuth, requirePermission('view:escalations', 'view:dashboard:ceo'), (_req, res) => {
+function paramId(req: AuthedRequest) {
+  const value = req.params.id;
+  return Array.isArray(value) ? value[0] : value;
+}
+
+router.get('/', requireAuth, requirePermission('view:escalations', 'view:dashboard:ceo', 'view:projects', 'view:daily-updates'), (req: AuthedRequest, res) => {
+  const user = req.user!;
   const escalations = store
     .getEscalations()
-    .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
+    .filter((item) => canViewEscalation(user, item))
+    .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
+    .map((item) => ({
+      ...item,
+      can_act: canActOnEscalation(user, item),
+      can_promote: canActOnEscalation(user, item) && Boolean(nextEscalationLevel(item.current_level)),
+    }));
   res.json({ escalations });
 });
 
-router.get('/:id', requireAuth, requirePermission('view:escalations', 'view:dashboard:ceo'), (req, res) => {
-  const escalation = store.getEscalations().find((item) => item.id === req.params.id || item.code === req.params.id);
+router.get('/:id', requireAuth, requirePermission('view:escalations', 'view:dashboard:ceo', 'view:projects', 'view:daily-updates'), (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const escalation = store.getEscalations().find((item) => item.id === paramId(req) || item.code === paramId(req));
   if (!escalation) return res.status(404).json({ message: 'Escalation not found.' });
-  res.json({ escalation });
+  if (!canViewEscalation(user, escalation)) {
+    return res.status(403).json({ message: 'You do not have access to this escalation.' });
+  }
+  return res.json({
+    escalation,
+    can_act: canActOnEscalation(user, escalation),
+    can_promote: canActOnEscalation(user, escalation) && Boolean(nextEscalationLevel(escalation.current_level)),
+  });
 });
 
 router.post(
   '/:id/resolve',
   requireAuth,
-  requirePermission('decide:ceo_escalation'),
+  requirePermission('decide:ceo_escalation', 'escalate:issue', 'view:escalations', 'view:projects'),
   (req: AuthedRequest, res) => {
     const user = req.user!;
-    const escalations = store.getEscalations();
-    const index = escalations.findIndex((item) => item.id === req.params.id || item.code === req.params.id);
-    if (index === -1) return res.status(404).json({ message: 'Escalation not found.' });
+    const current = store.getEscalations().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!current) return res.status(404).json({ message: 'Escalation not found.' });
+    const result = resolveEscalation(user, current, String(req.body?.decision || req.body?.resolution || ''));
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ escalation: result.escalation });
+  }
+);
 
-    const current = escalations[index];
-    if (current.current_level !== 'CEO') {
-      return res.status(403).json({
-        message: 'Forbidden. Only escalations at CEO level can be resolved here.',
-      });
-    }
-
-    const decision = typeof req.body?.decision === 'string' ? req.body.decision.trim() : '';
-    if (!decision) {
-      return res.status(400).json({ message: 'A decision / resolution is required.' });
-    }
-
-    const now = new Date().toISOString();
-    escalations[index] = {
-      ...current,
-      status: 'RESOLVED',
-      ceo_decision: decision,
-      resolved_at: now,
-      updated_at: now,
-    };
-    store.saveEscalations(escalations);
-    store.appendAudit({
-      user_id: user.id,
-      user_name: user.name,
-      user_role: user.role_name,
-      entity_type: 'ESCALATION',
-      entity_id: current.id,
-      action: 'ESCALATION_RESOLVED',
-      description: `${user.name} resolved ${current.code}: ${decision}`,
-    });
-
-    return res.json({ escalation: escalations[index] });
+router.post(
+  '/:id/promote',
+  requireAuth,
+  requirePermission('escalate:issue', 'view:escalations', 'view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const current = store.getEscalations().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!current) return res.status(404).json({ message: 'Escalation not found.' });
+    const result = promoteEscalation(user, current, req.body?.comments);
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ escalation: result.escalation });
   }
 );
 

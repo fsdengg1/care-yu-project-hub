@@ -30,6 +30,27 @@ export const ProjectsApi = {
     });
   },
 
+  async assign(id: string, assigneeId: string) {
+    return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ assignee_id: assigneeId }),
+    });
+  },
+
+  async intake(id: string, action: 'accept' | 'return', comments?: string) {
+    return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/intake`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comments }),
+    });
+  },
+
+  async tlReview(id: string, comments?: string) {
+    return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/tl-review`, {
+      method: 'POST',
+      body: JSON.stringify({ comments }),
+    });
+  },
+
   async escalate(id: string, body: { issue?: string; impact?: string; severity?: Escalation['severity'] }) {
     return apiRequest<{ escalation: Escalation }>(`/api/projects/${id}/escalate`, {
       method: 'POST',

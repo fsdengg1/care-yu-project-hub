@@ -25,10 +25,13 @@ export function notificationHref(item: NotificationItem) {
   if (item.type === 'STAGE_COMPLETED') {
     return item.entity_type === 'PROJECT' ? `/projects/${item.entity_id}` : `/pre-sales/leads/${item.entity_id}`;
   }
-  if (item.type === 'TASK_ASSIGNED' || item.type === 'TASK_FORWARDED') {
-    return `/my-work?task=${encodeURIComponent(item.entity_id)}`;
+  if (item.type === 'TASK_ASSIGNED' || item.type === 'TASK_FORWARDED' || item.type === 'ACTION_REQUIRED' || item.type === 'APPROVAL_REQUIRED') {
+    if (item.entity_type === 'TASK') return `/my-work?task=${encodeURIComponent(item.entity_id)}`;
   }
   if (item.entity_type === 'LEAD') return `/pre-sales/leads/${item.entity_id}`;
   if (item.entity_type === 'PROJECT') return `/projects/${item.entity_id}`;
+  if (item.entity_type === 'DAILY_UPDATE') return `/daily-updates/${item.entity_id}`;
+  if (item.entity_type === 'ESCALATION') return `/dashboard/ceo/escalations/${item.entity_id}`;
+  if (item.entity_type === 'TASK') return `/my-work?task=${encodeURIComponent(item.entity_id)}`;
   return '/notifications';
 }

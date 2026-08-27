@@ -93,7 +93,7 @@ export function getPool(): pg.Pool {
       connectionString: connectionStringWithoutSslMode(env.databaseUrl),
       // Managed Postgres (Aiven) uses a provider CA; for app use we accept TLS without pinning the CA file.
       ssl: env.databaseSsl ? { rejectUnauthorized: false } : false,
-      max: 10,
+      max: 3,
       connectionTimeoutMillis: 15000,
       idleTimeoutMillis: 30000,
     });

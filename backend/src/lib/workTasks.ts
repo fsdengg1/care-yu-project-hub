@@ -5,9 +5,196 @@ import { newId } from './leadWorkflow.js';
 import { canViewProject } from './dailyUpdates.js';
 import { notificationService } from './notificationService.js';
 import { reminderScheduleFields, transferTaskResponsibility } from './responsibility.js';
+import { dispatchHandover } from './lifecycleNotify.js';
 
 export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
+}
+
+export function reviewerForTask(task: Task): User | undefined {
+  if (task.project_id) {
+    const project = store.getProjects().find((item) => item.id === task.project_id);
+    if (project?.team_lead_id) {
+      const lead = store.findUserById(project.team_lead_id);
+      if (lead?.status === 'ACTIVE') return lead;
+    }
+    if (project?.pm_id) {
+      const pm = store.findUserById(project.pm_id);
+      if (pm?.status === 'ACTIVE' && !task.assigned_to_id) return pm;
+    }
+  }
+  const assignee = store.findUserById(task.assigned_to_id);
+  if (assignee?.team_lead_id) {
+    const lead = store.findUserById(assignee.team_lead_id);
+    if (lead?.status === 'ACTIVE') return lead;
+  }
+  if (task.assigned_by_id && task.assigned_by_id !== task.assigned_to_id) {
+    const creator = store.findUserById(task.assigned_by_id);
+    if (creator && ['TEAM_LEAD', 'PROJECT_MANAGER'].includes(creator.role_code) && creator.status === 'ACTIVE') {
+      return creator;
+    }
+  }
+  return undefined;
+}
+
+export function isTaskFullyComplete(task: Task) {
+  if (task.review_status === 'PENDING_TL_REVIEW' || task.review_status === 'CORRECTION_REQUIRED') return false;
+  return task.status === 'DONE';
+}
+
+function projectLabel(task: Task) {
+  if (!task.project_id) return task.title;
+  return store.getProjects().find((item) => item.id === task.project_id)?.name || task.title;
+}
+
+function notifyTaskHandover(task: Task, actor: User, recipientIds: Array<string | undefined>, input: {
+  title: string;
+  message: string;
+  actionRequired: string;
+  ctaLabel: string;
+  type: 'TASK_ASSIGNED' | 'ACTION_REQUIRED' | 'APPROVAL_REQUIRED' | 'STATUS_CHANGED';
+  eventKey: string;
+  status: string;
+  comments?: string;
+}) {
+  const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
+  dispatchHandover({
+    recipientIds,
+    actor,
+    entityType: 'TASK',
+    entityId: task.id,
+    entityName: task.title,
+    customer: project?.customer_name,
+    title: input.title,
+    message: input.message,
+    actionRequired: input.actionRequired,
+    ctaLabel: input.ctaLabel,
+    actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
+    type: input.type,
+    status: input.status,
+    dueDate: task.due_date,
+    comments: input.comments,
+    assignedBy: actor.name,
+    eventKey: input.eventKey,
+  });
+}
+
+export function applyTaskLifecycle(
+  user: User,
+  previous: Task,
+  next: Task,
+  opts?: { reviewAction?: string; comments?: string }
+): Task {
+  const now = new Date().toISOString();
+  const reviewer = reviewerForTask(next);
+  const isAssignee = user.id === previous.assigned_to_id;
+  const isReviewer = Boolean(reviewer && reviewer.id === user.id);
+  const reviewAction = (opts?.reviewAction || '').toLowerCase();
+  const comments = (opts?.comments || '').trim();
+  const name = projectLabel(next);
+
+  if (reviewAction === 'approve' && (isReviewer || hasPermission(user, 'create:task'))) {
+    next.status = 'DONE';
+    next.review_status = 'COMPLETED';
+    next.progress_percent = 100;
+    next.pending_action = false;
+    next.last_action_at = now;
+    next.next_reminder_at = undefined;
+    notifyTaskHandover(next, user, [next.assigned_to_id], {
+      title: `Task Completed – ${name}`,
+      message: `${user.name} approved "${next.title}". The task is complete.`,
+      actionRequired: 'No further action on this task',
+      ctaLabel: 'Open Task',
+      type: 'STATUS_CHANGED',
+      eventKey: `TASK_APPROVED:${next.id}:${now}`,
+      status: 'Completed',
+      comments,
+    });
+    return next;
+  }
+
+  if (reviewAction === 'return' && (isReviewer || hasPermission(user, 'create:task'))) {
+    next.status = 'IN_PROGRESS';
+    next.review_status = 'CORRECTION_REQUIRED';
+    next.progress_percent = Math.min(next.progress_percent ?? 90, 90);
+    next.pending_action = true;
+    next.responsible_user_id = next.assigned_to_id;
+    next.responsible_user_name = next.assigned_to;
+    next.remarks = comments || next.remarks;
+    notifyTaskHandover(next, user, [next.assigned_to_id], {
+      title: `Task Correction Required – ${name}`,
+      message: `${user.name} sent "${next.title}" back for correction.${comments ? ` ${comments}` : ''}`,
+      actionRequired: 'Correct the task and resubmit',
+      ctaLabel: 'Open Task',
+      type: 'ACTION_REQUIRED',
+      eventKey: `TASK_SENT_BACK:${next.id}:${now}`,
+      status: 'Correction Required',
+      comments,
+    });
+    return next;
+  }
+
+  const requestedStart = next.status === 'IN_PROGRESS' && previous.status !== 'IN_PROGRESS' && previous.status !== 'DONE';
+  if (requestedStart) {
+    next.last_action_at = now;
+    next.start_date = next.start_date || now.slice(0, 10);
+    notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
+      title: `Task In Progress – ${name}`,
+      message: `${user.name} started "${next.title}".`,
+      actionRequired: 'Monitor progress',
+      ctaLabel: 'Open Task',
+      type: 'STATUS_CHANGED',
+      eventKey: `TASK_STARTED:${next.id}`,
+      status: 'Task In Progress',
+    });
+  }
+
+  const wantsComplete =
+    (next.status === 'DONE' && previous.status !== 'DONE') ||
+    reviewAction === 'resubmit' ||
+    (previous.review_status === 'CORRECTION_REQUIRED' && isAssignee && next.status === 'DONE');
+
+  if (wantsComplete && isAssignee && reviewer && reviewer.id !== user.id && !next.is_milestone) {
+    next.status = 'IN_PROGRESS';
+    next.review_status = 'PENDING_TL_REVIEW';
+    next.progress_percent = 100;
+    next.pending_action = true;
+    next.responsible_user_id = reviewer.id;
+    next.responsible_user_name = reviewer.name;
+    next.last_action_at = now;
+    notifyTaskHandover(next, user, [reviewer.id], {
+      title: `Task Completed – Pending Review – ${name}`,
+      message: `${user.name} submitted "${next.title}" for Team Lead review.`,
+      actionRequired: 'Review the completed task',
+      ctaLabel: 'Review Task',
+      type: 'APPROVAL_REQUIRED',
+      eventKey: `TASK_PENDING_REVIEW:${next.id}:${now}`,
+      status: 'Task Completed – Pending Team Lead Review',
+      comments,
+    });
+    return next;
+  }
+
+  if (next.status === 'DONE') {
+    next.review_status = 'COMPLETED';
+    next.progress_percent = 100;
+    next.pending_action = false;
+    next.last_action_at = now;
+    next.next_reminder_at = undefined;
+    if (previous.status !== 'DONE' || previous.review_status === 'PENDING_TL_REVIEW') {
+      notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
+        title: `Task Completed – ${name}`,
+        message: `${user.name} completed "${next.title}".`,
+        actionRequired: 'Confirm completion if needed',
+        ctaLabel: 'Open Task',
+        type: 'STATUS_CHANGED',
+        eventKey: `TASK_COMPLETED:${next.id}:${now}`,
+        status: 'Completed',
+      });
+    }
+  }
+
+  return next;
 }
 
 export function canViewTask(user: User, task: Task) {
@@ -36,7 +223,7 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
       ? 'NON_PROJECT_TASK'
       : 'PROJECT_TASK';
   const projectId = taskType === 'PROJECT_TASK' ? String(body.project_id || '').trim() : '';
-  if (taskType === 'PROJECT_TASK' && !projectId) {
+      if (taskType === 'PROJECT_TASK' && !projectId) {
     return { error: 'Project is required for a project task.' };
   }
   const project = projectId ? store.getProjects().find((item) => item.id === projectId) : undefined;
@@ -44,10 +231,16 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
   if (project && user.role_code === 'PROJECT_MANAGER' && project.pm_id !== user.id) {
     return { error: 'You do not have permission to view this project.', status: 403 as const };
   }
+  if (project && user.role_code === 'TEAM_LEAD' && project.team_lead_id !== user.id && !(project.team_ids || []).includes(user.team_id || '')) {
+    return { error: 'You can only create tasks for projects assigned to your team.', status: 403 as const };
+  }
 
   const assigneeId = String(body.assigned_to_id || user.id);
   const assignee = store.findUserById(assigneeId);
   if (!assignee || assignee.status !== 'ACTIVE') return { error: 'Assigned employee was not found.' };
+  if (user.role_code === 'TEAM_LEAD' && assignee.id !== user.id && assignee.team_id !== user.team_id) {
+    return { error: 'Team Leads can only assign tasks to members of their own team.' };
+  }
 
   const now = new Date().toISOString();
   const task: Task = {
@@ -74,6 +267,8 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
     team_name: assignee.team_name,
     remarks: body.remarks ? String(body.remarks) : undefined,
     task_type: taskType,
+    depends_on_id: body.depends_on_id ? String(body.depends_on_id) : undefined,
+    review_status: 'NONE',
     comments: [],
     created_at: now,
     updated_at: now,
@@ -157,16 +352,14 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     next.progress_percent = Math.max(0, Math.min(100, Number(body.progress_percent) || 0));
   }
   if (body.blocked_reason !== undefined) next.blocked_reason = String(body.blocked_reason);
-  if (next.status === 'DONE') {
-    next.progress_percent = 100;
-    next.pending_action = false;
-    next.last_action_at = new Date().toISOString();
-    next.next_reminder_at = undefined;
-  }
+  applyTaskLifecycle(user, current, next, {
+    reviewAction: String(body.review_action || ''),
+    comments: String(body.review_comments || body.comments || ''),
+  });
 
   tasks[index] = next;
   store.saveTasks(tasks);
-  if (current.status !== 'DONE' && next.status === 'DONE') {
+  if (!isTaskFullyComplete(current) && isTaskFullyComplete(next)) {
     store.appendAudit({
       user_id: user.id,
       user_name: user.name,

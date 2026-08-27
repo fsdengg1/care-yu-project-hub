@@ -40,6 +40,37 @@ export const ORG_ADMIN_ROLES = new Set([
   'SYSTEM_ADMIN',
 ]);
 
+export function namesLikelySame(a: string, b: string): boolean {
+  const left = a.trim().toLowerCase().replace(/\s+/g, ' ');
+  const right = b.trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const firstLeft = left.split(' ')[0];
+  const firstRight = right.split(' ')[0];
+  if (firstLeft === firstRight) return true;
+  const compact = (value: string) => value.replace(/[aeiou]/g, '');
+  return firstLeft.length >= 4 && firstRight.length >= 4 && compact(firstLeft) === compact(firstRight);
+}
+
+/** Signup/team-member copies of CEO, BH, ED, etc. must not appear again at the bottom of org views. */
+export function isLeadershipShadowAccount(user: User, directory: User[]): boolean {
+  if (MANAGEMENT_ROLES.has(user.role_code) || user.role_code === 'SYSTEM_ADMIN') return false;
+  return directory.some((other) => {
+    if (other.id === user.id || !MANAGEMENT_ROLES.has(other.role_code)) return false;
+    if (namesLikelySame(user.name, other.name)) return true;
+    const emailA = user.email.split('@')[0]?.toLowerCase() || '';
+    const emailB = other.email.split('@')[0]?.toLowerCase() || '';
+    return Boolean(emailA && emailB && (emailA === emailB || emailA.includes(emailB) || emailB.includes(emailA)));
+  });
+}
+
+export function isDisplayedTeamMember(user: User, team: Team, users: User[]): boolean {
+  if (user.status === 'INACTIVE' || user.role_code === 'SYSTEM_ADMIN') return false;
+  if (MANAGEMENT_ROLES.has(user.role_code) || isLeadershipShadowAccount(user, users)) return false;
+  if (user.team_id === team.id) return true;
+  return Boolean(team.team_lead_id && !user.team_id && user.reporting_manager_id === team.team_lead_id);
+}
+
 export const ROLE_LABELS: Record<string, string> = {
   CEO: 'CEO',
   CTO: 'CTO',
@@ -137,12 +168,22 @@ function managerIdForTeam(team: Team, users: User[]): string | undefined {
 
 export function getDirectReports(userId: string, users: User[]): User[] {
   return users
-    .filter((user) => user.reporting_manager_id === userId && user.role_code !== 'SYSTEM_ADMIN')
+    .filter(
+      (user) =>
+        user.reporting_manager_id === userId &&
+        user.role_code !== 'SYSTEM_ADMIN' &&
+        !isLeadershipShadowAccount(user, users)
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[] = []): OrgNode[] {
-  const directory = users.filter((user) => user.role_code !== 'SYSTEM_ADMIN' && user.status === 'ACTIVE');
+  const directory = users.filter(
+    (user) =>
+      user.role_code !== 'SYSTEM_ADMIN' &&
+      user.status === 'ACTIVE' &&
+      !isLeadershipShadowAccount(user, users)
+  );
   const directoryIds = new Set(directory.map((user) => user.id));
   const chartPeople = directory.filter((user) => !user.team_id);
   const activeTeams = teams.filter((team) => team.status !== 'INACTIVE');
@@ -158,6 +199,7 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
 
   const roots = chartPeople
     .filter((user) => !user.reporting_manager_id || !directoryIds.has(user.reporting_manager_id))
+    .filter((user) => MANAGEMENT_ROLES.has(user.role_code))
     .sort(comparePeople);
 
   function teamsReportingTo(managerId: string): Team[] {
@@ -184,10 +226,17 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
 
   function makeTeamNode(team: Team): OrgNode {
     const lead = teamLeadOf(team, directory);
-    const unassignedReports = directory
-      .filter((user) => !user.team_id && user.reporting_manager_id === lead?.id)
-      .sort(comparePeople)
-      .map(makePersonLeaf);
+    const unassignedReports = lead
+      ? directory
+          .filter(
+            (user) =>
+              !user.team_id &&
+              !MANAGEMENT_ROLES.has(user.role_code) &&
+              user.reporting_manager_id === lead.id
+          )
+          .sort(comparePeople)
+          .map(makePersonLeaf)
+      : [];
     return {
       id: `team-${team.id}`,
       kind: 'team',

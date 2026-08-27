@@ -76,6 +76,13 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'team_work'
   },
   {
+    name: 'Escalations',
+    href: '/dashboard/ceo/escalations',
+    iconName: 'ShieldAlert',
+    category: 'team_work',
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'TEAM_LEAD', 'SYSTEM_ADMIN']
+  },
+  {
     name: 'Functional Teams',
     href: '/teams',
     iconName: 'Users',
@@ -135,18 +142,7 @@ export function isCeoViewOnly(user: User | null | undefined): boolean {
 
 export function canCreateLead(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (isCeoViewOnly(user)) return false;
-  return [
-    'BUSINESS_HEAD',
-    'ENG_DIRECTOR',
-    'SALES',
-    'PROJECT_MANAGER',
-    'TEAM_LEAD',
-    'EMPLOYEE',
-    'PROJECT_ENGINEER',
-    'CTO',
-    'SYSTEM_ADMIN',
-  ].includes(user.role_code);
+  return user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR';
 }
 
 export function canAccessGanttPlanning(user: User | null | undefined): boolean {

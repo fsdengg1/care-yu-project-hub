@@ -562,19 +562,24 @@ export type MyWorkCategory =
   | 'COSTING'
   | 'COSTING_APPROVAL'
   | 'QUOTATION'
-  | 'NEGOTIATION';
+  | 'NEGOTIATION'
+  | 'EXECUTION'
+  | 'TASK'
+  | 'TASK_REVIEW'
+  | 'ESCALATION';
 
 export interface MyWorkItem {
   lead_id: string;
   lead_number: string;
   title: string;
   customer_name: string;
-  status: LeadStatus;
-  pipeline_stage: PipelineStage;
+  status: string;
+  pipeline_stage: string;
   category: MyWorkCategory;
   summary: string;
   href: string;
   priority: PriorityLevel;
+  due_date?: string;
 }
 
 // ============================================================
@@ -770,6 +775,7 @@ export interface Task {
   task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
   assigned_by?: string;
   assigned_by_id?: string;
+  review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
   comments?: TaskComment[];
   responsible_user_id?: string;
   responsible_user_name?: string;
@@ -807,6 +813,13 @@ export interface DashboardMetrics {
 
 export type ProjectHealth = 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
 export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
+export type ProjectIntakeStatus =
+  | 'AWAITING_ASSIGNMENT'
+  | 'PENDING_TL_REVIEW'
+  | 'ACCEPTED'
+  | 'RETURNED'
+  | 'IN_EXECUTION';
+export type ProjectAssignmentPath = 'TEAM_LEAD' | 'DIRECT_MEMBER';
 
 export interface ProjectRemark {
   id: string;
@@ -840,6 +853,14 @@ export interface Project {
   progress_locked_by_pm?: boolean;
   plan_initialized?: boolean;
   remarks?: ProjectRemark[];
+  intake_status?: ProjectIntakeStatus;
+  assignment_path?: ProjectAssignmentPath;
+  assigned_member_id?: string;
+  assigned_member_name?: string;
+  intake_comment?: string;
+  tl_accepted_at?: string;
+  tl_reviewed_at?: string;
+  pm_approved_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -884,6 +905,7 @@ export interface Escalation {
   current_level: EscalationLevel;
   decision_required?: string;
   ceo_decision?: string;
+  resolution?: string;
   resolved_at?: string;
   created_at: string;
   updated_at: string;
@@ -959,6 +981,7 @@ export interface WorkAssignment {
   blocker?: string;
   task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
   start_date?: string;
+  review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
 }
 
 export interface ProjectActivityItem {

@@ -1,17 +1,23 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Scan, Users, Wrench, Gauge } from 'lucide-react';
+import Link from 'next/link';
+import { Scan, Users, Wrench, Gauge, Plus } from 'lucide-react';
 import { User } from '@/lib/types';
 import { LeadApi } from '@/lib/leadApi';
+import { canCreateLead } from '@/lib/rbac';
+import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 
 export default function EngineeringDashboard({ user }: { user: User }) {
   const [feasibilityCount, setFeasibilityCount] = useState(0);
   const [reviewCount, setReviewCount] = useState(0);
+  const [pipelineCount, setPipelineCount] = useState(0);
+  const showCreate = canCreateLead(user);
 
   useEffect(() => {
     void (async () => {
       const leads = await LeadApi.list();
+      setPipelineCount(leads.filter((lead) => lead.status !== 'ORDER_CONVERTED' && lead.status !== 'LOST' && lead.status !== 'CANCELLED').length);
       setFeasibilityCount(
         leads.filter(
           (lead) =>
@@ -27,13 +33,18 @@ export default function EngineeringDashboard({ user }: { user: User }) {
 
   const cards = [
     {
+      label: 'Lead Pipeline',
+      value: String(pipelineCount),
+      note: pipelineCount ? 'Open opportunities' : 'No open leads yet',
+      icon: Gauge,
+    },
+    {
       label: 'Feasibility Studies',
       value: String(feasibilityCount),
       note: feasibilityCount ? 'Studies currently in the pipeline' : 'No studies in progress',
       icon: Scan,
     },
     { label: 'Engineering Capacity', value: 'Available', note: 'Teams ready for allocation', icon: Users },
-    { label: 'Technical Progress', value: '0%', note: 'No active engineering milestones', icon: Gauge },
     {
       label: 'Solution Reviews',
       value: String(reviewCount),
@@ -44,14 +55,21 @@ export default function EngineeringDashboard({ user }: { user: User }) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-xl border border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
-          <Wrench className="h-4 w-4" /> Engineering Dashboard
+      <div className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-indigo-400">
+            <Wrench className="h-4 w-4" /> Engineering Dashboard
+          </div>
+          <h1 className="mt-1 text-2xl font-bold text-slate-100">Welcome back, {user.name}</h1>
+          <p className="mt-1 text-xs text-slate-400">
+            Create engineering opportunities, then track them through the lead pipeline.
+          </p>
         </div>
-        <h1 className="mt-1 text-2xl font-bold text-slate-100">Welcome back, {user.name}</h1>
-        <p className="mt-1 text-xs text-slate-400">
-          Monitor technical feasibility, engineering capacity, and solution progress across all teams.
-        </p>
+        {showCreate && (
+          <Link href="/pre-sales/leads/create" className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500">
+            <Plus className="h-4 w-4" /> Create New Lead
+          </Link>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -71,6 +89,8 @@ export default function EngineeringDashboard({ user }: { user: User }) {
           );
         })}
       </div>
+
+      <LeadPipelinePanel title="Lead pipeline" />
     </div>
   );
 }

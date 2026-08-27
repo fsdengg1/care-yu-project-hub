@@ -16,7 +16,7 @@ import EmployeeActionModal, {
   EmployeeForm,
   EmployeeModalMode,
 } from '@/components/org/EmployeeActionModal';
-import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports } from '@/components/org/orgHierarchy';
+import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports, isDisplayedTeamMember } from '@/components/org/orgHierarchy';
 import { UsersApi } from '@/lib/usersApi';
 import { LeadApi } from '@/lib/leadApi';
 import { apiRequest } from '@/lib/api';
@@ -238,15 +238,11 @@ export default function OrganizationManagementPage() {
   };
 
   const teamMembers = selectedTeam
-    ? users.filter(
-        (u) =>
-          u.team_id === selectedTeam.id ||
-          (!u.team_id && u.reporting_manager_id === selectedTeam.team_lead_id)
-      )
+    ? users.filter((u) => isDisplayedTeamMember(u, selectedTeam, users) || u.id === selectedTeam.team_lead_id)
     : [];
   const selectedDirectReports = selectedUser ? getDirectReports(selectedUser.id, users) : [];
   const selectedTeamMembers = selectedUser?.team_id
-    ? users.filter((u) => u.team_id === selectedUser.team_id)
+    ? users.filter((u) => u.team_id === selectedUser.team_id && !MANAGEMENT_ROLES.has(u.role_code))
     : [];
   const teamReportsThrough = (() => {
     if (!selectedTeam) return '—';

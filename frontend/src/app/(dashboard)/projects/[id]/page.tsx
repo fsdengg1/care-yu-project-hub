@@ -29,6 +29,9 @@ export default function ProjectDetailPage() {
   const [escIssue, setEscIssue] = useState('');
   const [escImpact, setEscImpact] = useState('');
   const [user, setUser] = useState<User | null>(null);
+  const [assigneeId, setAssigneeId] = useState('');
+  const [intakeComment, setIntakeComment] = useState('');
+  const [tlComment, setTlComment] = useState('');
 
   const load = async () => {
     const payload = await ProjectsApi.get(params.id);
@@ -89,6 +92,8 @@ export default function ProjectDetailPage() {
         <Field label="Lead ID" value={project.lead_number || project.lead_id || '—'} href={project.lead_id ? `/pre-sales/leads/${project.lead_id}` : undefined} />
         <Field label="Project Manager" value={project.pm_name} />
         <Field label="Team Lead" value={project.team_lead_name || '—'} />
+        <Field label="Assigned member" value={project.assigned_member_name || '—'} />
+        <Field label="Workflow" value={(detail.actions?.intake_status || project.intake_status || 'IN_EXECUTION').replace(/_/g, ' ')} />
         <Field label="Project value" value={formatInrCompact(project.value || 0)} />
         <Field label="Start date" value={formatLongDate(project.start_date)} />
         <Field label="Target completion" value={formatLongDate(project.target_completion)} />
@@ -124,6 +129,129 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       </section>
+
+      {(detail.actions?.canAssign || detail.actions?.canIntake || detail.actions?.canTlReview || (detail.actions?.canEscalate && !detail.canManage)) && (
+        <section className="space-y-4 rounded-xl border border-cyan-900/50 bg-slate-900/90 p-5">
+          <h2 className="text-sm font-bold text-slate-100">Execution workflow</h2>
+          {project.intake_comment && (
+            <p className="rounded border border-slate-800 bg-slate-950/60 p-2 text-slate-300">Latest comment: {project.intake_comment}</p>
+          )}
+          {detail.actions?.canAssign && (
+            <div className="space-y-2">
+              <p className="text-slate-400">Assign to a Team Lead (review required) or directly to a Team Member. You stay the Project Manager.</p>
+              <div className="flex flex-wrap gap-2">
+                <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className="min-w-64 rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                  <option value="">Select Team Lead or Team Member</option>
+                  {(detail.assignableUsers || []).map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name} · {item.role_name}{item.team_name ? ` · ${item.team_name}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!assigneeId) {
+                      setError('Select who should own execution.');
+                      return;
+                    }
+                    const result = await ProjectsApi.assign(project.id, assigneeId);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage('Project assigned. You retain PM ownership and visibility.');
+                    await load();
+                  }}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
+                >
+                  Assign project
+                </button>
+              </div>
+            </div>
+          )}
+          {detail.actions?.canIntake && (
+            <div className="space-y-2">
+              <p className="text-slate-400">Review scope, timeline, and PM instructions. Accept to break into tasks, or return with comments.</p>
+              <textarea rows={2} value={intakeComment} onChange={(e) => setIntakeComment(e.target.value)} placeholder="Comments (required if returning)" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const result = await ProjectsApi.intake(project.id, 'accept', intakeComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage('Project accepted. Create tasks in My Assigned Work or Gantt.');
+                    await load();
+                  }}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
+                >
+                  Accept project
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const result = await ProjectsApi.intake(project.id, 'return', intakeComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage('Project returned to the Project Manager.');
+                    await load();
+                  }}
+                  className="rounded-lg border border-amber-800 bg-amber-950 px-4 py-2 font-bold text-amber-100 hover:bg-amber-900"
+                >
+                  Return to PM
+                </button>
+              </div>
+            </div>
+          )}
+          {detail.actions?.canTlReview && (
+            <div className="space-y-2">
+              <p className="text-slate-400">All tasks are complete. Submit Team Lead final review so the PM can approve closure.</p>
+              <textarea rows={2} value={tlComment} onChange={(e) => setTlComment(e.target.value)} placeholder="Final review notes" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+              <button
+                type="button"
+                onClick={async () => {
+                  const result = await ProjectsApi.tlReview(project.id, tlComment);
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage('Final review sent to the Project Manager.');
+                  await load();
+                }}
+                className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
+              >
+                Submit Team Lead review
+              </button>
+            </div>
+          )}
+          {detail.actions?.canEscalate && !detail.canManage && (
+            <div className="grid gap-2 md:grid-cols-2">
+              <input value={escIssue} onChange={(e) => setEscIssue(e.target.value)} placeholder="Escalation issue" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <input value={escImpact} onChange={(e) => setEscImpact(e.target.value)} placeholder="Impact" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <button
+                type="button"
+                onClick={async () => {
+                  const result = await ProjectsApi.escalate(project.id, { issue: escIssue, impact: escImpact, severity: 'HIGH' });
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage('Escalation raised to the next level.');
+                  await load();
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-rose-800 bg-rose-950 px-4 py-2 font-bold text-rose-200 hover:bg-rose-900"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" /> Escalate issue
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <h2 className="mb-3 text-sm font-bold text-slate-100">Team</h2>
@@ -204,7 +332,7 @@ export default function ProjectDetailPage() {
       {detail.canManage && (
         <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">PM controls</h2>
-          <p className="text-slate-500">Overall progress is calculated from Gantt tasks. Use Project Gantt & Planning to update the execution plan.</p>
+          <p className="text-slate-500">Overall progress is calculated from Gantt tasks. Completion needs Team Lead final review (unless you assigned a member directly) and no open escalations.</p>
           <Link href={`/projects/planning?project=${project.id}`} className="inline-flex rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500">
             Open Gantt & Planning
           </Link>

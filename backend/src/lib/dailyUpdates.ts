@@ -12,6 +12,8 @@ import {
 } from '../types.js';
 import { canOwnLead } from './leadWorkflow.js';
 import { persistComputedProgress } from './projectProgress.js';
+import { buildEscalation, notifyEscalationOwner, saveEscalation } from './projectWorkflow.js';
+import { dispatchHandover } from './lifecycleNotify.js';
 
 export const STALE_HOURS = 48; // working-period window for "No Recent Update"
 
@@ -61,7 +63,9 @@ export function canCommentOnUpdates(user: User): boolean {
 }
 
 export function canEscalateUpdates(user: User): boolean {
-  return ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT', 'SYSTEM_ADMIN'].includes(
+    user.role_code
+  );
 }
 
 export function ensureProjectTeamTasks(): Task[] {
@@ -146,7 +150,12 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     workflow_stage: lead?.pipeline_stage || (project && !isNonProject ? 'EXECUTION' : 'ASSIGNED'),
     due_date: task.due_date,
     priority: task.priority,
-    current_status: latest?.work_status || taskStatusToWork(task.status),
+    current_status:
+      task.review_status === 'PENDING_TL_REVIEW'
+        ? 'PENDING_TL_REVIEW'
+        : task.review_status === 'CORRECTION_REQUIRED'
+          ? 'CORRECTION_REQUIRED'
+          : latest?.work_status || taskStatusToWork(task.status),
     last_update_at: latest?.submitted_at || task.last_update_at,
     assigned_to_id: task.assigned_to_id,
     assigned_to: task.assigned_to,
@@ -155,6 +164,7 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     blocker: latest?.blocker || task.blocked_reason,
     task_type: taskType,
     start_date: task.start_date,
+    review_status: task.review_status,
   };
 }
 
@@ -174,6 +184,20 @@ export function listAssignmentsForUser(user: User): WorkAssignment[] {
     seen.add(item.id);
     if (task.employee_allocation_id) seen.add(task.employee_allocation_id);
     if (task.feasibility_team_assignment_id) seen.add(task.feasibility_team_assignment_id);
+  }
+
+  if (user.role_code === 'TEAM_LEAD') {
+    for (const task of tasks) {
+      if (seen.has(task.id) || task.review_status !== 'PENDING_TL_REVIEW') continue;
+      const project = byProject.get(task.project_id || '');
+      const assignee = store.findUserById(task.assigned_to_id);
+      const isReviewer =
+        project?.team_lead_id === user.id || assignee?.team_lead_id === user.id || assignee?.team_id === user.team_id;
+      if (!isReviewer) continue;
+      const item = assignmentFromTask(task, project, byLead.get(task.lead_id));
+      items.push(item);
+      seen.add(item.id);
+    }
   }
 
   for (const alloc of store.getFeasibilityEmployeeAllocations()) {
@@ -287,8 +311,10 @@ export function listVisibleAssignments(user: User): WorkAssignment[] {
 }
 
 export function canViewProject(user: User, project: Project): boolean {
-  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
   if (user.role_code === 'PROJECT_MANAGER') return project.pm_id === user.id;
+  if (user.role_code === 'TEAM_LEAD' && project.team_lead_id === user.id) return true;
+  if (project.assigned_member_id === user.id) return true;
   if (user.team_id && (project.team_ids || []).includes(user.team_id)) return true;
   if (project.lead_id) {
     const lead = store.getLeads().find((item) => item.id === project.lead_id);
@@ -411,25 +437,29 @@ export function applyUpdateToTask(update: DailyUpdate) {
 export function notifyForSubmittedUpdate(update: DailyUpdate) {
   const project = update.project_id ? store.getProjects().find((item) => item.id === update.project_id) : undefined;
   const assignee = store.findUserById(update.user_id);
-  const recipients = new Set<string>();
-  if (project?.pm_id) recipients.add(project.pm_id);
-  if (assignee?.team_lead_id) recipients.add(assignee.team_lead_id);
-  if (assignee?.reporting_manager_id) recipients.add(assignee.reporting_manager_id);
-  recipients.delete(update.user_id);
-
   const isBlocked = update.work_status === 'BLOCKED';
-  for (const recipientId of recipients) {
-    store.appendNotification({
-      recipient_id: recipientId,
-      type: isBlocked ? 'DAILY_UPDATE_BLOCKED' : 'DAILY_UPDATE_SUBMITTED',
-      title: isBlocked ? `BLOCKED — ${update.project_name}` : `Daily update — ${update.project_name}`,
-      message: isBlocked
-        ? `${update.user_name}: BLOCKED — ${update.blocker || update.task_title}`
-        : `${update.user_name} submitted ${update.progress_percent}% on ${update.task_title}`,
-      entity_type: 'DAILY_UPDATE',
-      entity_id: update.id,
-    });
-  }
+  dispatchHandover({
+    recipientIds: [project?.pm_id, assignee?.team_lead_id, assignee?.reporting_manager_id],
+    actor: assignee,
+    entityType: 'DAILY_UPDATE',
+    entityId: update.id,
+    entityName: update.task_title || update.project_name,
+    customer: update.customer_name || project?.customer_name,
+    title: isBlocked
+      ? `Issue Raised – ${update.project_name}`
+      : `Daily Update Submitted – ${update.project_name}`,
+    message: isBlocked
+      ? `${update.user_name}: BLOCKED — ${update.blocker || update.task_title}`
+      : `${update.user_name} submitted ${update.progress_percent}% on ${update.task_title}.`,
+    actionRequired: isBlocked ? 'Review the blocker and start resolution' : 'Review the daily update',
+    ctaLabel: isBlocked ? 'Review Issue' : 'Open Daily Update',
+    actionUrl: `/daily-updates/${update.id}`,
+    type: isBlocked ? 'DAILY_UPDATE_BLOCKED' : 'DAILY_UPDATE_SUBMITTED',
+    status: isBlocked ? 'Issue / Blocker Identified' : 'Daily Update Submitted',
+    dueDate: update.work_date,
+    comments: [update.blocker, update.next_plan, update.work_completed].filter(Boolean).join(' | '),
+    eventKey: `${isBlocked ? 'ISSUE_RAISED' : 'DAILY_UPDATE'}:${update.id}`,
+  });
 }
 
 export function listVisibleUpdates(user: User): DailyUpdate[] {
@@ -579,31 +609,18 @@ export function buildProjectActivity(projectId: string): ProjectActivityItem[] {
 }
 
 export function createEscalationFromUpdate(user: User, update: DailyUpdate, body: { impact?: string; severity?: Escalation['severity'] }): Escalation {
-  const now = new Date().toISOString();
-  const code = `ESC-${String(store.getEscalations().length + 1).padStart(3, '0')}`;
-  const escalation: Escalation = {
-    id: newId('esc'),
-    code,
-    project_id: update.project_id,
-    project_name: update.project_name,
-    customer_name: update.customer_name,
+  const project = update.project_id ? store.getProjects().find((item) => item.id === update.project_id) : undefined;
+  const escalation = buildEscalation(user, project, {
     issue: update.blocker || update.task_title,
     impact: body.impact || update.support_required || 'Delivery risk from blocked daily work',
-    summary: update.blocker ? `BLOCKED — ${update.blocker}` : update.task_title,
     severity: body.severity || 'HIGH',
-    status: 'OPEN',
-    raised_by_id: user.id,
-    raised_by_name: user.name,
-    raised_by_role: user.role_name,
+    previous_actions: 'Daily work update flagged blocked',
     team_id: update.team_id,
     team_name: update.team_name,
-    previous_actions: 'Daily work update flagged blocked',
-    current_level: 'PROJECT_MANAGER',
-    created_at: now,
-    updated_at: now,
-  };
-  const escalations = store.getEscalations();
-  escalations.unshift(escalation);
-  store.saveEscalations(escalations);
+    project_name: update.project_name,
+    customer_name: update.customer_name,
+  });
+  saveEscalation(escalation);
+  notifyEscalationOwner(escalation, user.name);
   return escalation;
 }

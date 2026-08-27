@@ -122,7 +122,7 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
   jwtRememberExpiresIn: process.env.JWT_REMEMBER_EXPIRES_IN ?? '30d',
   demoPassword: required('DEMO_PASSWORD', 'Careyu@123'),
-  robotLeadEmail: (process.env.ROBOT_LEAD_EMAIL ?? 'robotlead1@careyu.ai').trim().toLowerCase(),
+  robotLeadEmail: (process.env.ROBOT_LEAD_EMAIL ?? 'robottech@careyu.ai').trim().toLowerCase(),
   robotLeadPassword: stripEnvValue(process.env.ROBOT_LEAD_PASSWORD) || 'Careyu@9865',
   databaseUrl: required('DATABASE_URL'),
   /** Aiven and most managed Postgres require SSL; set DATABASE_SSL=false only for local Postgres without TLS. */

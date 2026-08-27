@@ -11,7 +11,15 @@ import {
 } from '../types.js';
 import { buildProjectActivity, canViewProject } from './dailyUpdates.js';
 import { findPm, newId, parseMoney } from './leadWorkflow.js';
+import {
+  assignableUsersFor,
+  buildEscalation,
+  notifyEscalationOwner,
+  projectActions,
+  saveEscalation,
+} from './projectWorkflow.js';
 import { withComputedProgress } from './projectProgress.js';
+import { dispatchHandover, usersWithRole } from './lifecycleNotify.js';
 
 const EXECUTION_ROLES = new Set(['EMPLOYEE', 'TEAM_LEAD', 'PROCUREMENT', 'EXECUTION', 'PROJECT_ENGINEER']);
 
@@ -53,7 +61,13 @@ export function canAccessGanttModule(user: User): boolean {
 
 export function canEditProjectGantt(user: User, project: Project): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
-  return user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id;
+  if (user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id) return true;
+  if (user.role_code === 'TEAM_LEAD') {
+    const lead = resolveProjectTeamLead(project);
+    const intake = project.intake_status || (project.tl_accepted_at ? 'IN_EXECUTION' : project.team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT');
+    return lead.team_lead_id === user.id && ['ACCEPTED', 'IN_EXECUTION'].includes(intake);
+  }
+  return false;
 }
 
 export function canViewProjectGantt(user: User, project: Project): boolean {
@@ -120,6 +134,15 @@ export function hydrateProject(project: Project): Project {
     remarks: project.remarks || [],
     team_lead_id: teamLead.team_lead_id,
     team_lead_name: teamLead.team_lead_name,
+    intake_status:
+      project.intake_status ||
+      (project.status === 'COMPLETED' || project.status === 'CANCELLED'
+        ? 'IN_EXECUTION'
+        : (project.progress || 0) > 0 || project.plan_initialized || project.tl_accepted_at
+          ? 'IN_EXECUTION'
+          : teamLead.team_lead_id
+            ? 'PENDING_TL_REVIEW'
+            : 'AWAITING_ASSIGNMENT'),
   };
 }
 
@@ -232,8 +255,10 @@ export function syncConvertedLeadsToProjects() {
       status: 'ACTIVE',
       lead_id: lead.id,
       team_ids: lead.assigned_team_id ? [lead.assigned_team_id] : [],
-      team_lead_id: lead.assigned_team_lead_id,
-      team_lead_name: lead.assigned_team_lead_name,
+        team_lead_id: lead.assigned_team_lead_id,
+        team_lead_name: lead.assigned_team_lead_name,
+        intake_status: lead.assigned_team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT',
+        assignment_path: lead.assigned_team_lead_id ? 'TEAM_LEAD' : undefined,
       value: typeof lead.expected_value === 'number' ? lead.expected_value : parseMoney(lead.estimated_opportunity_value),
       start_date: now.slice(0, 10),
       target_completion: addDays(now, 90),
@@ -354,6 +379,14 @@ export function buildProjectDetail(user: User, projectId: string) {
         }
       : null,
     canManage: canManageProject(user, project),
+    actions: projectActions(user, project),
+    assignableUsers: assignableUsersFor(project).map((item) => ({
+      id: item.id,
+      name: item.name,
+      role_code: item.role_code,
+      role_name: item.role_name,
+      team_name: item.team_name,
+    })),
     currentStatus: {
       phase: project.current_phase || 'EXECUTION',
       current_task: currentTask?.title || latest?.task_title || 'No open task',
@@ -477,14 +510,34 @@ export function applyProjectPatch(
       progress: body.status === 'COMPLETED' ? 100 : next.progress,
     };
     if (body.status === 'COMPLETED') {
-      const ceo = store.getUsers().find((item) => item.role_code === 'CEO');
-      store.appendNotification({
-        recipient_id: ceo?.id || user.id,
+      next = { ...next, pm_approved_at: now, current_phase: 'COMPLETED' };
+      const lead = next.lead_id ? store.getLeads().find((item) => item.id === next.lead_id) : undefined;
+      const teamMembers = store
+        .getUsers()
+        .filter((item) => item.status === 'ACTIVE' && item.team_id && (next.team_ids || []).includes(item.team_id))
+        .map((item) => item.id);
+      dispatchHandover({
+        recipientIds: [
+          next.team_lead_id,
+          next.assigned_member_id,
+          lead?.created_by_id,
+          lead?.sales_owner_id,
+          ...teamMembers,
+          ...usersWithRole('BUSINESS_HEAD', 'ENG_DIRECTOR', 'CEO').map((item) => item.id),
+        ],
+        actor: user,
+        entityType: 'PROJECT',
+        entityId: next.id,
+        entityName: next.name,
+        customer: next.customer_name,
+        title: `Project Closed – ${next.name}`,
+        message: `${user.name} closed ${next.code}. Handover and closure are complete.`,
+        actionRequired: 'Review project closure records',
+        ctaLabel: 'Open Project',
+        actionUrl: `/projects/${next.id}`,
         type: 'PROJECT_COMPLETED',
-        title: `${next.code} completed`,
-        message: `${next.customer_name} – ${next.name} marked completed by ${user.name}.`,
-        entity_type: 'PROJECT',
-        entity_id: next.id,
+        status: 'Project Closed',
+        eventKey: `PROJECT_CLOSED:${next.id}`,
       });
     }
   }
@@ -500,30 +553,16 @@ export function escalateProject(
   project: Project,
   body: { issue?: string; impact?: string; severity?: Escalation['severity'] }
 ) {
-  const now = new Date().toISOString();
-  const code = `ESC-${String(store.getEscalations().length + 1).padStart(3, '0')}`;
-  const escalation: Escalation = {
-    id: newId('esc'),
-    code,
-    project_id: project.id,
+  const issue = (body.issue || project.issue || project.name).trim();
+  const escalation = buildEscalation(user, project, {
+    issue,
+    impact: body.impact,
+    severity: body.severity,
+    previous_actions: 'Raised from Active Projects',
     project_name: project.name,
     customer_name: project.customer_name,
-    issue: body.issue || project.issue || project.name,
-    impact: body.impact || 'Execution risk requiring management attention',
-    summary: body.issue || project.issue || project.name,
-    severity: body.severity || 'HIGH',
-    status: 'OPEN',
-    raised_by_id: user.id,
-    raised_by_name: user.name,
-    raised_by_role: user.role_name,
-    previous_actions: 'Raised from Active Projects',
-    current_level: body.severity === 'CRITICAL' ? 'CEO' : 'PROJECT_MANAGER',
-    created_at: now,
-    updated_at: now,
-  };
-  const escalations = store.getEscalations();
-  escalations.unshift(escalation);
-  store.saveEscalations(escalations);
+  });
+  saveEscalation(escalation);
   store.appendAudit({
     user_id: user.id,
     user_name: user.name,
@@ -534,5 +573,15 @@ export function escalateProject(
     action: 'ESCALATION_RAISED',
     description: `${user.name} escalated ${project.code}: ${escalation.issue}`,
   });
+  notifyEscalationOwner(escalation, user.name);
+  persistProjectIssue(project, issue);
   return escalation;
+}
+
+function persistProjectIssue(project: Project, issue: string) {
+  const projects = store.getProjects();
+  const index = projects.findIndex((item) => item.id === project.id);
+  if (index === -1) return;
+  projects[index] = { ...projects[index], issue, last_update_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  store.saveProjects(projects);
 }

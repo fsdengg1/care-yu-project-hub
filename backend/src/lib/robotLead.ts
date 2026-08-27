@@ -8,7 +8,9 @@ export const ROBOT_LEAD_ID = 'u-tl-rob';
 const LEGACY_ROBOT_LEAD_ID = 'u-robotlead1';
 
 export function robotLeadEmail() {
-  return (env.robotLeadEmail || 'robotlead1@careyu.ai').trim().toLowerCase();
+  const configured = (env.robotLeadEmail || 'robottech@careyu.ai').trim().toLowerCase();
+  if (configured === 'robotlead1@careyu.ai') return 'robottech@careyu.ai';
+  return configured;
 }
 
 export function isRobotLeadEmail(email: string) {
@@ -31,7 +33,7 @@ function seedRobotLead(): User {
     role_code: 'TEAM_LEAD',
     role_name: 'Team Lead',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     reporting_manager_id: 'u-pm',
     status: 'ACTIVE',
     account_status: 'ACTIVE',
@@ -82,7 +84,7 @@ export async function ensureRobotLeadAccount() {
     role_code: 'TEAM_LEAD',
     role_name: existing?.role_name || 'Team Lead',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     reporting_manager_id: existing?.reporting_manager_id || seed.reporting_manager_id,
     status: 'ACTIVE',
     account_status: 'ACTIVE',

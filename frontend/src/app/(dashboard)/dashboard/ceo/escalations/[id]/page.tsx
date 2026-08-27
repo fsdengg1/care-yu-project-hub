@@ -11,17 +11,25 @@ export default function CeoEscalationDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const [escalation, setEscalation] = useState<Escalation | null>(null);
+  const [canAct, setCanAct] = useState(false);
+  const [canPromote, setCanPromote] = useState(false);
   const [decision, setDecision] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = async () => {
-    const result = await apiRequest<{ escalation: Escalation }>(`/api/escalations/${id}`);
-    if (result.ok) setEscalation(result.data.escalation);
+    const result = await apiRequest<{ escalation: Escalation; can_act?: boolean; can_promote?: boolean }>(
+      `/api/escalations/${id}`
+    );
+    if (result.ok) {
+      setEscalation(result.data.escalation);
+      setCanAct(Boolean(result.data.can_act ?? result.data.escalation.can_act));
+      setCanPromote(Boolean(result.data.can_promote ?? result.data.escalation.can_promote));
+    }
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, [id]);
 
   const resolve = async () => {
@@ -38,14 +46,34 @@ export default function CeoEscalationDetailPage() {
       return;
     }
     setEscalation(result.data.escalation);
+    setCanAct(false);
+    setCanPromote(false);
     setDecision('');
+  };
+
+  const promote = async () => {
+    if (!escalation) return;
+    setSaving(true);
+    setError(null);
+    const result = await apiRequest<{ escalation: Escalation }>(`/api/escalations/${escalation.id}/promote`, {
+      method: 'POST',
+      body: JSON.stringify({ comments: decision }),
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setEscalation(result.data.escalation);
+    setDecision('');
+    await load();
   };
 
   if (!escalation) {
     return <div className="p-12 text-center text-xs text-slate-400">Loading escalation…</div>;
   }
 
-  const canDecide = escalation.current_level === 'CEO' && escalation.status === 'OPEN';
+  const open = escalation.status !== 'RESOLVED';
 
   return (
     <div className="space-y-6">
@@ -64,46 +92,58 @@ export default function CeoEscalationDetailPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/90 p-5 text-xs">
           <Row label="Issue" value={escalation.issue} />
-          <Row label="Raised By" value={escalation.raised_by_role} />
+          <Row label="Raised By" value={`${escalation.raised_by_name} · ${escalation.raised_by_role}`} />
           <Row label="Team" value={escalation.team_name || '—'} />
           <Row label="Impact" value={escalation.impact} />
           <Row label="Previous Actions" value={escalation.previous_actions} />
-          <Row label="Current Level" value={escalation.current_level} />
+          <Row label="Current Level" value={escalation.current_level.replace(/_/g, ' ')} />
+          <Row label="Status" value={escalation.status} />
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
-          <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-200">Decision Required</h2>
+          <h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-200">Resolution</h2>
           {escalation.decision_required && (
             <p className="mb-4 text-xs text-slate-300">{escalation.decision_required}</p>
           )}
-          {escalation.ceo_decision && (
+          {(escalation.resolution || escalation.ceo_decision) && (
             <div className="mb-4 rounded border border-emerald-900 bg-emerald-950/40 p-3 text-xs text-emerald-300">
-              Resolution: {escalation.ceo_decision}
+              Resolution: {escalation.resolution || escalation.ceo_decision}
             </div>
           )}
-          {canDecide ? (
+          {open && canAct ? (
             <div className="space-y-3">
               <textarea
                 value={decision}
                 onChange={(e) => setDecision(e.target.value)}
                 rows={4}
-                placeholder="Decision / Resolution"
+                placeholder={canPromote ? 'Resolution, or comment if promoting to the next level' : 'Decision / Resolution'}
                 className="w-full rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-100"
               />
               {error && <p className="text-xs text-rose-400">{error}</p>}
-              <button
-                onClick={resolve}
-                disabled={saving}
-                className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
-              >
-                Resolve Escalation
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => void resolve()}
+                  disabled={saving}
+                  className="rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
+                >
+                  Resolve and return to execution
+                </button>
+                {canPromote && (
+                  <button
+                    onClick={() => void promote()}
+                    disabled={saving}
+                    className="rounded-lg border border-rose-800 bg-rose-950 px-4 py-2 text-xs font-bold text-rose-200 hover:bg-rose-900 disabled:opacity-60"
+                  >
+                    Escalate to next level
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <p className="text-xs text-slate-500">
               {escalation.status === 'RESOLVED'
-                ? 'This escalation has been resolved.'
-                : 'No CEO action is required at the current escalation level.'}
+                ? 'This escalation has been resolved. Work can continue.'
+                : 'No action is required from you at the current escalation level.'}
             </p>
           )}
         </div>

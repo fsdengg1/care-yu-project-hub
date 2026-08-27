@@ -153,7 +153,7 @@ export default function DailyUpdateDetailPage() {
               >
                 Add comment
               </button>
-              {isPm && update.work_status === 'BLOCKED' && (
+              {(isPm || isTl) && update.work_status === 'BLOCKED' && (
                 <button
                   type="button"
                   onClick={async () => {

@@ -252,29 +252,158 @@ function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
     .filter((user) => !isSmokeTestAccount(user))
     .filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id))
     .filter((user) => !RETIRED_DEMO_EMAILS.has(user.email.trim().toLowerCase()));
-  return applyActualTeamMembership(withoutDemo);
+  return applyCanonicalPeople(withoutDemo);
 }
 
-function applyActualTeamMembership(users: User[]): User[] {
-  const fsd = users.find((user) => user.email.trim().toLowerCase() === 'fsdengg1@careyu.ai');
-  if (!fsd) return users;
-  return users
-    .filter((user) => user.id !== 'u-emp-kabitha' || user.id === fsd.id)
-    .map((user) => {
-      if (user.id !== fsd.id) return user;
-      return {
+type CanonicalPerson = {
+  id: string;
+  name: string;
+  email: string;
+  aliases: string[];
+  role_id: string;
+  role_code: string;
+  role_name: string;
+  team_id?: string;
+  team_name: string;
+  team_lead_id?: string;
+  team_lead_name?: string;
+  reporting_manager_id: string;
+  /** Keep the live signup row (by email) instead of the seed id. */
+  preferLiveEmail?: boolean;
+  /** Project Manager stays in management, not a team-member node. */
+  clearTeamId?: boolean;
+};
+
+const CANONICAL_PEOPLE: CanonicalPerson[] = [
+  {
+    id: 'u-tl-rob',
+    name: 'Aakash',
+    email: 'robottech@careyu.ai',
+    aliases: [],
+    role_id: 'r-tl',
+    role_code: 'TEAM_LEAD',
+    role_name: 'Team Lead',
+    team_id: 't-robotics',
+    team_name: 'Robotics & Automation Solution Team',
+    reporting_manager_id: 'u-pm',
+  },
+  {
+    id: 'u-tl-sw',
+    name: 'Arun Kumar',
+    email: 'fsdlead1@careyu.ai',
+    aliases: ['arun@careyu.com'],
+    role_id: 'r-tl',
+    role_code: 'TEAM_LEAD',
+    role_name: 'Team Lead',
+    team_id: 't-sw',
+    team_name: 'Software Team',
+    reporting_manager_id: 'u-pm',
+  },
+  {
+    id: 'u-tl-vis',
+    name: 'Vanippriya',
+    email: 'projects@careyu.ai',
+    aliases: ['vani@careyu.com'],
+    role_id: 'r-tl',
+    role_code: 'TEAM_LEAD',
+    role_name: 'Team Lead',
+    team_id: 't-vision',
+    team_name: 'Vision Team',
+    reporting_manager_id: 'u-pm',
+  },
+  {
+    id: 'u-emp-kabitha',
+    name: 'Kabitha',
+    email: 'fsdengg1@careyu.ai',
+    aliases: ['kabitha@careyu.ai'],
+    role_id: 'r-emp',
+    role_code: 'EMPLOYEE',
+    role_name: 'Team Member',
+    team_id: 't-sw',
+    team_name: 'Software Team',
+    team_lead_id: 'u-tl-sw',
+    team_lead_name: 'Arun Kumar',
+    reporting_manager_id: 'u-tl-sw',
+    preferLiveEmail: true,
+  },
+  {
+    id: 'u-pm',
+    name: 'Arivan',
+    email: 'robotlead1@careyu.ai',
+    aliases: ['arivan@careyu.com'],
+    role_id: 'r-pm',
+    role_code: 'PROJECT_MANAGER',
+    role_name: 'Project Manager',
+    team_name: 'Projects Team',
+    reporting_manager_id: 'u-ceo',
+    clearTeamId: true,
+  },
+];
+
+function applyCanonicalPeople(users: User[]): User[] {
+  const remove = new Set<string>();
+  let list = users;
+
+  for (const canon of CANONICAL_PEOPLE) {
+    const emails = new Set([canon.email, ...canon.aliases].map((value) => value.trim().toLowerCase()));
+    const byId = list.find((user) => user.id === canon.id && !remove.has(user.id));
+    const emailMatches = list.filter(
+      (user) => emails.has(user.email.trim().toLowerCase()) && !remove.has(user.id)
+    );
+    const liveEmail = list.find(
+      (user) => user.email.trim().toLowerCase() === canon.email && !remove.has(user.id)
+    );
+    const byEmail = liveEmail || emailMatches[0];
+
+    let keepId: string | undefined;
+    if (canon.preferLiveEmail && byEmail) {
+      keepId = byEmail.id;
+    } else {
+      keepId = byId?.id || byEmail?.id;
+    }
+    if (!keepId) continue;
+    for (const extra of emailMatches) {
+      if (extra.id !== keepId) remove.add(extra.id);
+    }
+    if (byId && byId.id !== keepId) remove.add(byId.id);
+
+    const kept = list.find((user) => user.id === keepId);
+    const donor = emailMatches.find((user) => user.password_hash) || kept;
+    if (!kept) continue;
+
+    list = list.map((user) => {
+      if (user.id !== keepId) return user;
+      const next: User = {
         ...user,
-        name: user.name?.trim() || 'Kabitha',
-        role_id: user.role_id || 'r-emp',
-        role_code: user.role_code || 'EMPLOYEE',
-        role_name: user.role_name || 'Team Member',
-        team_id: 't-sw',
-        team_name: 'Software Team',
-        team_lead_id: 'u-tl-sw',
-        team_lead_name: 'Arun Kumar',
-        reporting_manager_id: user.reporting_manager_id || 'u-tl-sw',
+        name: canon.name,
+        email: canon.email,
+        role_id: canon.role_id,
+        role_code: canon.role_code,
+        role_name: canon.role_name,
+        team_name: canon.team_name,
+        reporting_manager_id: user.reporting_manager_id || canon.reporting_manager_id,
+        password_hash: donor?.password_hash || user.password_hash,
+        password_created_at: donor?.password_created_at || user.password_created_at,
       };
+      if (canon.clearTeamId) {
+        delete next.team_id;
+        delete next.team_lead_id;
+        delete next.team_lead_name;
+      } else {
+        next.team_id = canon.team_id;
+        if (canon.team_lead_id) {
+          next.team_lead_id = canon.team_lead_id;
+          next.team_lead_name = canon.team_lead_name;
+        } else {
+          delete next.team_lead_id;
+          delete next.team_lead_name;
+        }
+      }
+      return next;
     });
+  }
+
+  return list.filter((user) => !remove.has(user.id));
 }
 
 function mergeRoles(stored: Role[] | undefined, seed: Role[]): Role[] {
@@ -534,6 +663,8 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
 
   const { ensureRobotLeadAccount } = await import('../lib/robotLead.js');
   await ensureRobotLeadAccount();
+  const { ensureProjectManagerAccount } = await import('../lib/projectManagerAccount.js');
+  await ensureProjectManagerAccount();
 
   return { source, counts: countRecords(loadDb()) };
 }

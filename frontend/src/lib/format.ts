@@ -45,6 +45,8 @@ export const WORK_STATUS_LABELS: Record<string, string> = {
   COMPLETED: 'Completed',
   TODO: 'Not Started',
   DONE: 'Completed',
+  PENDING_TL_REVIEW: 'Pending Team Lead Review',
+  CORRECTION_REQUIRED: 'Correction Required',
 };
 
 export function formatLongDate(value?: string): string {

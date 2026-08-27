@@ -19,6 +19,8 @@ import {
   persistRefreshedProjects,
 } from './projects.js';
 import { ganttStatus, persistComputedProgress, phaseProgress } from './projectProgress.js';
+import { notificationService } from './notificationService.js';
+import { applyTaskLifecycle } from './workTasks.js';
 
 const DEFAULT_PHASES = [
   'Kickoff & Planning',
@@ -47,6 +49,8 @@ export type TaskPatch = {
   is_milestone?: boolean;
   remarks?: string;
   blocked_reason?: string;
+  review_action?: 'approve' | 'return' | 'resubmit';
+  review_comments?: string;
 };
 
 function todayDate() {
@@ -100,14 +104,16 @@ function audit(user: User, action: string, description: string, entity: { id: st
 
 function notifyAssignee(task: Task, actor: User) {
   if (!task.assigned_to_id || task.assigned_to_id === actor.id) return;
-  store.appendNotification({
-    recipient_id: task.assigned_to_id,
-    sender_id: actor.id,
-    type: 'TASK_ASSIGNED',
-    title: task.is_milestone ? `Milestone — ${task.title}` : `Task assigned — ${task.title}`,
-    message: `${actor.name} assigned you "${task.title}"${task.due_date ? ` due ${task.due_date}` : ''}.`,
-    entity_type: 'TASK',
-    entity_id: task.id,
+  const now = task.updated_at || new Date().toISOString();
+  void notificationService.notifyAssignment({
+    entityType: 'TASK',
+    entityId: task.id,
+    entityName: task.title,
+    recipientUserId: task.assigned_to_id,
+    assignedByUserId: actor.id,
+    priority: task.priority,
+    createdOn: now,
+    eventKey: `TASK_ASSIGNED:${task.id}:${task.assigned_to_id}:${now}`,
   });
 }
 
@@ -510,6 +516,10 @@ export function patchPlanTask(user: User, project: Project, taskId: string, body
   }
 
   next = applyDates(next, body);
+  applyTaskLifecycle(user, previous, next, {
+    reviewAction: body.review_action,
+    comments: body.review_comments,
+  });
   tasks[index] = next;
   store.saveTasks(tasks);
   persistComputedProgress(project.id);

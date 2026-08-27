@@ -13,7 +13,7 @@ export const INITIAL_ROLES: Role[] = [
     code: 'CTO',
     name: 'CTO',
     description: 'Technology leadership across engineering delivery, platform architecture, and execution quality.',
-    permissions: ['view:all_projects', 'view:engineering_workload', 'view:technical_progress', 'view:reports', 'manage:engineering', 'create:lead', 'edit:lead']
+    permissions: ['view:all_projects', 'view:engineering_workload', 'view:technical_progress', 'view:reports', 'manage:engineering', 'edit:lead']
   },
   {
     id: 'r-bh',
@@ -34,35 +34,35 @@ export const INITIAL_ROLES: Role[] = [
     code: 'PROJECT_MANAGER',
     name: 'Project Manager',
     description: 'Central operational controller. Manages Gantt, task assignments, milestones, procurement coordination, and timeline delivery.',
-    permissions: ['manage:projects', 'assign:tasks', 'manage:milestones', 'view:all_teams', 'review:leads', 'coordinate:procurement', 'create:lead', 'edit:lead']
+    permissions: ['manage:projects', 'assign:tasks', 'manage:milestones', 'view:all_teams', 'review:leads', 'coordinate:procurement', 'edit:lead']
   },
   {
     id: 'r-pe',
     code: 'PROJECT_ENGINEER',
     name: 'Project Engineer',
     description: 'Future operational support role. Supports PM in managing assigned project execution and sub-tasks.',
-    permissions: ['manage:assigned_tasks', 'view:assigned_projects', 'review:daily_updates', 'escalate:blocker', 'create:lead', 'edit:lead']
+    permissions: ['manage:assigned_tasks', 'view:assigned_projects', 'review:daily_updates', 'escalate:blocker', 'edit:lead']
   },
   {
     id: 'r-tl',
     code: 'TEAM_LEAD',
     name: 'Team Lead',
     description: 'Manages team capacity, reviews PM assignments, suggests task rescheduling or reassignments, and monitors daily updates.',
-    permissions: ['view:team_workload', 'suggest:task_change', 'review:team_updates', 'escalate:resource_conflict', 'create:lead', 'edit:lead']
+    permissions: ['view:team_workload', 'suggest:task_change', 'review:team_updates', 'escalate:resource_conflict', 'edit:lead']
   },
   {
     id: 'r-emp',
     code: 'EMPLOYEE',
     name: 'Team Member',
     description: 'Executes assigned tasks across multiple projects, submits daily work logs, and reports blockers.',
-    permissions: ['view:assigned_tasks', 'update:task_status', 'submit:daily_update', 'report:blocker', 'create:lead', 'edit:lead']
+    permissions: ['view:assigned_tasks', 'update:task_status', 'submit:daily_update', 'report:blocker']
   },
   {
     id: 'r-sales',
     code: 'SALES',
     name: 'Sales Executive',
     description: 'Generates and updates customer leads, manages customer documentation, and tracks proposal negotiations.',
-    permissions: ['create:lead', 'edit:own_leads', 'upload:customer_docs', 'view:lead_status']
+    permissions: ['view:lead_status', 'edit:own_leads', 'upload:customer_docs']
   },
   {
     id: 'r-proc',
@@ -113,7 +113,7 @@ export const INITIAL_TEAMS: Team[] = [
   {
     id: 't-robotics',
     code: 'ROBOTICS',
-    name: 'Robotics & Solutions Team',
+    name: 'Robotics & Automation Solution Team',
     description: 'FANUC, KUKA, ABB Robot Simulation, EOAT Design, Motion Control & AMR/AGV.',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
@@ -203,11 +203,12 @@ export const INITIAL_USERS: User[] = [
     id: 'u-pm',
     employee_id: 'CYA-004',
     name: 'Arivan',
-    email: 'arivan@careyu.com',
+    email: 'robotlead1@careyu.ai',
     phone: '+91 98765 00004',
     role_id: 'r-pm',
     role_code: 'PROJECT_MANAGER',
     role_name: 'Project Manager',
+    team_name: 'Projects Team',
     reporting_manager_id: 'u-ceo',
     status: 'ACTIVE',
     created_at: '2026-01-03T00:00:00Z',
@@ -217,7 +218,7 @@ export const INITIAL_USERS: User[] = [
     id: 'u-tl-sw',
     employee_id: 'CYA-010',
     name: 'Arun Kumar',
-    email: 'arun@careyu.com',
+    email: 'fsdlead1@careyu.ai',
     phone: '+91 98765 00010',
     role_id: 'r-tl',
     role_code: 'TEAM_LEAD',
@@ -233,7 +234,7 @@ export const INITIAL_USERS: User[] = [
     id: 'u-tl-vis',
     employee_id: 'CYA-011',
     name: 'Vanippriya',
-    email: 'vani@careyu.com',
+    email: 'projects@careyu.ai',
     phone: '+91 98765 00011',
     role_id: 'r-tl',
     role_code: 'TEAM_LEAD',
@@ -249,13 +250,13 @@ export const INITIAL_USERS: User[] = [
     id: 'u-tl-rob',
     employee_id: 'CYA-012',
     name: 'Aakash',
-    email: 'robotlead1@careyu.ai',
+    email: 'robottech@careyu.ai',
     phone: '+91 98765 00012',
     role_id: 'r-tl',
     role_code: 'TEAM_LEAD',
     role_name: 'Team Lead',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     reporting_manager_id: 'u-pm',
     status: 'ACTIVE',
     created_at: '2026-01-05T00:00:00Z',
@@ -265,7 +266,7 @@ export const INITIAL_USERS: User[] = [
     id: 'u-emp-kabitha',
     employee_id: 'CYA-020',
     name: 'Kabitha',
-    email: 'kabitha@careyu.ai',
+    email: 'fsdengg1@careyu.ai',
     phone: '',
     role_id: 'r-emp',
     role_code: 'EMPLOYEE',
@@ -379,7 +380,7 @@ export const INITIAL_USERS: User[] = [
     role_code: 'EMPLOYEE',
     role_name: 'Team Member',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
     reporting_manager_id: 'u-tl-rob',
@@ -397,7 +398,7 @@ export const INITIAL_USERS: User[] = [
     role_code: 'EMPLOYEE',
     role_name: 'Team Member',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
     reporting_manager_id: 'u-tl-rob',
@@ -415,7 +416,7 @@ export const INITIAL_USERS: User[] = [
     role_code: 'EMPLOYEE',
     role_name: 'Team Member',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
     reporting_manager_id: 'u-tl-rob',
@@ -433,7 +434,7 @@ export const INITIAL_USERS: User[] = [
     role_code: 'EMPLOYEE',
     role_name: 'Team Member',
     team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
+    team_name: 'Robotics & Automation Solution Team',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
     reporting_manager_id: 'u-tl-rob',

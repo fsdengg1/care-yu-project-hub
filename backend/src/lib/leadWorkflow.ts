@@ -23,6 +23,7 @@ import {
   transferLeadResponsibility,
 } from './responsibility.js';
 import { assertAllowedTransition, leadOwnerId, PM_REVIEW_STATUSES } from './leadValidation.js';
+import { dispatchHandover } from './lifecycleNotify.js';
 
 export function parseMoney(raw: unknown): number {
   const numeric = Number(String(raw ?? '').replace(/[₹,\s]/g, ''));
@@ -161,7 +162,22 @@ export function audit(
 
 export function notify(partial: Omit<NotificationItem, 'id' | 'created_at' | 'read_status'>) {
   if (!partial.recipient_id) return;
-  store.appendNotification(partial);
+  const actor = partial.sender_id ? store.findUserById(partial.sender_id) : undefined;
+  dispatchHandover({
+    recipientIds: [partial.recipient_id],
+    actor,
+    entityType: partial.entity_type,
+    entityId: partial.entity_id,
+    entityName: partial.title,
+    title: partial.title,
+    message: partial.message,
+    actionRequired: partial.title,
+    ctaLabel: 'Open',
+    actionUrl: partial.action_url,
+    type: partial.type,
+    priority: partial.priority,
+    eventKey: partial.event_key || `${partial.type}:${partial.entity_id}:${partial.recipient_id}`,
+  });
 }
 
 export function transitionLead(
@@ -227,20 +243,10 @@ export function canHandleLeadCommercial(user: User, lead: Lead): boolean {
 
 export function canEditProjectInput(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
+  if (!['BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return false;
   if (!['DRAFT', 'RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)) return false;
-  const canCaptureRequirement = [
-    'BUSINESS_HEAD',
-    'ENG_DIRECTOR',
-    'SALES',
-    'PROJECT_MANAGER',
-    'TEAM_LEAD',
-    'EMPLOYEE',
-    'PROJECT_ENGINEER',
-    'CTO',
-  ].includes(user.role_code);
-  if (!canCaptureRequirement) return false;
   if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
-  if (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') return true;
+  if (user.role_code === 'BUSINESS_HEAD') return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
   return false;
 }
@@ -418,6 +424,10 @@ export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; proj
             : existing.team_ids,
         team_lead_id: existing.team_lead_id || lead.assigned_team_lead_id,
         team_lead_name: existing.team_lead_name || lead.assigned_team_lead_name,
+        intake_status:
+          existing.intake_status ||
+          (existing.team_lead_id || lead.assigned_team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT'),
+        assignment_path: existing.assignment_path || (lead.assigned_team_lead_id ? 'TEAM_LEAD' : undefined),
         updated_at: now,
       }
     : {
@@ -434,6 +444,8 @@ export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; proj
         team_ids: lead.assigned_team_id ? [lead.assigned_team_id] : [],
         team_lead_id: lead.assigned_team_lead_id,
         team_lead_name: lead.assigned_team_lead_name,
+        intake_status: lead.assigned_team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT',
+        assignment_path: lead.assigned_team_lead_id ? 'TEAM_LEAD' : undefined,
         value: quotationValue,
         start_date: now.slice(0, 10),
         target_completion: new Date(Date.now() + 90 * 24 * 3600000).toISOString().slice(0, 10),
@@ -499,8 +511,7 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
     items.push(workItem(lead, category, summary));
   };
 
-  const canCapture =
-    ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'EMPLOYEE', 'PROJECT_ENGINEER', 'TEAM_LEAD'].includes(user.role_code);
+  const canCapture = ['BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code);
   if (canCapture) {
     items.push({
       lead_id: 'new',
@@ -587,6 +598,171 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
           : 'Prepare BOM, vendor quotations, and project costing.'
       );
     }
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  const addGeneric = (item: MyWorkItem) => {
+    const key = `${item.lead_id}:${item.category}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(item);
+  };
+
+  for (const project of store.getProjects()) {
+    if (project.status === 'CANCELLED') continue;
+    const intake = project.intake_status || (project.team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT');
+    const href = `/projects/${project.id}`;
+    const base = {
+      lead_id: project.id,
+      lead_number: project.code,
+      title: project.name,
+      customer_name: project.customer_name,
+      href,
+      priority: (project.health === 'CRITICAL' ? 'Critical' : project.health === 'AT_RISK' ? 'High' : 'Medium') as MyWorkItem['priority'],
+      due_date: project.target_completion || project.start_date,
+    };
+
+    if (
+      (user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id) ||
+      user.role_code === 'SYSTEM_ADMIN'
+    ) {
+      if (project.status === 'ACTIVE' && (intake === 'AWAITING_ASSIGNMENT' || (!project.team_lead_id && !project.assigned_member_id))) {
+        addGeneric({
+          ...base,
+          status: 'AWAITING_ASSIGNMENT',
+          pipeline_stage: 'EXECUTION',
+          category: 'EXECUTION',
+          summary: 'Assign this project to a Team Lead or directly to a team member.',
+        });
+      }
+      if (intake === 'RETURNED' && project.status === 'ACTIVE') {
+        addGeneric({
+          ...base,
+          status: 'RETURNED',
+          pipeline_stage: 'EXECUTION',
+          category: 'EXECUTION',
+          summary: project.intake_comment || 'Team Lead returned this project. Reassign or update instructions.',
+        });
+      }
+      if (project.tl_reviewed_at && !project.pm_approved_at && project.status === 'ACTIVE') {
+        addGeneric({
+          ...base,
+          status: 'PM_FINAL_REVIEW',
+          pipeline_stage: 'EXECUTION',
+          category: 'EXECUTION',
+          summary: 'Team Lead completed final validation. Approve handover and close the project.',
+        });
+      }
+    }
+
+    if (user.role_code === 'TEAM_LEAD' && project.team_lead_id === user.id && project.status === 'ACTIVE') {
+      if (intake === 'PENDING_TL_REVIEW') {
+        addGeneric({
+          ...base,
+          status: 'PENDING_TL_REVIEW',
+          pipeline_stage: 'EXECUTION',
+          category: 'EXECUTION',
+          summary: 'Review requirements and accept the project, or return it to the Project Manager.',
+        });
+      }
+      const tasks = store.getTasks().filter((task) => task.project_id === project.id);
+      const allComplete =
+        tasks.length > 0 &&
+        tasks.every((task) => task.status === 'DONE' && task.review_status !== 'PENDING_TL_REVIEW' && task.review_status !== 'CORRECTION_REQUIRED');
+      if (allComplete && !project.tl_reviewed_at) {
+        addGeneric({
+          ...base,
+          status: 'TL_FINAL_REVIEW',
+          pipeline_stage: 'EXECUTION',
+          category: 'EXECUTION',
+          summary: 'All tasks are complete. Perform Team Lead final validation.',
+        });
+      }
+    }
+  }
+
+  for (const task of store.getTasks()) {
+    const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
+    const overdue = Boolean(task.due_date && task.due_date < today && task.status !== 'DONE');
+    const href = `/my-work?task=${encodeURIComponent(task.id)}`;
+    const base = {
+      lead_id: task.id,
+      lead_number: project?.code || 'TASK',
+      title: task.title,
+      customer_name: project?.customer_name || '',
+      href,
+      priority: overdue ? ('Critical' as const) : task.priority,
+      due_date: task.due_date,
+    };
+    if (task.review_status === 'PENDING_TL_REVIEW') {
+      const assignee = store.findUserById(task.assigned_to_id);
+      const isReviewer =
+        user.role_code === 'TEAM_LEAD' &&
+        (project?.team_lead_id === user.id || assignee?.team_lead_id === user.id || assignee?.team_id === user.team_id);
+      if (isReviewer) {
+        addGeneric({
+          ...base,
+          status: 'PENDING_TL_REVIEW',
+          pipeline_stage: 'EXECUTION',
+          category: 'TASK_REVIEW',
+          summary: overdue
+            ? `OVERDUE. Review ${task.assigned_to}'s completed work and approve or send back.`
+            : `Review ${task.assigned_to}'s completed work and approve or send back.`,
+        });
+      }
+    }
+    if (task.assigned_to_id === user.id) {
+      if (task.review_status === 'CORRECTION_REQUIRED') {
+        addGeneric({
+          ...base,
+          status: 'CORRECTION_REQUIRED',
+          pipeline_stage: 'EXECUTION',
+          category: 'TASK',
+          summary: task.remarks || 'Correct this task and resubmit for Team Lead review.',
+        });
+      } else if (task.review_status !== 'PENDING_TL_REVIEW' && task.status !== 'DONE') {
+        addGeneric({
+          ...base,
+          status: task.status,
+          pipeline_stage: 'EXECUTION',
+          category: 'TASK',
+          summary: overdue
+            ? `OVERDUE. ${task.status === 'BLOCKED' ? task.blocked_reason || 'Resolve the blocker.' : 'Start or complete this assigned task.'}`
+            : task.status === 'BLOCKED'
+              ? task.blocked_reason || 'Resolve the blocker and continue.'
+              : 'Execute this assigned task.',
+        });
+      }
+    }
+  }
+
+  for (const escalation of store.getEscalations()) {
+    if (escalation.status === 'RESOLVED') continue;
+    const project = escalation.project_id
+      ? store.getProjects().find((item) => item.id === escalation.project_id)
+      : undefined;
+    const level = escalation.current_level;
+    const canAct =
+      user.role_code === 'SYSTEM_ADMIN' ||
+      (level === 'TEAM_LEAD' &&
+        user.role_code === 'TEAM_LEAD' &&
+        (project?.team_lead_id === user.id || escalation.team_id === user.team_id)) ||
+      (level === 'PROJECT_MANAGER' && user.role_code === 'PROJECT_MANAGER' && (!project || project.pm_id === user.id)) ||
+      ((level === 'BUSINESS_HEAD' || level === 'ENG_DIRECTOR') && ['BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) ||
+      (level === 'CEO' && user.role_code === 'CEO');
+    if (!canAct) continue;
+    addGeneric({
+      lead_id: escalation.id,
+      lead_number: escalation.code,
+      title: escalation.issue,
+      customer_name: escalation.customer_name,
+      status: `${escalation.status}:${level}`,
+      pipeline_stage: 'EXECUTION',
+      category: 'ESCALATION',
+      summary: `${escalation.severity} issue at ${level.replace('_', ' ')}: ${escalation.impact}`,
+      href: `/dashboard/ceo/escalations/${escalation.id}`,
+      priority: escalation.severity === 'CRITICAL' ? 'Critical' : escalation.severity === 'HIGH' ? 'High' : 'Medium',
+    });
   }
 
   const groups: Record<string, MyWorkItem[]> = {};
