@@ -5,12 +5,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
-import { BusinessVertical, CustomerType, LeadCustomField, LeadDocument, PriorityLevel, User } from '@/lib/types';
+import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User } from '@/lib/types';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
-import LeadDocumentUpload from '@/components/leads/LeadDocumentUpload';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import SubmitLeadModal from '@/components/leads/SubmitLeadModal';
+import { validateLeadForm, numericAmount } from '@/lib/leadValidation';
 import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Plus, Save, Send } from 'lucide-react';
 
 const SOLUTION_OPTIONS = [
@@ -40,9 +40,9 @@ function CreateLeadForm() {
   const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
-  const [documents, setDocuments] = useState<LeadDocument[]>([]);
   const [customFields, setCustomFields] = useState<LeadCustomField[]>([]);
   const persistLock = useRef<Promise<string | null> | null>(null);
   const leadIdRef = useRef<string | null>(editId);
@@ -121,7 +121,6 @@ function CreateLeadForm() {
         setLeadId(lead.id);
         setLeadNumber(lead.lead_number);
         setLeadStatus(lead.status);
-        setDocuments(payload.documents || []);
         setCustomFields(lead.custom_fields || []);
         setFormData((prev) => ({
           ...prev,
@@ -179,10 +178,9 @@ function CreateLeadForm() {
   }, [editId, router]);
 
   const payloadFromForm = (user: User, status: 'DRAFT' | 'SUBMITTED_TO_PM') => {
-    const expectedValue = Number(String(formData.estimated_opportunity_value || '').replace(/[₹,\s]/g, '')) || 0;
     return {
-      title: formData.title || 'Untitled Lead',
-      customer_name: formData.customer_name || 'Unspecified Customer',
+      title: formData.title,
+      customer_name: formData.customer_name,
       customer_type: formData.customer_type,
       business_vertical: formData.business_vertical,
       created_by: user.name,
@@ -231,7 +229,7 @@ function CreateLeadForm() {
       customer_dependencies: formData.customer_dependencies,
       customer_budget: formData.customer_budget,
       estimated_opportunity_value: formData.estimated_opportunity_value,
-      expected_value: expectedValue,
+      expected_value: numericAmount(formData.estimated_opportunity_value) ?? 0,
       pipeline_stage: status === 'SUBMITTED_TO_PM' ? ('PM_REVIEW' as const) : ('PROJECT_INPUT' as const),
       currency: formData.currency,
       expected_po_date: formData.expected_po_date,
@@ -269,18 +267,14 @@ function CreateLeadForm() {
   };
 
   const validateForSubmit = () => {
-    const nextMissing: string[] = [];
-    if (!formData.title.trim()) nextMissing.push('title');
-    if (!formData.customer_name.trim()) nextMissing.push('customer_name');
-    if (!formData.customer_contact.trim()) nextMissing.push('customer_contact');
-    if (!formData.requirement_summary.trim()) nextMissing.push('requirement_summary');
-    if (!formData.detailed_requirement.trim() && !formData.project_description.trim()) nextMissing.push('project_description');
-    if (!formData.application.trim()) nextMissing.push('application');
-    setMissing(nextMissing);
-    if (nextMissing.length) {
-      setValidationError('Please complete all required fields before submitting the lead.');
+    const result = validateLeadForm(formData, { submit: true });
+    setFieldErrors(result.errors);
+    setMissing(Object.keys(result.errors));
+    if (result.list.length) {
+      setValidationError(result.list[0].message);
       return false;
     }
+    setValidationError(null);
     return true;
   };
 
@@ -335,8 +329,12 @@ function CreateLeadForm() {
       const id = await persistDraft(currentUser);
       if (!id) throw new Error('Unable to save the lead before submit.');
       const submitted = await LeadApi.submit(id);
-      if (!submitted) {
-        setValidationError('Unable to submit this lead. It may already be in PM review.');
+      if (!submitted.ok) {
+        const nextErrors: Record<string, string> = {};
+        for (const item of submitted.errors || []) nextErrors[item.field] = item.message;
+        setFieldErrors(nextErrors);
+        setMissing(Object.keys(nextErrors));
+        setValidationError(submitted.message || 'Unable to submit this lead. The Project Manager assignment was not completed.');
         return;
       }
       StorageService.logAudit({
@@ -358,6 +356,9 @@ function CreateLeadForm() {
       setBusy(false);
     }
   };
+
+  const fieldError = (field: string) =>
+    fieldErrors[field] ? <p className="mt-1 text-[11px] text-rose-400">{fieldErrors[field]}</p> : null;
 
   const addCustomField = () => {
     setCustomFields((current) => [...current, { id: `cf-${Date.now()}`, name: '', value: '' }]);
@@ -432,13 +433,15 @@ function CreateLeadForm() {
             </div>
             <div className="md:col-span-2">
               <label className="mb-1 block font-semibold text-slate-300">Lead Title *</label>
-              <input type="text" required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Vision inspection cell" className={fieldClass(missing.includes('title'))} />
+              <input type="text" required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Vision inspection cell" className={fieldClass(missing.includes('title') || Boolean(fieldErrors.title))} />
+              {fieldError('title')}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Customer Name *</label>
-              <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Customer company name" className={fieldClass(missing.includes('customer_name'))} />
+              <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Customer company name" className={fieldClass(missing.includes('customer_name') || Boolean(fieldErrors.customer_name))} />
+              {fieldError('customer_name')}
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Customer Type</label>
@@ -485,21 +488,25 @@ function CreateLeadForm() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Contact Person *</label>
-              <input type="text" required value={formData.customer_contact} onChange={(e) => setFormData({ ...formData, customer_contact: e.target.value })} placeholder="e.g. Contact person name" className={fieldClass(missing.includes('customer_contact'))} />
+              <input type="text" required value={formData.customer_contact} onChange={(e) => setFormData({ ...formData, customer_contact: e.target.value })} placeholder="e.g. Contact person name" className={fieldClass(missing.includes('customer_contact') || Boolean(fieldErrors.customer_contact))} />
+              {fieldError('customer_contact')}
             </div>
             <div>
-              <label className="mb-1 block font-medium text-slate-400">Designation</label>
-              <input type="text" value={formData.customer_designation} onChange={(e) => setFormData({ ...formData, customer_designation: e.target.value })} placeholder="e.g. Plant Manager" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <label className="mb-1 block font-semibold text-slate-300">Designation *</label>
+              <input type="text" value={formData.customer_designation} onChange={(e) => setFormData({ ...formData, customer_designation: e.target.value })} placeholder="e.g. Plant Manager" className={fieldClass(Boolean(fieldErrors.customer_designation))} />
+              {fieldError('customer_designation')}
             </div>
             <div>
-              <label className="mb-1 block font-medium text-slate-400">Email Address</label>
-              <input type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="sundaram@brakesindia.com" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <label className="mb-1 block font-semibold text-slate-300">Email Address *</label>
+              <input type="email" value={formData.customer_email} onChange={(e) => setFormData({ ...formData, customer_email: e.target.value })} placeholder="name@company.com" className={fieldClass(Boolean(fieldErrors.customer_email))} />
+              {fieldError('customer_email')}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <label className="mb-1 block font-medium text-slate-400">Phone Number</label>
-              <input type="text" value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value })} placeholder="+91 94440 12345" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <label className="mb-1 block font-semibold text-slate-300">Phone Number *</label>
+              <input type="text" inputMode="numeric" maxLength={10} value={formData.customer_phone} onChange={(e) => setFormData({ ...formData, customer_phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} placeholder="9876543210" className={fieldClass(Boolean(fieldErrors.customer_phone))} />
+              {fieldError('customer_phone')}
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Customer Office Location</label>
@@ -519,22 +526,26 @@ function CreateLeadForm() {
           </div>
           <div>
             <label className="mb-1 block font-semibold text-slate-300">Customer Requirement *</label>
-            <input type="text" value={formData.requirement_summary} onChange={(e) => setFormData({ ...formData, requirement_summary: e.target.value })} placeholder="High-level summary of the customer requirement" className={fieldClass(missing.includes('requirement_summary'))} />
+              <input type="text" value={formData.requirement_summary} onChange={(e) => setFormData({ ...formData, requirement_summary: e.target.value })} placeholder="High-level summary of the customer requirement" className={fieldClass(missing.includes('requirement_summary') || Boolean(fieldErrors.requirement_summary))} />
+              {fieldError('requirement_summary')}
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Application / Use Case *</label>
-              <input type="text" value={formData.application} onChange={(e) => setFormData({ ...formData, application: e.target.value })} placeholder="e.g. Surface inspection" className={fieldClass(missing.includes('application'))} />
+              <input type="text" value={formData.application} onChange={(e) => setFormData({ ...formData, application: e.target.value })} placeholder="e.g. Surface inspection" className={fieldClass(missing.includes('application') || Boolean(fieldErrors.application))} />
+              {fieldError('application')}
             </div>
             <div>
-              <label className="mb-1 block font-medium text-slate-400">Expected Quantity</label>
-              <input type="text" value={formData.production_quantity} onChange={(e) => setFormData({ ...formData, production_quantity: e.target.value })} placeholder="e.g. 1200 parts / day" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <label className="mb-1 block font-semibold text-slate-300">Production Quantity *</label>
+              <input type="text" inputMode="decimal" value={formData.production_quantity} onChange={(e) => setFormData({ ...formData, production_quantity: e.target.value })} placeholder="1500" className={fieldClass(Boolean(fieldErrors.production_quantity))} />
+              {fieldError('production_quantity')}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-medium text-slate-400">Estimated Project Value</label>
-              <input type="text" value={formData.estimated_opportunity_value} onChange={(e) => setFormData({ ...formData, estimated_opportunity_value: e.target.value })} placeholder="e.g. ₹ 50,00,000" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500" />
+              <input type="text" inputMode="decimal" value={formData.estimated_opportunity_value} onChange={(e) => setFormData({ ...formData, estimated_opportunity_value: e.target.value })} placeholder="600000" className={fieldClass(Boolean(fieldErrors.estimated_opportunity_value))} />
+              {fieldError('estimated_opportunity_value')}
             </div>
             <div>
               <label className="mb-1 block font-medium text-slate-400">Required Solution</label>
@@ -699,19 +710,6 @@ function CreateLeadForm() {
               </label>
             </div>
           </details>
-        </FormSection>
-
-        <FormSection title="Section D — Supporting Documents & Attachments">
-          <LeadDocumentUpload
-            leadId={leadId || undefined}
-            documents={documents}
-            canEdit={canEdit}
-            ensureLead={async () => {
-              if (!currentUser) return null;
-              return persistDraft(currentUser);
-            }}
-            onDocumentsChange={setDocuments}
-          />
         </FormSection>
         </fieldset>
       </form>

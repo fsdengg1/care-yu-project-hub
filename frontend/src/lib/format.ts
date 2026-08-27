@@ -86,4 +86,5 @@ export const LEAD_STATUS_LABELS: Record<string, string> = {
   WON: 'ORDER CONVERTED',
   LOST: 'LOST',
   ON_HOLD: 'ON HOLD',
+  CANCELLED: 'CANCELLED',
 };

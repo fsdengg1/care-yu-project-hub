@@ -149,14 +149,14 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
   if (!recipient || recipient.status !== 'ACTIVE') {
     return { skipped: true };
   }
-  if (!recipient.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.email)) {
-    console.error('[EMAIL] Notification skipped: recipient email is missing', { userId: recipient.id });
-    return { skipped: true };
-  }
 
   const prefs = userPreferences(recipient);
   const actionUrl = input.actionUrl || entityActionUrl(input.entityType, input.entityId);
   let notification: NotificationItem | undefined;
+  const hasEmail = Boolean(recipient.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.email));
+  if (!hasEmail) {
+    console.error('[EMAIL] Notification email skipped: recipient email is missing', { userId: recipient.id });
+  }
 
   if (shouldSendInApp(prefs, input.preferenceCategory)) {
     try {
@@ -178,7 +178,7 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
     }
   }
 
-  if (!shouldSendEmail(prefs, input.preferenceCategory)) {
+  if (!hasEmail || !shouldSendEmail(prefs, input.preferenceCategory)) {
     if (notification) {
       const notifications = store.getNotifications();
       const index = notifications.findIndex((item) => item.id === notification!.id);

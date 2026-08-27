@@ -13,13 +13,16 @@ import {
 import {
   addDocument,
   appendNegotiation,
+  assignSubmittedLeadToPm,
   assignTeamToLead,
   audit,
   buildMyWork,
   canEditProjectInput,
+  canHandleLeadCommercial,
   canOwnLead,
   canPrepareCosting,
   canPrepareFeasibility,
+  handLeadToBusinessHead,
   convertLeadToProject,
   costingTotal,
   emptyCosting,
@@ -37,13 +40,22 @@ import {
   stageFromStatus,
   transitionLead,
 } from '../lib/leadWorkflow.js';
+import {
+  assertLeadValidForSubmit,
+  LeadValidationError,
+  LeadWorkflowError,
+  leadOwnerId,
+  PM_REVIEW_STATUSES,
+  sanitizeLeadPatch,
+  validateLeadPayload,
+} from '../lib/leadValidation.js';
+import { transact } from '../store/db.js';
 import { notifyStageCompleted } from '../lib/stages.js';
 import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
 import { canAccessEntity } from '../lib/documents.js';
 import { notificationService } from '../lib/notificationService.js';
 import {
   isCurrentResponsible,
-  markLeadActed,
   NOT_RESPONSIBLE_MESSAGE,
   resolveResponsibleUser,
   transferLeadResponsibility,
@@ -88,52 +100,97 @@ function forbidden(
   return res.status(403).json({ message });
 }
 
-async function assignLeadToResponsible(
-  lead: Lead,
-  actor: User,
-  options: { explicitUserId?: string; reason?: string; notifyKind?: 'assignment' | 'forward' }
-) {
-  const responsible = resolveResponsibleUser({
-    explicitUserId: options.explicitUserId,
-    roleCode: 'PROJECT_MANAGER',
-    lead,
-    fallbackUserId: actor.reporting_manager_id,
+function recordPmSubmissionNotification(lead: Lead, actor: User, pmId: string) {
+  store.appendNotification({
+    recipient_id: pmId,
+    sender_id: actor.id,
+    type: 'NEW_LEAD_TO_PM',
+    title: 'New Lead Submitted for PM Review',
+    message: `Lead: ${lead.lead_number} – ${lead.customer_name}. Submitted by: ${actor.name}. Priority: ${String(lead.priority || 'Medium').toUpperCase()}.`,
+    entity_type: 'LEAD',
+    entity_id: lead.id,
+    action_url: `/pre-sales/leads/${lead.id}`,
+    priority: lead.priority === 'Critical' ? 'CRITICAL' : lead.priority === 'High' ? 'HIGH' : 'MEDIUM',
+    event_key: `LEAD_SUBMITTED_PM:${lead.id}:${pmId}:${lead.assigned_at || lead.submitted_at}`,
   });
-  if (!responsible) return lead;
-  const transferred = transferLeadResponsibility(lead, responsible, actor, options.reason);
-  const saved = saveLead({
-    ...transferred.lead,
-    pm_id: responsible.role_code === 'PROJECT_MANAGER' ? responsible.id : lead.pm_id,
-    pm_name: responsible.role_code === 'PROJECT_MANAGER' ? responsible.name : lead.pm_name,
+}
+
+function workflowError(res: import('express').Response, error: unknown) {
+  if (error instanceof LeadValidationError) {
+    return res.status(400).json({ message: error.message, errors: error.errors, warnings: error.warnings });
+  }
+  if (error instanceof LeadWorkflowError) {
+    return res.status(error.status).json({ message: error.message });
+  }
+  const err = error as Error & { status?: number };
+  return res.status(err.status || 500).json({
+    message: err.message || 'Unable to complete this lead action.',
   });
+}
+
+function submitExistingLead(lead: Lead, user: User, body: Record<string, unknown> = {}): Lead {
+  if (PM_REVIEW_STATUSES.includes(lead.status)) {
+    throw Object.assign(new Error('This lead has already been submitted to the Project Manager.'), { status: 409 });
+  }
+  const merged = { ...lead, ...sanitizeLeadPatch(body) } as unknown as Record<string, unknown>;
+  const validation = assertLeadValidForSubmit(merged);
+  const next: LeadStatus = ['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)
+    ? 'RESUBMITTED_TO_PM'
+    : 'SUBMITTED_TO_PM';
+  const now = new Date().toISOString();
+  const withFields = saveLead({
+    ...lead,
+    ...sanitizeLeadPatch(body),
+    id: lead.id,
+    lead_number: lead.lead_number,
+    created_by: lead.created_by,
+    created_by_id: lead.created_by_id,
+    created_by_role: lead.created_by_role,
+    status: lead.status,
+    priority: validation.normalized.priority || lead.priority,
+    expected_value: validation.normalized.expected_value ?? lead.expected_value,
+    estimated_opportunity_value:
+      validation.normalized.expected_value != null
+        ? String(validation.normalized.expected_value)
+        : lead.estimated_opportunity_value,
+  });
+  const updated = transitionLead(withFields, next, user, 'Submitted to PM for review', {
+    submitted_at: now,
+    submitted_by: user.name,
+    submitted_by_id: user.id,
+    pm_return_reason: undefined,
+  });
+  const assigned = assignSubmittedLeadToPm(
+    updated,
+    user,
+    next === 'RESUBMITTED_TO_PM' ? 'Lead resubmitted to Project Manager' : 'Lead submitted to Project Manager'
+  );
+  if (!PM_REVIEW_STATUSES.includes(assigned.status) || leadOwnerId(assigned) !== assigned.pm_id) {
+    throw Object.assign(new Error('Lead owner and status did not stay consistent. Submission was rolled back.'), {
+      status: 500,
+    });
+  }
+  recordPmSubmissionNotification(assigned, user, assigned.pm_id!);
+  audit(user, assigned, next, `${user.name} submitted ${lead.lead_number} to PM.`);
+  return assigned;
+}
+
+async function notifyPmAssignment(lead: Lead, user: User) {
+  if (!lead.pm_id) return;
   try {
-    if (options.notifyKind === 'forward' && transferred.previous && transferred.previous.id !== responsible.id) {
-      await notificationService.notifyForward({
-        entityType: 'LEAD',
-        entityId: saved.id,
-        entityName: saved.title,
-        recipientUserId: responsible.id,
-        assignedByUserId: actor.id,
-        previousUserId: transferred.previous.id,
-        reason: options.reason,
-        eventKey: `LEAD_FORWARDED:${saved.id}:${responsible.id}:${saved.assigned_at}`,
-      });
-    } else {
-      await notificationService.notifyAssignment({
-        entityType: 'LEAD',
-        entityId: saved.id,
-        entityName: saved.title,
-        recipientUserId: responsible.id,
-        assignedByUserId: actor.id,
-        priority: saved.priority,
-        createdOn: saved.created_at,
-        eventKey: `LEAD_ASSIGNED:${saved.id}:${responsible.id}:${saved.assigned_at}`,
-      });
-    }
+    await notificationService.notifyAssignment({
+      entityType: 'LEAD',
+      entityId: lead.id,
+      entityName: `${lead.lead_number} – ${lead.customer_name}`,
+      recipientUserId: lead.pm_id,
+      assignedByUserId: user.id,
+      priority: lead.priority,
+      createdOn: lead.created_at,
+      eventKey: `LEAD_ASSIGNED:${lead.id}:${lead.pm_id}:${lead.assigned_at}`,
+    });
   } catch (error) {
     console.error('[leads] notification failed', error);
   }
-  return saved;
 }
 
 function isPm(user: User) {
@@ -163,7 +220,7 @@ function comment(
 router.get('/', requireAuth, requirePermission('view:leads', 'create:lead'), (req: AuthedRequest, res) => {
   const user = req.user!;
   const leads = store.getLeads().map(hydrateLead).filter((lead) => {
-    if (['CEO', 'CTO', 'SYSTEM_ADMIN', 'PROJECT_MANAGER'].includes(user.role_code)) return true;
+    if (['CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
     return canOwnLead(user, lead);
   });
   const leadIds = new Set(leads.map((lead) => lead.id));
@@ -186,7 +243,7 @@ router.get('/:id', requireAuth, requirePermission('view:leads', 'create:lead', '
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
   const user = req.user!;
-  if (!canOwnLead(user, lead) && !isPm(user) && user.role_code !== 'CEO' && user.role_code !== 'CTO') {
+  if (!canOwnLead(user, lead) && user.role_code !== 'CEO' && user.role_code !== 'CTO') {
     const assigned =
       lead.assigned_team_lead_id === user.id ||
       user.team_id === lead.assigned_team_id ||
@@ -199,8 +256,16 @@ router.get('/:id', requireAuth, requirePermission('view:leads', 'create:lead', '
 router.post('/', requireAuth, requirePermission('create:lead'), async (req: AuthedRequest, res) => {
   const user = req.user!;
   const body = req.body ?? {};
-  const status: LeadStatus = body.status === 'SUBMITTED_TO_PM' ? 'SUBMITTED_TO_PM' : 'DRAFT';
-  const expectedValue = parseMoney(body.expected_value ?? body.estimated_opportunity_value);
+  if (body.status && body.status !== 'DRAFT' && body.status !== 'SUBMITTED_TO_PM') {
+    return res.status(403).json({ message: 'Status cannot be set directly. Use the workflow actions.' });
+  }
+  const wantsSubmit = body.status === 'SUBMITTED_TO_PM';
+  const validation = validateLeadPayload(body, { submit: wantsSubmit });
+  if (validation.errors.length) {
+    return res.status(400).json({ message: validation.errors[0].message, errors: validation.errors, warnings: validation.warnings });
+  }
+  const status: LeadStatus = 'DRAFT';
+  const expectedValue = validation.normalized.expected_value ?? parseMoney(body.expected_value ?? body.estimated_opportunity_value);
   const now = new Date().toISOString();
   const leads = store.getLeads();
   const nextNumber = `LD-${String(leads.length + 1).padStart(3, '0')}`;
@@ -208,8 +273,8 @@ router.post('/', requireAuth, requirePermission('create:lead'), async (req: Auth
   const lead: Lead = {
     id: body.id && String(body.id).startsWith('lead-') ? body.id : newId('lead'),
     lead_number: body.lead_number || nextNumber,
-    title: body.title || 'Untitled Lead',
-    customer_name: body.customer_name || 'Unspecified Customer',
+    title: body.title || '',
+    customer_name: body.customer_name || '',
     customer_type: body.customer_type || 'Other',
     business_vertical:
       body.business_vertical || (user.role_code === 'ENG_DIRECTOR' ? 'Engineering Director' : 'Business Head'),
@@ -220,7 +285,7 @@ router.post('/', requireAuth, requirePermission('create:lead'), async (req: Auth
     sales_owner_id: body.sales_owner_id || user.id,
     lead_date: now,
     expected_decision_date: body.expected_decision_date,
-    priority: body.priority || 'Medium',
+    priority: validation.normalized.priority || body.priority || 'Medium',
     status,
     customer_contact: body.customer_contact || '',
     customer_designation: body.customer_designation,
@@ -269,28 +334,32 @@ router.post('/', requireAuth, requirePermission('create:lead'), async (req: Auth
     custom_fields: Array.isArray(body.custom_fields) ? body.custom_fields : [],
     created_at: now,
     updated_at: now,
-    submitted_at: status === 'SUBMITTED_TO_PM' ? now : undefined,
-    submitted_by: status === 'SUBMITTED_TO_PM' ? user.name : undefined,
-    submitted_by_id: status === 'SUBMITTED_TO_PM' ? user.id : undefined,
+    submitted_at: undefined,
+    submitted_by: undefined,
+    submitted_by_id: undefined,
+    current_owner_id: user.id,
+    current_owner_name: user.name,
+    responsible_user_id: user.id,
+    responsible_user_name: user.name,
+    responsible_role_code: user.role_code,
   };
 
-  leads.unshift(lead);
-  store.saveLeads(leads);
-  audit(
-    user,
-    lead,
-    status === 'SUBMITTED_TO_PM' ? 'LEAD_SUBMITTED_TO_PM' : 'LEAD_CREATED',
-    `${user.name} created lead ${lead.lead_number}`
-  );
-  let created = lead;
-  if (status === 'SUBMITTED_TO_PM') {
-    created = await assignLeadToResponsible(lead, user, {
-      explicitUserId: body.responsible_user_id || body.pm_id,
-      reason: 'New lead submitted to Project Manager',
-      notifyKind: 'assignment',
+  try {
+    const created = await transact(() => {
+      const current = store.getLeads();
+      current.unshift(lead);
+      store.saveLeads(current);
+      audit(user, lead, 'LEAD_CREATED', `${user.name} created lead ${lead.lead_number}`);
+      if (!wantsSubmit) return lead;
+      return submitExistingLead(lead, user, body);
     });
+    if (wantsSubmit && created.pm_id) {
+      await notifyPmAssignment(created, user);
+    }
+    return res.status(201).json(payloadFor(created));
+  } catch (error) {
+    return workflowError(res, error);
   }
-  return res.status(201).json(payloadFor(created));
 });
 
 router.patch('/:id', requireAuth, requirePermission('edit:lead', 'create:lead'), (req: AuthedRequest, res) => {
@@ -298,11 +367,16 @@ router.patch('/:id', requireAuth, requirePermission('edit:lead', 'create:lead'),
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
   if (!canEditProjectInput(user, lead)) return forbidden(res, 'Only draft or returned leads can be edited by the owner.');
-  const body = req.body ?? {};
+  const body = sanitizeLeadPatch((req.body ?? {}) as Record<string, unknown>);
+  const validation = validateLeadPayload({ ...lead, ...body } as Record<string, unknown>, { submit: false });
+  if (validation.errors.length) {
+    return res.status(400).json({ message: validation.errors[0].message, errors: validation.errors, warnings: validation.warnings });
+  }
   const expectedValue =
-    body.expected_value != null || body.estimated_opportunity_value != null
+    validation.normalized.expected_value ??
+    (body.expected_value != null || body.estimated_opportunity_value != null
       ? parseMoney(body.expected_value ?? body.estimated_opportunity_value)
-      : lead.expected_value;
+      : lead.expected_value);
   const updated = saveLead({
     ...lead,
     ...body,
@@ -313,6 +387,7 @@ router.patch('/:id', requireAuth, requirePermission('edit:lead', 'create:lead'),
     created_by_role: lead.created_by_role,
     status: lead.status,
     pipeline_stage: lead.pipeline_stage,
+    priority: validation.normalized.priority || lead.priority,
     expected_value: expectedValue,
   });
   audit(user, updated, 'LEAD_DRAFT_UPDATED', `${user.name} updated draft ${updated.lead_number}.`);
@@ -323,66 +398,108 @@ router.post('/:id/submit', requireAuth, requirePermission('create:lead', 'edit:l
   const user = req.user!;
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-  if (['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status)) {
+  if (PM_REVIEW_STATUSES.includes(lead.status)) {
     return res.status(409).json({ message: 'This lead has already been submitted to the Project Manager.' });
   }
   if (!canEditProjectInput(user, lead)) return forbidden(res);
-  const next: LeadStatus = ['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)
-    ? 'RESUBMITTED_TO_PM'
-    : 'SUBMITTED_TO_PM';
-  const updated = transitionLead(lead, next, user, 'Submitted to PM for review', {
-    submitted_at: new Date().toISOString(),
-    submitted_by: user.name,
-    submitted_by_id: user.id,
-    pm_return_reason: undefined,
-  });
-  const assigned = await assignLeadToResponsible(updated, user, {
-    explicitUserId: updated.pm_id,
-    reason: next === 'RESUBMITTED_TO_PM' ? 'Lead resubmitted to Project Manager' : 'Lead submitted to Project Manager',
-    notifyKind: 'assignment',
-  });
-  audit(user, assigned, next, `${user.name} submitted ${lead.lead_number} to PM.`);
-  return res.json(payloadFor(assigned));
+  try {
+    const assigned = await transact(() => submitExistingLead(lead, user, (req.body ?? {}) as Record<string, unknown>));
+    await notifyPmAssignment(assigned, user);
+    return res.json(payloadFor(assigned));
+  } catch (error) {
+    return workflowError(res, error);
+  }
 });
 
 router.post('/:id/accept', requireAuth, async (req: AuthedRequest, res) => {
   const user = req.user!;
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-  if (!isCurrentResponsible(user, lead) && !(user.role_code === 'SYSTEM_ADMIN')) {
+  if (!isPm(user) && user.role_code !== 'SYSTEM_ADMIN') return forbidden(res);
+  if (!isCurrentResponsible(user, lead) && user.role_code !== 'SYSTEM_ADMIN') {
+    const ownerId = leadOwnerId(lead);
     const fallbackOwner = resolveResponsibleUser({ lead, roleCode: 'PROJECT_MANAGER' });
+    if (ownerId && ownerId !== user.id) {
+      return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
+    }
     if (!lead.responsible_user_id && fallbackOwner?.id === user.id) {
       // legacy leads without responsible_user_id
-    } else {
+    } else if (ownerId && ownerId !== user.id) {
       return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
     }
   }
-  if (!['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status)) {
+  if (!PM_REVIEW_STATUSES.includes(lead.status) && lead.status !== 'ACCEPTED_FOR_FEASIBILITY') {
     return res.status(400).json({ message: 'This lead is not awaiting acceptance.' });
   }
-  const now = new Date().toISOString();
-  const updated = transitionLead(
-    lead,
-    'ACCEPTED_FOR_FEASIBILITY',
-    user,
-    'Project Manager accepted the lead.',
-    markLeadActed(lead, {
-      accepted_at: now,
-      accepted_by_id: user.id,
-      accepted_by_name: user.name,
-      pm_id: lead.pm_id || user.id,
-      pm_name: lead.pm_name || user.name,
-    })
-  );
-  comment(updated, user, 'Accepted the lead.', 'PM Review');
-  audit(user, updated, 'LEAD_ACCEPTED', `${user.name} accepted the lead.`);
-  const history = store.getAssignmentHistory();
-  const latest = history.find((item) => item.entity_type === 'LEAD' && item.entity_id === lead.id);
-  if (latest && !latest.accepted_at) {
-    latest.accepted_at = now;
-    latest.accepted_by_id = user.id;
-    store.saveAssignmentHistory(history);
+  const teamId = String(req.body?.team_id || '').trim();
+  if (!teamId) {
+    return res.status(400).json({
+      message: 'Select a functional team to accept this lead and start feasibility.',
+    });
   }
+  try {
+    const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
+    comment(result.lead, user, req.body?.notes || 'Accepted and assigned to team.', 'PM Review');
+    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
+      try {
+        await notificationService.notifyForward({
+          entityType: 'LEAD',
+          entityId: result.lead.id,
+          entityName: result.lead.title,
+          recipientUserId: result.lead.responsible_user_id,
+          assignedByUserId: user.id,
+          previousUserId: result.previousResponsibleUserId,
+          reason: req.body?.notes || `Assigned to ${result.lead.assigned_team_name}`,
+          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
+        });
+      } catch (error) {
+        console.error('[leads] accept assignment notification failed', error);
+      }
+    }
+    audit(
+      user,
+      result.lead,
+      'LEAD_ACCEPTED',
+      `${user.name} accepted ${lead.lead_number} and assigned ${result.lead.assigned_team_name}.`
+    );
+    return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
+  } catch (error) {
+    return workflowError(res, error);
+  }
+});
+
+router.post('/:id/cancel', requireAuth, requirePermission('review:lead', 'assign:lead'), async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const lead = findLead(paramId(req));
+  if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  if (!isPm(user)) return forbidden(res);
+  if (user.role_code !== 'SYSTEM_ADMIN' && leadOwnerId(lead) !== user.id) {
+    return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
+  }
+  if (!PM_REVIEW_STATUSES.includes(lead.status) && lead.status !== 'ACCEPTED_FOR_FEASIBILITY') {
+    return res.status(400).json({ message: 'This lead cannot be cancelled in its current status.' });
+  }
+  const reason = String(req.body?.reason || '').trim();
+  if (!reason) return res.status(400).json({ message: 'A rejection reason is required.' });
+  const now = new Date().toISOString();
+  const updated = transitionLead(lead, 'CANCELLED', user, reason, {
+    cancel_reason: reason,
+    cancelled_at: now,
+    cancelled_by_id: user.id,
+    cancelled_by_name: user.name,
+    pending_action: false,
+    last_action_at: now,
+  });
+  comment(updated, user, reason, 'PM Review');
+  audit(user, updated, 'LEAD_CANCELLED', `${user.name} cancelled ${lead.lead_number}: ${reason}`);
+  notify({
+    recipient_id: lead.created_by_id,
+    type: 'STATUS_CHANGED',
+    title: `Lead cancelled: ${lead.lead_number}`,
+    message: `${user.name} cancelled "${lead.title}". Reason: ${reason}`,
+    entity_type: 'LEAD',
+    entity_id: lead.id,
+  });
   return res.json(payloadFor(updated));
 });
 
@@ -432,6 +549,9 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   if (!isPm(user)) return forbidden(res);
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  if (user.role_code !== 'SYSTEM_ADMIN' && leadOwnerId(lead) !== user.id && lead.pm_id !== user.id) {
+    return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
+  }
   if (!['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM', 'ACCEPTED_FOR_FEASIBILITY'].includes(lead.status)) {
     return res.status(400).json({ message: 'This lead is not awaiting PM review.' });
   }
@@ -566,12 +686,22 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
     : lead.status === 'FEASIBILITY_RETURNED'
       ? 'FEASIBILITY_RETURNED'
       : 'FEASIBILITY_IN_PROGRESS';
-  const updated = transitionLead(lead, nextStatus, user, submit ? 'Feasibility submitted to PM' : 'Feasibility draft saved', {
+  let updated = transitionLead(lead, nextStatus, user, submit ? 'Feasibility submitted to PM' : 'Feasibility draft saved', {
     feasibility_study: study,
   });
   if (submit) {
+    const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
+    if (pm && pm.role_code === 'PROJECT_MANAGER') {
+      const transferred = transferLeadResponsibility(updated, pm, user, 'Feasibility submitted to Project Manager');
+      updated = saveLead({
+        ...transferred.lead,
+        current_owner_id: pm.id,
+        current_owner_name: pm.name,
+        pending_action: true,
+      });
+    }
     notify({
-      recipient_id: findPm()?.id || '',
+      recipient_id: pm?.id || findPm()?.id || '',
       type: 'FEASIBILITY_SUBMITTED_TO_PM',
       title: `Feasibility submitted: ${lead.lead_number}`,
       message: `${user.name} submitted feasibility for "${lead.title}".`,
@@ -681,12 +811,22 @@ router.post('/:id/costing', requireAuth, requirePermission('create:costing', 'vi
     : lead.status === 'COSTING_RETURNED'
       ? 'COSTING_RETURNED'
       : 'COSTING_IN_PROGRESS';
-  const updated = transitionLead(lead, nextStatus, user, submit ? 'Costing submitted to PM' : 'Costing draft saved', {
+  let updated = transitionLead(lead, nextStatus, user, submit ? 'Costing submitted to PM' : 'Costing draft saved', {
     costing: record,
   });
   if (submit) {
+    const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
+    if (pm && pm.role_code === 'PROJECT_MANAGER') {
+      const transferred = transferLeadResponsibility(updated, pm, user, 'Costing submitted to Project Manager');
+      updated = saveLead({
+        ...transferred.lead,
+        current_owner_id: pm.id,
+        current_owner_name: pm.name,
+        pending_action: true,
+      });
+    }
     notify({
-      recipient_id: findPm()?.id || '',
+      recipient_id: pm?.id || findPm()?.id || '',
       type: 'COSTING_SUBMITTED_TO_PM',
       title: `Costing submitted: ${lead.lead_number}`,
       message: `${user.name} submitted costing totalling ₹ ${record.total_estimated_cost.toLocaleString('en-IN')}.`,
@@ -748,17 +888,23 @@ router.post(
       pm_approved_by: user.name,
       pm_approved_at: new Date().toISOString(),
     });
-    const updated = transitionLead(lead, 'QUOTATION', user, 'Costing approved', {
+    let updated = transitionLead(lead, 'QUOTATION', user, 'Costing approved', {
       costing: record,
       expected_value: record.total_estimated_cost || lead.expected_value,
     });
-    notify({
-      recipient_id: lead.created_by_id,
-      type: 'QUOTATION_READY',
-      title: `Ready for quotation: ${lead.lead_number}`,
-      message: `Costing approved for "${lead.title}". Prepare the customer quotation.`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
+    updated = handLeadToBusinessHead(updated, user, 'Costing approved — ready for quotation');
+    const commercialRecipients = new Set(
+      [updated.current_owner_id, updated.responsible_user_id, lead.created_by_id].filter(Boolean) as string[]
+    );
+    commercialRecipients.forEach((recipientId) => {
+      notify({
+        recipient_id: recipientId,
+        type: 'QUOTATION_READY',
+        title: `Ready for quotation: ${lead.lead_number}`,
+        message: `Costing approved for "${lead.title}". Prepare the customer quotation.`,
+        entity_type: 'LEAD',
+        entity_id: lead.id,
+      });
     });
     audit(user, updated, 'COSTING_APPROVED', `${user.name} approved costing for ${lead.lead_number}.`);
     return res.json(payloadFor(updated));
@@ -773,10 +919,7 @@ router.post(
     const user = req.user!;
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-    if (
-      !['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code) ||
-      !canOwnLead(user, lead)
-    ) {
+    if (!canHandleLeadCommercial(user, lead)) {
       return forbidden(res);
     }
     if (lead.status !== 'QUOTATION' && lead.status !== 'NEGOTIATION') {
@@ -815,10 +958,7 @@ router.post(
     const user = req.user!;
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-    if (
-      !['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code) ||
-      !canOwnLead(user, lead)
-    ) {
+    if (!canHandleLeadCommercial(user, lead)) {
       return forbidden(res);
     }
     if (lead.status !== 'NEGOTIATION' && lead.status !== 'QUOTATION') {
@@ -875,10 +1015,7 @@ router.post('/:id/convert', requireAuth, requirePermission('convert:lead', 'crea
   const user = req.user!;
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-  if (
-    !['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code) ||
-    !canOwnLead(user, lead)
-  ) {
+  if (!canHandleLeadCommercial(user, lead)) {
     return forbidden(res);
   }
   if (!['NEGOTIATION', 'QUOTATION'].includes(lead.status)) {

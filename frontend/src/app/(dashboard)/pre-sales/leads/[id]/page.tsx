@@ -45,6 +45,8 @@ export default function LeadDetailPage() {
   // PM Return Modal
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [pmReturnReason, setPmReturnReason] = useState('');
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
 
   // +ADD TEAM Modal state
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
@@ -132,10 +134,11 @@ export default function LeadDetailPage() {
   const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
   const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isAdmin;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
+  const isBH = currentUser.role_code === 'BUSINESS_HEAD';
   const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
     || (currentUser.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head')
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
-  const canViewRestricted = isPM || isSalesOwner || isCEO || isAdmin;
+  const canViewRestricted = isPM || isSalesOwner || isCEO || isAdmin || isBH;
 
   // TL can access this lead only if assigned
   const myTLAssignment = isTL
@@ -148,24 +151,12 @@ export default function LeadDetailPage() {
     : null;
 
   const isResponsible =
+    lead.current_owner_id === currentUser.id ||
     lead.responsible_user_id === currentUser.id ||
     currentUser.role_code === 'SYSTEM_ADMIN' ||
-    (!lead.responsible_user_id && isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status));
-  const canAccept = isResponsible && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status);
-  const canForward = isResponsible && !['DRAFT', 'ORDER_CONVERTED', 'LOST'].includes(lead.status);
-
-  // ---- PM / current owner actions ----
-  const handlePMAcceptForFeasibility = async () => {
-    setActionError(null);
-    setActionBusy(true);
-    const result = await LeadApi.accept(lead.id);
-    setActionBusy(false);
-    if (result && 'lead' in result) {
-      await loadData();
-      return;
-    }
-    setActionError((result && 'message' in result && result.message) || 'Unable to accept this lead.');
-  };
+    (!lead.responsible_user_id && !lead.current_owner_id && isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status));
+  const canPmDecide = isResponsible && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status);
+  const canForward = isResponsible && !['DRAFT', 'ORDER_CONVERTED', 'LOST', 'CANCELLED'].includes(lead.status);
 
   const handleForwardLead = async () => {
     if (!forwardUserId) return;
@@ -194,8 +185,27 @@ export default function LeadDetailPage() {
 
   const handleSalesResubmit = async () => {
     await LeadApi.update(lead.id, { technical_specifications: resubmitTechInput });
-    await LeadApi.submit(lead.id);
+    const submitted = await LeadApi.submit(lead.id);
+    if (!submitted.ok) {
+      setActionError(submitted.message);
+      return;
+    }
     loadData();
+  };
+
+  const handlePMCancel = async () => {
+    if (!cancelReason.trim()) return;
+    setActionError(null);
+    setActionBusy(true);
+    const result = await LeadApi.cancel(lead.id, cancelReason.trim());
+    setActionBusy(false);
+    if (result && 'lead' in result) {
+      setShowCancelModal(false);
+      setCancelReason('');
+      await loadData();
+      return;
+    }
+    setActionError((result && 'message' in result && result.message) || 'Unable to cancel this lead.');
   };
 
   // ---- +ADD TEAM ----
@@ -408,7 +418,7 @@ export default function LeadDetailPage() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-cyan-800/70 bg-cyan-950/20 p-4 lg:col-span-2">
           <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Current Owner</div>
-          <div className="mt-1 text-lg font-bold text-slate-100">{lead.responsible_user_name || 'Not assigned'}</div>
+          <div className="mt-1 text-lg font-bold text-slate-100">{lead.current_owner_name || lead.responsible_user_name || 'Not assigned'}</div>
           <div className="mt-1 text-xs text-slate-400">
             {lead.responsible_role_code ? lead.responsible_role_code.replace(/_/g, ' ') : 'Awaiting assignment'}
             {lead.pending_action !== false && lead.responsible_user_id ? ' · Action Required' : ''}
@@ -559,23 +569,21 @@ export default function LeadDetailPage() {
             </div>
           </div>
           <div className="space-y-5">
-            {canAccept && (
+            {canPmDecide && (
               <div className="bg-blue-950/40 p-5 rounded-xl border border-blue-800/80 space-y-4">
                 <div className="font-bold text-blue-300 text-sm border-b border-blue-800/60 pb-2 flex items-center gap-2">
                   <CheckCircle2 className="w-4 h-4 text-cyan-400" /> Action Required
                 </div>
                 <div className="space-y-2 pt-1">
-                  <button
-                    onClick={() => void handlePMAcceptForFeasibility()}
-                    disabled={actionBusy}
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg flex items-center justify-center gap-2 disabled:opacity-60"
-                    data-demo="accept-feasibility"
-                  >
-                    <Check className="w-4 h-4" /> Accept Lead
-                  </button>
+                  <p className="text-xs text-slate-300">If the details are complete, use <strong>Accept &amp; Assign Team</strong> above. Feasibility starts as soon as a team is assigned.</p>
                   {isPM && (
                     <button onClick={() => setShowReturnModal(true)} className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded-lg flex items-center justify-center gap-2">
                       <RotateCcw className="w-4 h-4" /> Return to Sales
+                    </button>
+                  )}
+                  {isPM && (
+                    <button onClick={() => setShowCancelModal(true)} className="w-full py-2.5 bg-rose-700 hover:bg-rose-600 text-white font-bold rounded-lg flex items-center justify-center gap-2">
+                      Cancel / Reject
                     </button>
                   )}
                   <button
@@ -981,6 +989,22 @@ export default function LeadDetailPage() {
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowReturnModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Cancel</button>
               <button onClick={handlePMReturnToSales} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded">Return to Sales</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCancelModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl w-full max-w-lg shadow-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-slate-100 text-sm">Cancel / Reject Lead</h3>
+              <button onClick={() => setShowCancelModal(false)}><X className="w-4 h-4 text-slate-400" /></button>
+            </div>
+            <textarea rows={4} value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="Rejection reason is required…" className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-100" />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setShowCancelModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Back</button>
+              <button disabled={!cancelReason.trim() || actionBusy} onClick={() => void handlePMCancel()} className="px-4 py-1.5 bg-rose-700 hover:bg-rose-600 text-white font-bold rounded disabled:opacity-50">Cancel Lead</button>
             </div>
           </div>
         </div>

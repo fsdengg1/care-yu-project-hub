@@ -13,7 +13,7 @@ export const INITIAL_ROLES: Role[] = [
     code: 'CTO',
     name: 'CTO',
     description: 'Technology leadership across engineering delivery, platform architecture, and execution quality.',
-    permissions: ['view:all_projects', 'view:engineering_workload', 'view:technical_progress', 'view:reports', 'manage:engineering']
+    permissions: ['view:all_projects', 'view:engineering_workload', 'view:technical_progress', 'view:reports', 'manage:engineering', 'create:lead', 'edit:lead']
   },
   {
     id: 'r-bh',
@@ -34,28 +34,28 @@ export const INITIAL_ROLES: Role[] = [
     code: 'PROJECT_MANAGER',
     name: 'Project Manager',
     description: 'Central operational controller. Manages Gantt, task assignments, milestones, procurement coordination, and timeline delivery.',
-    permissions: ['manage:projects', 'assign:tasks', 'manage:milestones', 'view:all_teams', 'review:leads', 'coordinate:procurement']
+    permissions: ['manage:projects', 'assign:tasks', 'manage:milestones', 'view:all_teams', 'review:leads', 'coordinate:procurement', 'create:lead', 'edit:lead']
   },
   {
     id: 'r-pe',
     code: 'PROJECT_ENGINEER',
     name: 'Project Engineer',
     description: 'Future operational support role. Supports PM in managing assigned project execution and sub-tasks.',
-    permissions: ['manage:assigned_tasks', 'view:assigned_projects', 'review:daily_updates', 'escalate:blocker']
+    permissions: ['manage:assigned_tasks', 'view:assigned_projects', 'review:daily_updates', 'escalate:blocker', 'create:lead', 'edit:lead']
   },
   {
     id: 'r-tl',
     code: 'TEAM_LEAD',
     name: 'Team Lead',
     description: 'Manages team capacity, reviews PM assignments, suggests task rescheduling or reassignments, and monitors daily updates.',
-    permissions: ['view:team_workload', 'suggest:task_change', 'review:team_updates', 'escalate:resource_conflict']
+    permissions: ['view:team_workload', 'suggest:task_change', 'review:team_updates', 'escalate:resource_conflict', 'create:lead', 'edit:lead']
   },
   {
     id: 'r-emp',
     code: 'EMPLOYEE',
     name: 'Team Member',
     description: 'Executes assigned tasks across multiple projects, submits daily work logs, and reports blockers.',
-    permissions: ['view:assigned_tasks', 'update:task_status', 'submit:daily_update', 'report:blocker']
+    permissions: ['view:assigned_tasks', 'update:task_status', 'submit:daily_update', 'report:blocker', 'create:lead', 'edit:lead']
   },
   {
     id: 'r-sales',
@@ -94,8 +94,8 @@ export const INITIAL_TEAMS: Team[] = [
     name: 'Software Team',
     description: 'PLC, SCADA, HMI, C#/.NET Automation Software, and Cloud/Edge Integration.',
     team_lead_id: 'u-tl-sw',
-    team_lead_name: 'Arun',
-    member_count: 4,
+    team_lead_name: 'Arun Kumar',
+    member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
   },
@@ -105,8 +105,8 @@ export const INITIAL_TEAMS: Team[] = [
     name: 'Vision Team',
     description: '2D/3D Industrial Vision, OpenCV, Cognex/Keyence, AI Deep Learning Inspection.',
     team_lead_id: 'u-tl-vis',
-    team_lead_name: 'Vani',
-    member_count: 3,
+    team_lead_name: 'Vanippriya',
+    member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
   },
@@ -117,7 +117,7 @@ export const INITIAL_TEAMS: Team[] = [
     description: 'FANUC, KUKA, ABB Robot Simulation, EOAT Design, Motion Control & AMR/AGV.',
     team_lead_id: 'u-tl-rob',
     team_lead_name: 'Aakash',
-    member_count: 5,
+    member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
   },
@@ -126,9 +126,8 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'PROCUREMENT',
     name: 'Procurement / Costing Team',
     description: 'BOM Cost Estimation, Vendor Management, RFQ Processing & Logistics.',
-    team_lead_id: 'u-tl-proc',
-    team_lead_name: 'Suresh',
-    member_count: 3,
+    team_lead_name: 'Not Assigned',
+    member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
   },
@@ -137,9 +136,8 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'EXECUTION',
     name: 'Execution Team',
     description: 'Site Assembly, Wiring, Panel Fabrication, Mechanical Integration & Commissioning.',
-    team_lead_id: 'u-tl-exec',
-    team_lead_name: 'Ramesh',
-    member_count: 6,
+    team_lead_name: 'Not Assigned',
+    member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
   }
@@ -218,7 +216,7 @@ export const INITIAL_USERS: User[] = [
   {
     id: 'u-tl-sw',
     employee_id: 'CYA-010',
-    name: 'Arun',
+    name: 'Arun Kumar',
     email: 'arun@careyu.com',
     phone: '+91 98765 00010',
     role_id: 'r-tl',
@@ -234,7 +232,7 @@ export const INITIAL_USERS: User[] = [
   {
     id: 'u-tl-vis',
     employee_id: 'CYA-011',
-    name: 'Vani',
+    name: 'Vanippriya',
     email: 'vani@careyu.com',
     phone: '+91 98765 00011',
     role_id: 'r-tl',
@@ -251,7 +249,7 @@ export const INITIAL_USERS: User[] = [
     id: 'u-tl-rob',
     employee_id: 'CYA-012',
     name: 'Aakash',
-    email: 'aakash@careyu.com',
+    email: 'robotlead1@careyu.ai',
     phone: '+91 98765 00012',
     role_id: 'r-tl',
     role_code: 'TEAM_LEAD',
@@ -264,24 +262,22 @@ export const INITIAL_USERS: User[] = [
     updated_at: '2026-01-05T00:00:00Z'
   },
   {
-    id: 'u-robotlead1',
-    employee_id: 'CYA-012A',
-    name: 'Robotics Lead',
-    email: 'robotlead1@careyu.ai',
+    id: 'u-emp-kabitha',
+    employee_id: 'CYA-020',
+    name: 'Kabitha',
+    email: 'kabitha@careyu.ai',
     phone: '',
-    role_id: 'r-tl',
-    role_code: 'TEAM_LEAD',
-    role_name: 'Team Lead',
-    team_id: 't-robotics',
-    team_name: 'Robotics & Solutions Team',
-    team_lead_id: 'u-tl-rob',
-    team_lead_name: 'Aakash',
-    reporting_manager_id: 'u-pm',
+    role_id: 'r-emp',
+    role_code: 'EMPLOYEE',
+    role_name: 'Team Member',
+    team_id: 't-sw',
+    team_name: 'Software Team',
+    team_lead_id: 'u-tl-sw',
+    team_lead_name: 'Arun Kumar',
+    reporting_manager_id: 'u-tl-sw',
     status: 'ACTIVE',
-    account_status: 'ACTIVE',
-    email_verified: true,
-    created_at: '2026-01-05T00:00:00Z',
-    updated_at: '2026-01-05T00:00:00Z'
+    created_at: '2026-01-08T00:00:00Z',
+    updated_at: '2026-01-08T00:00:00Z'
   },
   {
     id: 'u-emp-sw',

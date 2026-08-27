@@ -19,6 +19,7 @@ import EmployeeActionModal, {
 import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports } from '@/components/org/orgHierarchy';
 import { UsersApi } from '@/lib/usersApi';
 import { LeadApi } from '@/lib/leadApi';
+import { apiRequest } from '@/lib/api';
 
 type Selection =
   | { kind: 'person'; nodeId: string; userId: string; reportingContextId?: string }
@@ -51,7 +52,9 @@ export default function OrganizationManagementPage() {
     const listed = await UsersApi.list();
     const nextUsers = listed.ok ? listed.users : StorageService.getUsers();
     if (listed.ok) StorageService.saveUsers(nextUsers);
-    const nextTeams = StorageService.getTeams();
+    const teamsResult = await apiRequest<{ teams: Team[] }>('/api/teams');
+    const nextTeams = teamsResult.ok ? teamsResult.data.teams : StorageService.getTeams();
+    if (teamsResult.ok) StorageService.saveTeams(nextTeams);
     setUsers(nextUsers);
     setTeams(nextTeams);
     setRoles(StorageService.getRoles());

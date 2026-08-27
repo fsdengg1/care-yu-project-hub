@@ -29,7 +29,7 @@ export const API_URL = resolveApiBaseUrl();
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {}
-): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string; code?: string }> {
+): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string; code?: string; errors?: { field: string; message: string }[] }> {
   try {
     const headers = new Headers(options.headers);
     if (!headers.has('Content-Type') && options.body) {
@@ -62,6 +62,7 @@ export async function apiRequest<T>(
           ? 'Unable to reach the server. Please confirm the backend is running on port 4100.'
           : payload.message || 'Request failed. Please try again.',
         code: typeof payload.code === 'string' ? payload.code : undefined,
+        errors: Array.isArray(payload.errors) ? payload.errors : undefined,
       };
     }
 

@@ -40,6 +40,8 @@ export function resolvePipelineStage(lead: Lead): PipelineStage {
       return 'CONVERTED';
     case 'LOST':
       return 'REJECTED';
+    case 'CANCELLED':
+      return 'CANCELLED';
     default:
       return 'PROJECT_INPUT';
   }

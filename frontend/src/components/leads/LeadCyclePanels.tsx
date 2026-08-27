@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
-import { canHandleCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
+import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
 import { formatInrCompact } from '@/lib/format';
 import {
@@ -48,9 +48,9 @@ const emptyCost = (lead: Lead): CostingRecord => ({
 
 export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpdated }: Props) {
   const isPM = canPerformPmOperations(currentUser);
-  const isCommercial = canHandleCommercial(currentUser);
+  const canQuote = canHandleLeadCommercial(currentUser, lead);
   const isOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
-    || (currentUser.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head')
+    || currentUser.role_code === 'BUSINESS_HEAD'
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
   const isAssignedTL = currentUser.role_code === 'TEAM_LEAD' && (lead.assigned_team_lead_id === currentUser.id || currentUser.team_id === lead.assigned_team_id);
   const canFeasibility = canPrepareFeasibility(currentUser) && (
@@ -104,8 +104,13 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     setError(null);
     try {
       const result = await fn();
-      if (!result) setError(fail);
-      else onUpdated();
+      if (result && typeof result === 'object' && 'ok' in result && (result as { ok?: boolean }).ok === false) {
+        setError((result as { message?: string }).message || fail);
+      } else if (!result) {
+        setError(fail);
+      } else {
+        onUpdated();
+      }
     } catch {
       setError(fail);
     } finally {
@@ -143,9 +148,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       {isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM', 'ACCEPTED_FOR_FEASIBILITY'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-blue-800/80 bg-blue-950/40 p-5">
           <div className="flex items-center gap-2 border-b border-blue-800/60 pb-2 text-sm font-bold text-blue-300">
-            <CheckCircle2 className="h-4 w-4 text-cyan-400" /> PM Review — Approve & Assign Team
+            <CheckCircle2 className="h-4 w-4 text-cyan-400" /> Accept & Assign Team
           </div>
-          <p className="text-slate-300">Review completeness, record constraints, then assign a functional team from Organization Management.</p>
+          <p className="text-slate-300">If the project input is complete, assign a functional team. Feasibility starts immediately after this step.</p>
           {field('Constraints / observations', pmNotes, setPmNotes, 2)}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
@@ -189,10 +194,17 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="flex flex-wrap gap-2">
             <button
               disabled={busy}
-              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'approve_assign', team_id: assignTeamId, team_lead_id: assignLeadId || undefined, notes: pmNotes }))}
+              data-demo="accept-assign-team"
+              onClick={() => {
+                if (!assignTeamId) {
+                  setError('Select a functional team to accept this lead and start feasibility.');
+                  return;
+                }
+                void run(() => LeadApi.pmReview(lead.id, { action: 'approve_assign', team_id: assignTeamId, team_lead_id: assignLeadId || undefined, notes: pmNotes }));
+              }}
               className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
             >
-              <Check className="h-4 w-4" /> Approve & Assign Team
+              <Check className="h-4 w-4" /> Accept & Assign Team
             </button>
             <button
               disabled={busy}
@@ -320,7 +332,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {(isCommercial && isOwner) && ['QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
+      {canQuote && ['QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
             <Building2 className="h-4 w-4 text-cyan-400" /> Quotation — {lead.lead_number}
@@ -355,7 +367,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {(isCommercial && isOwner) && ['NEGOTIATION', 'QUOTATION'].includes(lead.status) && (
+      {canQuote && ['NEGOTIATION', 'QUOTATION'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
             <Handshake className="h-4 w-4 text-cyan-400" /> Negotiation

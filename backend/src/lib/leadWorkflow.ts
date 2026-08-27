@@ -16,7 +16,13 @@ import {
   Team,
   User,
 } from '../types.js';
-import { findPm as resolveProjectManager, transferLeadResponsibility } from './responsibility.js';
+import {
+  findBusinessHead,
+  findPm as resolveProjectManager,
+  resolveProjectManagerForAssignment,
+  transferLeadResponsibility,
+} from './responsibility.js';
+import { assertAllowedTransition, leadOwnerId, PM_REVIEW_STATUSES } from './leadValidation.js';
 
 export function parseMoney(raw: unknown): number {
   const numeric = Number(String(raw ?? '').replace(/[₹,\s]/g, ''));
@@ -55,6 +61,8 @@ export function stageFromStatus(status: LeadStatus): PipelineStage {
       return 'CONVERTED';
     case 'LOST':
       return 'REJECTED';
+    case 'CANCELLED':
+      return 'CANCELLED';
     case 'ON_HOLD':
       return 'PROJECT_INPUT';
     default:
@@ -81,7 +89,16 @@ export function alignSeedLead(lead: Lead): Lead {
 
 export function hydrateLead(lead: Lead): Lead {
   const aligned = alignSeedLead(lead);
-  return { ...aligned, pipeline_stage: stageFromStatus(aligned.status) || aligned.pipeline_stage };
+  const ownerId = aligned.current_owner_id || aligned.responsible_user_id;
+  const ownerName = aligned.current_owner_name || aligned.responsible_user_name;
+  return {
+    ...aligned,
+    pipeline_stage: stageFromStatus(aligned.status) || aligned.pipeline_stage,
+    current_owner_id: ownerId,
+    current_owner_name: ownerName,
+    responsible_user_id: aligned.responsible_user_id || ownerId,
+    responsible_user_name: aligned.responsible_user_name || ownerName,
+  };
 }
 
 export function findLead(id: string): Lead | undefined {
@@ -155,6 +172,9 @@ export function transitionLead(
   extra: Partial<Lead> = {}
 ): Lead {
   const oldStatus = lead.status;
+  if (oldStatus !== nextStatus) {
+    assertAllowedTransition(oldStatus, nextStatus);
+  }
   const updated = saveLead({
     ...lead,
     ...extra,
@@ -164,7 +184,7 @@ export function transitionLead(
   if (oldStatus !== nextStatus) {
     recordHistory(updated, oldStatus, nextStatus, user, reason);
   }
-  return updated;
+  return hydrateLead(updated);
 }
 
 export function findPm(lead?: Lead): User | undefined {
@@ -183,10 +203,11 @@ export function isProcurementUser(user: User): boolean {
 }
 
 export function canOwnLead(user: User, lead: Lead): boolean {
-  if (['SYSTEM_ADMIN', 'PROJECT_MANAGER', 'CEO', 'CTO'].includes(user.role_code)) return true;
-  if (lead.responsible_user_id === user.id) return true;
+  if (['SYSTEM_ADMIN', 'CEO', 'CTO', 'BUSINESS_HEAD'].includes(user.role_code)) return true;
+  const ownerId = leadOwnerId(lead);
+  if (ownerId === user.id) return true;
   if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
-  if (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') return true;
+  if (user.role_code === 'PROJECT_MANAGER' && lead.pm_id === user.id) return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
   if (lead.assigned_team_lead_id === user.id) return true;
   if (lead.assigned_team_id && user.team_id === lead.assigned_team_id) return true;
@@ -196,19 +217,32 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   return false;
 }
 
+export function canHandleLeadCommercial(user: User, lead: Lead): boolean {
+  if (['SYSTEM_ADMIN', 'BUSINESS_HEAD'].includes(user.role_code)) return true;
+  if (!['ENG_DIRECTOR', 'SALES'].includes(user.role_code)) return false;
+  if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
+  if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
+  return false;
+}
+
 export function canEditProjectInput(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
-  if (!['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(user.role_code)) return false;
-  if (!(lead.created_by_id === user.id || lead.sales_owner_id === user.id)) {
-    if (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') {
-      // BH can edit own-vertical drafts/returns
-    } else if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') {
-      // ED can edit own-vertical drafts/returns
-    } else {
-      return false;
-    }
-  }
-  return ['DRAFT', 'RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status);
+  if (!['DRAFT', 'RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)) return false;
+  const canCaptureRequirement = [
+    'BUSINESS_HEAD',
+    'ENG_DIRECTOR',
+    'SALES',
+    'PROJECT_MANAGER',
+    'TEAM_LEAD',
+    'EMPLOYEE',
+    'PROJECT_ENGINEER',
+    'CTO',
+  ].includes(user.role_code);
+  if (!canCaptureRequirement) return false;
+  if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
+  if (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') return true;
+  if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
+  return false;
 }
 
 export function canPrepareFeasibility(user: User, lead: Lead): boolean {
@@ -230,7 +264,14 @@ export function canPrepareCosting(user: User, lead: Lead): boolean {
 export function canPrepareQuotation(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (!['QUOTATION', 'NEGOTIATION'].includes(lead.status)) return false;
-  return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(user.role_code) && canOwnLead(user, lead);
+  return canHandleLeadCommercial(user, lead);
+}
+
+export function handLeadToBusinessHead(lead: Lead, actor: User, reason = 'Ready for quotation'): Lead {
+  const businessHead = findBusinessHead(lead);
+  if (!businessHead || businessHead.id === leadOwnerId(lead)) return saveLead(lead);
+  const transferred = transferLeadResponsibility(lead, businessHead, actor, reason);
+  return saveLead(transferred.lead);
 }
 
 export function emptyFeasibility(partial: Partial<FeasibilityStudy> = {}): FeasibilityStudy {
@@ -321,7 +362,8 @@ export function assignTeamToLead(
   assignments.unshift(assignment);
   store.saveFeasibilityTeamAssignments(assignments);
 
-  const updatedBase = transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Assigned to functional team', {
+  const now = new Date().toISOString();
+  const updatedBase = transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Accepted and assigned to functional team', {
     assigned_team_id: team.id,
     assigned_team_name: team.name,
     assigned_team_lead_id: assignedLead?.id,
@@ -329,8 +371,10 @@ export function assignTeamToLead(
     pm_id: user.role_code === 'PROJECT_MANAGER' ? user.id : lead.pm_id || findPm()?.id,
     pm_name: user.role_code === 'PROJECT_MANAGER' ? user.name : lead.pm_name || findPm()?.name,
     pm_review_notes: notes || lead.pm_review_notes,
-    reviewed_at: new Date().toISOString(),
-    accepted_at: lead.accepted_at || new Date().toISOString(),
+    reviewed_at: now,
+    accepted_at: lead.accepted_at || now,
+    accepted_by_id: lead.accepted_by_id || user.id,
+    accepted_by_name: lead.accepted_by_name || user.name,
   });
 
   let updated = updatedBase;
@@ -446,8 +490,18 @@ function workItem(lead: Lead, category: MyWorkItem['category'], summary: string)
 export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> } {
   const leads = store.getLeads().map(hydrateLead);
   const items: MyWorkItem[] = [];
+  const seen = new Set<string>();
 
-  if (['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(user.role_code)) {
+  const add = (lead: Lead, category: MyWorkItem['category'], summary: string) => {
+    const key = `${lead.id}:${category}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push(workItem(lead, category, summary));
+  };
+
+  const canCapture =
+    ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'EMPLOYEE', 'PROJECT_ENGINEER', 'TEAM_LEAD'].includes(user.role_code);
+  if (canCapture) {
     items.push({
       lead_id: 'new',
       lead_number: 'NEW',
@@ -463,72 +517,74 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
   }
 
   for (const lead of leads) {
-    if (lead.responsible_user_id === user.id && lead.pending_action !== false && !['DRAFT', 'ORDER_CONVERTED', 'LOST', 'ON_HOLD'].includes(lead.status)) {
-      const already = items.some((item) => item.lead_id === lead.id);
-      if (!already) {
-        items.push(workItem(lead, 'PM_REVIEW', `Action required: ${lead.status.replace(/_/g, ' ').toLowerCase()}.`));
+    const ownerId = leadOwnerId(lead);
+    const isOwner = ownerId === user.id;
+    const isCreator = lead.created_by_id === user.id || lead.sales_owner_id === user.id;
+    const isSalesRole = ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'EMPLOYEE', 'PROJECT_ENGINEER'].includes(user.role_code);
+    const salesVisible =
+      isCreator ||
+      (user.role_code === 'BUSINESS_HEAD' && lead.business_vertical === 'Business Head') ||
+      (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
+
+    if (isSalesRole && salesVisible) {
+      if (lead.status === 'DRAFT') {
+        add(lead, 'DRAFT', 'Finish and submit this draft to PM.');
+      }
+      if (['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)) {
+        add(lead, 'RETURNED', lead.pm_return_reason || 'PM returned this lead for correction.');
+      }
+    }
+    if (canHandleLeadCommercial(user, lead)) {
+      if (lead.status === 'QUOTATION') {
+        add(lead, 'QUOTATION', 'Approved costing is ready. Prepare and send the quotation.');
+      }
+      if (lead.status === 'NEGOTIATION') {
+        add(lead, 'NEGOTIATION', 'Active commercial follow-up. Update negotiation or convert to order.');
       }
     }
 
-    if (!canOwnLead(user, lead) && user.role_code !== 'PROJECT_MANAGER' && user.role_code !== 'SYSTEM_ADMIN') {
-      const assigned =
-        lead.assigned_team_lead_id === user.id ||
-        (user.team_id && user.team_id === lead.assigned_team_id) ||
-        isProcurementUser(user);
-      if (!assigned) continue;
-    }
+    const pmSeesLead =
+      user.role_code === 'SYSTEM_ADMIN' ||
+      ((user.role_code === 'PROJECT_MANAGER' || user.role_code === 'SYSTEM_ADMIN') &&
+        (isOwner || lead.pm_id === user.id));
 
-    if (['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(user.role_code)) {
-      if (lead.status === 'DRAFT' && canOwnLead(user, lead)) {
-        items.push(workItem(lead, 'DRAFT', 'Finish and submit this draft to PM.'));
-      }
-      if (['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status) && canOwnLead(user, lead)) {
-        items.push(workItem(lead, 'RETURNED', lead.pm_return_reason || 'PM returned this lead for correction.'));
-      }
-      if (lead.status === 'QUOTATION' && canOwnLead(user, lead)) {
-        items.push(workItem(lead, 'QUOTATION', 'Approved costing is ready. Prepare and send the quotation.'));
-      }
-      if (lead.status === 'NEGOTIATION' && canOwnLead(user, lead)) {
-        items.push(workItem(lead, 'NEGOTIATION', 'Active commercial follow-up. Update negotiation or convert to order.'));
-      }
-    }
-
-    if (user.role_code === 'PROJECT_MANAGER' || user.role_code === 'SYSTEM_ADMIN') {
-      if (['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status)) {
-        items.push(workItem(lead, 'PM_REVIEW', 'Review project input, then assign a team or return for correction.'));
+    if (pmSeesLead) {
+      if (PM_REVIEW_STATUSES.includes(lead.status) && (isOwner || user.role_code === 'SYSTEM_ADMIN')) {
+        add(lead, 'PM_REVIEW', 'Review project input, then accept and assign a team to start feasibility.');
       }
       if (lead.status === 'ACCEPTED_FOR_FEASIBILITY' && !lead.assigned_team_id) {
-        items.push(workItem(lead, 'ASSIGN', 'Assign a functional team from Organization Management.'));
+        add(lead, 'ASSIGN', 'Assign a functional team from Organization Management.');
       }
-      if (lead.status === 'FEASIBILITY_SUBMITTED') {
-        items.push(workItem(lead, 'FEASIBILITY_APPROVAL', 'Review submitted feasibility and approve or return to the team.'));
+      if (lead.status === 'FEASIBILITY_SUBMITTED' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
+        add(lead, 'FEASIBILITY_APPROVAL', 'Review submitted feasibility and approve or return to the team.');
       }
-      if (lead.status === 'COSTING_SUBMITTED') {
-        items.push(workItem(lead, 'COSTING_APPROVAL', 'Review submitted costing and approve or return for revision.'));
+      if (lead.status === 'COSTING_SUBMITTED' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
+        add(lead, 'COSTING_APPROVAL', 'Review submitted costing and approve or return for revision.');
       }
     }
 
-    if (canPrepareFeasibility(user, lead) || (user.role_code === 'TEAM_LEAD' && ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status) && (lead.assigned_team_lead_id === user.id || user.team_id === lead.assigned_team_id))) {
-      items.push(
-        workItem(
-          lead,
-          'FEASIBILITY',
-          lead.status === 'FEASIBILITY_RETURNED'
-            ? lead.feasibility_return_reason || 'PM returned feasibility for correction.'
-            : 'Prepare and submit the feasibility study.'
-        )
+    if (
+      canPrepareFeasibility(user, lead) ||
+      (user.role_code === 'TEAM_LEAD' &&
+        ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status) &&
+        (lead.assigned_team_lead_id === user.id || user.team_id === lead.assigned_team_id))
+    ) {
+      add(
+        lead,
+        'FEASIBILITY',
+        lead.status === 'FEASIBILITY_RETURNED'
+          ? lead.feasibility_return_reason || 'PM returned feasibility for correction.'
+          : 'Prepare and submit the feasibility study.'
       );
     }
 
     if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED'].includes(lead.status)) {
-      items.push(
-        workItem(
-          lead,
-          'COSTING',
-          lead.status === 'COSTING_RETURNED'
-            ? lead.costing_return_reason || 'PM returned costing for revision.'
-            : 'Prepare BOM, vendor quotations, and project costing.'
-        )
+      add(
+        lead,
+        'COSTING',
+        lead.status === 'COSTING_RETURNED'
+          ? lead.costing_return_reason || 'PM returned costing for revision.'
+          : 'Prepare BOM, vendor quotations, and project costing.'
       );
     }
   }
@@ -539,6 +595,83 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
     groups[item.category].push(item);
   }
   return { items, groups };
+}
+
+export function buildPmDashboard(user: User) {
+  const leads = store.getLeads().map(hydrateLead);
+  const assigned = leads.filter((lead) => {
+    if (user.role_code === 'SYSTEM_ADMIN') return true;
+    const ownerId = leadOwnerId(lead);
+    return ownerId === user.id || lead.pm_id === user.id;
+  });
+
+  const pendingReviews = assigned.filter(
+    (lead) => PM_REVIEW_STATUSES.includes(lead.status) && (leadOwnerId(lead) === user.id || user.role_code === 'SYSTEM_ADMIN')
+  );
+  const feasibilityPending = assigned.filter((lead) =>
+    ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(
+      lead.status
+    )
+  );
+  const procurementPending = assigned.filter((lead) =>
+    ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED'].includes(lead.status)
+  );
+  const returnedToSales = leads.filter((lead) =>
+    ['RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(lead.status)
+  );
+
+  return {
+    pendingPmReview: pendingReviews.length,
+    feasibilityPending: feasibilityPending.length,
+    procurementPending: procurementPending.length,
+    returnedToSales: returnedToSales.length,
+    pendingReviews: pendingReviews
+      .slice()
+      .sort((a, b) => +new Date(b.submitted_at || b.updated_at) - +new Date(a.submitted_at || a.updated_at))
+      .map((lead) => ({
+        id: lead.id,
+        lead_number: lead.lead_number,
+        customer_name: lead.customer_name,
+        title: lead.title,
+        business_vertical: lead.business_vertical,
+        sales_owner: lead.sales_owner,
+        sales_owner_id: lead.sales_owner_id,
+        priority: lead.priority,
+        lead_date: lead.lead_date,
+        submitted_at: lead.submitted_at,
+        status: lead.status,
+        current_owner_id: leadOwnerId(lead),
+        current_owner_name: lead.current_owner_name || lead.responsible_user_name,
+        href: `/pre-sales/leads/${lead.id}`,
+      })),
+    myWork: buildMyWork(user),
+  };
+}
+
+export function assignSubmittedLeadToPm(lead: Lead, actor: User, reason: string): Lead {
+  const pm = resolveProjectManagerForAssignment(lead, actor);
+  if (!pm || pm.role_code !== 'PROJECT_MANAGER' || pm.status !== 'ACTIVE') {
+    throw Object.assign(new Error('No active Project Manager is available to receive this lead.'), { status: 409 });
+  }
+  const transferred = transferLeadResponsibility(lead, pm, actor, reason);
+  const saved = saveLead({
+    ...transferred.lead,
+    pm_id: pm.id,
+    pm_name: pm.name,
+    current_owner_id: pm.id,
+    current_owner_name: pm.name,
+    responsible_user_id: pm.id,
+    responsible_user_name: pm.name,
+    responsible_role_code: pm.role_code,
+    pending_action: true,
+  });
+  const ownerId = leadOwnerId(saved);
+  if (ownerId !== pm.id || saved.responsible_user_id !== pm.id) {
+    throw Object.assign(new Error('Lead assignment did not persist consistently. Submission was rolled back.'), {
+      status: 500,
+    });
+  }
+  return hydrateLead(saved);
 }
 
 export function buildBusinessHeadDashboard(user: User) {

@@ -5,7 +5,7 @@ import { User, DailyUpdate, DailyUpdateSummary, FeasibilitySuggestion, Feasibili
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { LeadApi } from '@/lib/leadApi';
-import { formatLongDate, WORK_STATUS_LABELS } from '@/lib/format';
+import { formatLongDate, LEAD_STATUS_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
 import { GanttChartSquare, Scan, ShieldAlert, MessageSquare, Inbox, ArrowRight, FileText, Clock } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
@@ -24,10 +24,38 @@ export default function PMDashboard({ user }: { user: User }) {
   const [updates, setUpdates] = useState<DailyUpdate[]>([]);
   const [workAssignments, setWorkAssignments] = useState<WorkAssignment[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [pmCounts, setPmCounts] = useState({
+    pendingPmReview: 0,
+    feasibilityPending: 0,
+    procurementPending: 0,
+    returnedToSales: 0,
+  });
+  const [pendingReviews, setPendingReviews] = useState<Array<{
+    id: string;
+    lead_number: string;
+    customer_name: string;
+    title: string;
+    business_vertical: string;
+    sales_owner: string;
+    priority: string;
+    submitted_at?: string;
+    status: string;
+    href: string;
+  }>>([]);
 
   useEffect(() => {
     void (async () => {
       await LeadApi.list();
+      const dashboard = await LeadApi.pmDashboard();
+      if (dashboard) {
+        setPmCounts({
+          pendingPmReview: dashboard.pendingPmReview,
+          feasibilityPending: dashboard.feasibilityPending,
+          procurementPending: dashboard.procurementPending,
+          returnedToSales: dashboard.returnedToSales,
+        });
+        setPendingReviews(dashboard.pendingReviews || []);
+      }
       setAssignments(StorageService.getFeasibilityTeamAssignments());
       setSuggestions(StorageService.getFeasibilitySuggestions());
       const [nextSummary, list] = await Promise.all([DailyUpdatesApi.summary(), DailyUpdatesApi.list()]);
@@ -75,6 +103,65 @@ export default function PMDashboard({ user }: { user: User }) {
       </div>
 
       <PendingActionsCard />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[
+          { label: 'Pending PM Review', value: pmCounts.pendingPmReview, href: '/my-work', color: 'text-cyan-300' },
+          { label: 'Feasibility Pending', value: pmCounts.feasibilityPending, href: '/pre-sales/feasibility', color: 'text-amber-300' },
+          { label: 'Procurement Pending', value: pmCounts.procurementPending, href: '/pre-sales/costing', color: 'text-violet-300' },
+          { label: 'Returned to Sales', value: pmCounts.returnedToSales, href: '/pre-sales/leads', color: 'text-orange-300' },
+        ].map((card) => (
+          <Link key={card.label} href={card.href} className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 hover:border-cyan-800">
+            <div className="font-medium text-slate-400">{card.label}</div>
+            <div className={`mt-2 text-2xl font-bold ${card.color}`}>{card.value}</div>
+          </Link>
+        ))}
+      </div>
+
+      <section className="space-y-3 rounded-xl border border-blue-800/70 bg-blue-950/20 p-5">
+        <div className="flex items-center justify-between border-b border-blue-900/60 pb-2">
+          <h2 className="flex items-center gap-2 text-sm font-bold text-blue-200">
+            <Clock className="h-4 w-4 text-cyan-400" /> Pending PM Reviews
+          </h2>
+          <Link href="/my-work" className="text-xs text-cyan-400 hover:underline">My Assigned Work</Link>
+        </div>
+        {pendingReviews.length === 0 ? (
+          <p className="py-4 text-center text-xs text-slate-500">No leads currently assigned to you for PM review.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="py-2 pr-3">Lead ID</th>
+                  <th className="py-2 pr-3">Customer</th>
+                  <th className="py-2 pr-3">Lead Title</th>
+                  <th className="py-2 pr-3">Sales Owner</th>
+                  <th className="py-2 pr-3">Priority</th>
+                  <th className="py-2 pr-3">Status</th>
+                  <th className="py-2 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70">
+                {pendingReviews.map((lead) => (
+                  <tr key={lead.id} className="text-slate-300">
+                    <td className="py-2.5 pr-3 font-mono font-bold text-cyan-400">{lead.lead_number}</td>
+                    <td className="py-2.5 pr-3">{lead.customer_name}</td>
+                    <td className="py-2.5 pr-3 font-semibold text-slate-100">{lead.title}</td>
+                    <td className="py-2.5 pr-3">{lead.sales_owner}</td>
+                    <td className="py-2.5 pr-3 text-amber-300">{lead.priority}</td>
+                    <td className="py-2.5 pr-3">{LEAD_STATUS_LABELS[lead.status] || lead.status}</td>
+                    <td className="py-2.5 text-right">
+                      <Link href={lead.href} className="inline-flex items-center gap-1 rounded bg-cyan-600 px-3 py-1 text-[11px] font-bold text-white hover:bg-cyan-500">
+                        View <ArrowRight className="h-3 w-3" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[

@@ -87,14 +87,17 @@ export const LeadApi = {
 
   async submit(id: string) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/submit`, { method: 'POST', body: '{}' });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, errors: result.errors, status: result.status };
   },
 
-  async accept(id: string) {
-    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/accept`, { method: 'POST', body: '{}' });
-    if (result.ok) return syncPayload(result.data);
-    return result;
+  async accept(id: string, body: { team_id: string; team_lead_id?: string; notes?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/accept`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, status: result.status };
   },
 
   async forward(id: string, body: { responsible_user_id: string; reason?: string }) {
@@ -111,8 +114,8 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, status: result.status };
   },
 
   async saveFeasibility(id: string, study: Partial<FeasibilityStudy>, submit = false) {
@@ -227,6 +230,57 @@ export const LeadApi = {
     const result = await call<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }>('/api/leads/my-work');
     if (result.ok) return result.data;
     return { items: [], groups: {} };
+  },
+
+  async cancel(id: string, reason: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return result;
+  },
+
+  async pmDashboard(): Promise<{
+    pendingPmReview: number;
+    feasibilityPending: number;
+    procurementPending: number;
+    returnedToSales: number;
+    pendingReviews: Array<{
+      id: string;
+      lead_number: string;
+      customer_name: string;
+      title: string;
+      business_vertical: string;
+      sales_owner: string;
+      priority: string;
+      lead_date?: string;
+      submitted_at?: string;
+      status: string;
+      href: string;
+    }>;
+  } | null> {
+    const result = await call<{
+      pendingPmReview: number;
+      feasibilityPending: number;
+      procurementPending: number;
+      returnedToSales: number;
+      pendingReviews: Array<{
+        id: string;
+        lead_number: string;
+        customer_name: string;
+        title: string;
+        business_vertical: string;
+        sales_owner: string;
+        priority: string;
+        lead_date?: string;
+        submitted_at?: string;
+        status: string;
+        href: string;
+      }>;
+    }>('/api/dashboard/pm');
+    if (result.ok) return result.data;
+    return null;
   },
 
   async businessHeadDashboard(): Promise<BusinessHeadDashboard | null> {

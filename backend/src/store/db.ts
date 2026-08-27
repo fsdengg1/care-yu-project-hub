@@ -124,7 +124,9 @@ const localDbPath = path.join(process.cwd(), 'data', 'db.json');
 
 let cache: DbShape | null = null;
 let writeChain: Promise<void> = Promise.resolve();
+let persistPaused = false;
 let initialized = false;
+let mutex: Promise<void> = Promise.resolve();
 
 function isDemoOperationalPurged(parsed: Partial<DbShape>): boolean {
   return (parsed.systemMeta ?? []).some((item) => item.id === LIVE_META_ID && Boolean(item.demoOperationalPurgedAt));
@@ -162,6 +164,50 @@ function mergeById<T extends { id: string }>(stored: T[] | undefined, seed: T[])
 
 const SEED_USER_IDS = new Set(INITIAL_USERS.map((user) => user.id));
 
+const RETIRED_DEMO_USER_IDS = new Set([
+  'u-robotlead1',
+  'u-emp-sw',
+  'u-emp-sw-2',
+  'u-emp-sw-3',
+  'u-emp-vis-1',
+  'u-emp-vis-2',
+  'u-emp-rob-1',
+  'u-emp-rob-2',
+  'u-emp-rob-3',
+  'u-emp-rob-4',
+  'u-tl-proc',
+  'u-emp-proc-1',
+  'u-emp-proc-2',
+  'u-tl-exec',
+  'u-emp-exec-1',
+  'u-emp-exec-2',
+  'u-emp-exec-3',
+  'u-emp-exec-4',
+  'u-emp-exec-5',
+]);
+
+const RETIRED_DEMO_EMAILS = new Set([
+  'karthik@careyu.com',
+  'deepak@careyu.com',
+  'meena@careyu.com',
+  'sanjay@careyu.com',
+  'lakshmi@careyu.com',
+  'rahul@careyu.com',
+  'divya@careyu.com',
+  'vikram@careyu.com',
+  'nisha@careyu.com',
+  'suresh@careyu.com',
+  'anitha@careyu.com',
+  'manoj@careyu.com',
+  'ramesh@careyu.com',
+  'gopal@careyu.com',
+  'sita@careyu.com',
+  'farhan@careyu.com',
+  'kavya@careyu.com',
+  'imran@careyu.com',
+  'aakash@careyu.com',
+]);
+
 function isIncompleteSignupAccount(user: User): boolean {
   if (SEED_USER_IDS.has(user.id)) return false;
   if (user.password_hash) return false;
@@ -182,23 +228,53 @@ function stripIncompleteSignupUsers(users: User[]): User[] {
 }
 
 function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
-  const leadership = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm']);
+  const namedRoster = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm', 'u-tl-sw', 'u-tl-vis', 'u-tl-rob']);
   const merged = mergeById(stored, seed).map((user) => {
     const fromSeed = seed.find((item) => item.id === user.id);
     const withVerified: User = {
       ...user,
-      // Existing/seeded accounts are treated as verified unless explicitly pending signup verification.
       email_verified: user.email_verified ?? true,
     };
-    if (!fromSeed || !leadership.has(user.id)) return withVerified;
+    if (!fromSeed || !namedRoster.has(user.id)) return withVerified;
     return {
       ...withVerified,
       name: fromSeed.name,
       role_name: fromSeed.role_name,
       role_code: fromSeed.role_code,
+      email: fromSeed.email || withVerified.email,
+      team_id: fromSeed.team_id,
+      team_name: fromSeed.team_name,
+      team_lead_id: fromSeed.team_lead_id,
+      team_lead_name: fromSeed.team_lead_name,
     };
   });
-  return stripIncompleteSignupUsers(merged).filter((user) => !isSmokeTestAccount(user));
+  const withoutDemo = stripIncompleteSignupUsers(merged)
+    .filter((user) => !isSmokeTestAccount(user))
+    .filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id))
+    .filter((user) => !RETIRED_DEMO_EMAILS.has(user.email.trim().toLowerCase()));
+  return applyActualTeamMembership(withoutDemo);
+}
+
+function applyActualTeamMembership(users: User[]): User[] {
+  const fsd = users.find((user) => user.email.trim().toLowerCase() === 'fsdengg1@careyu.ai');
+  if (!fsd) return users;
+  return users
+    .filter((user) => user.id !== 'u-emp-kabitha' || user.id === fsd.id)
+    .map((user) => {
+      if (user.id !== fsd.id) return user;
+      return {
+        ...user,
+        name: user.name?.trim() || 'Kabitha',
+        role_id: user.role_id || 'r-emp',
+        role_code: user.role_code || 'EMPLOYEE',
+        role_name: user.role_name || 'Team Member',
+        team_id: 't-sw',
+        team_name: 'Software Team',
+        team_lead_id: 'u-tl-sw',
+        team_lead_name: 'Arun Kumar',
+        reporting_manager_id: user.reporting_manager_id || 'u-tl-sw',
+      };
+    });
 }
 
 function mergeRoles(stored: Role[] | undefined, seed: Role[]): Role[] {
@@ -238,11 +314,8 @@ function mergeTeams(stored: Team[] | undefined, seed: Team[]): Team[] {
       name: fromSeed.name,
       code: fromSeed.code,
       description: fromSeed.description,
-      team_lead_id: team.team_lead_id || fromSeed.team_lead_id,
-      team_lead_name:
-        !team.team_lead_name || team.team_lead_name === 'Not Assigned'
-          ? fromSeed.team_lead_name
-          : team.team_lead_name,
+      team_lead_id: fromSeed.team_lead_id,
+      team_lead_name: fromSeed.team_lead_name || 'Not Assigned',
     };
   });
 }
@@ -386,7 +459,32 @@ function loadDb(): DbShape {
 
 function saveDb(db: DbShape) {
   cache = db;
-  enqueuePersist(db);
+  if (!persistPaused) enqueuePersist(db);
+}
+
+export async function transact<T>(fn: () => T | Promise<T>): Promise<T> {
+  const run = mutex.then(async () => {
+    await writeChain;
+    const snapshot = structuredClone(loadDb());
+    persistPaused = true;
+    try {
+      const result = await fn();
+      persistPaused = false;
+      await persistDb(loadDb());
+      return result;
+    } catch (error) {
+      cache = snapshot;
+      persistPaused = false;
+      throw error;
+    } finally {
+      persistPaused = false;
+    }
+  });
+  mutex = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
 }
 
 export async function initStore(options?: { forceImportLocal?: boolean }): Promise<{

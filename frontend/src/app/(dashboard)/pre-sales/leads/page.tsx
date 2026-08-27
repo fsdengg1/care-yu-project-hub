@@ -41,7 +41,8 @@ const STATUS_BADGES: Record<LeadStatus, { label: string; style: string }> = {
   ORDER_CONVERTED: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   WON: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   LOST: { label: 'LOST', style: 'bg-rose-950 text-rose-300 border-rose-800' },
-  ON_HOLD: { label: 'ON HOLD', style: 'bg-slate-800 text-slate-400 border-slate-700' }
+  ON_HOLD: { label: 'ON HOLD', style: 'bg-slate-800 text-slate-400 border-slate-700' },
+  CANCELLED: { label: 'CANCELLED', style: 'bg-rose-950 text-rose-300 border-rose-800' }
 };
 
 export default function LeadsListPage() {
@@ -80,17 +81,30 @@ export default function LeadsListPage() {
     if (isCEO || isAdmin || isPM || isCTO) {
       // Leadership / PM see the full pipeline
     } else if (isBH) {
-      if (lead.business_vertical !== 'Business Head' && lead.created_by_id !== currentUser.id) return false;
+      // Business Head owns commercial for every vertical.
     } else if (isED) {
       if (lead.business_vertical !== 'Engineering Director' && lead.created_by_id !== currentUser.id) return false;
     } else if (isTL) {
-      if (lead.assigned_team_id !== currentUser.team_id && lead.assigned_team_lead_id !== currentUser.id) return false;
+      if (
+        lead.assigned_team_id !== currentUser.team_id &&
+        lead.assigned_team_lead_id !== currentUser.id &&
+        lead.created_by_id !== currentUser.id &&
+        lead.sales_owner_id !== currentUser.id
+      ) {
+        return false;
+      }
     } else if (isProcurement) {
       if (!['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'QUOTATION', 'NEGOTIATION'].includes(lead.status) && lead.pipeline_stage !== 'COSTING') {
         return false;
       }
     } else if (isEmployee) {
-      if (lead.assigned_team_id !== currentUser.team_id) return false;
+      if (
+        lead.assigned_team_id !== currentUser.team_id &&
+        lead.created_by_id !== currentUser.id &&
+        lead.sales_owner_id !== currentUser.id
+      ) {
+        return false;
+      }
     } else if (lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) {
       return false;
     }
@@ -117,10 +131,11 @@ export default function LeadsListPage() {
     .reduce((sum, lead) => sum + (lead.expected_value ?? 0), 0);
 
   // PM Review Queue (Submitted or Under PM review)
-  const pmReviewQueue = leads.filter(l => 
-    l.status === 'SUBMITTED_TO_PM' || 
-    l.status === 'UNDER_PM_REVIEW' || 
-    l.status === 'RESUBMITTED_TO_PM'
+  const pmReviewQueue = leads.filter(l =>
+    (l.status === 'SUBMITTED_TO_PM' ||
+    l.status === 'UNDER_PM_REVIEW' ||
+    l.status === 'RESUBMITTED_TO_PM') &&
+    (l.current_owner_id === currentUser.id || l.responsible_user_id === currentUser.id || l.pm_id === currentUser.id)
   );
 
   // Sales Action Required Queue (Returned to Sales)

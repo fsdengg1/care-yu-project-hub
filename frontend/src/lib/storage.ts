@@ -19,9 +19,9 @@ import {
 
 // v6 — Phase 3A Architecture Correction (Lead-centric multi-team feasibility)
 const STORAGE_KEYS = {
-  USERS: 'cya_users_v6',
+  USERS: 'cya_users_v8',
   ROLES: 'cya_roles_v6',
-  TEAMS: 'cya_teams_v6',
+  TEAMS: 'cya_teams_v8',
   AUDITS: 'cya_audits_v7',
   NOTIFS: 'cya_notifs_v7',
   CURRENT_USER: 'cya_current_user_v6',
@@ -38,6 +38,28 @@ const STORAGE_KEYS = {
   TASKS: 'cya_tasks_v7',
 };
 
+const RETIRED_DEMO_USER_IDS = new Set([
+  'u-robotlead1',
+  'u-emp-sw',
+  'u-emp-sw-2',
+  'u-emp-sw-3',
+  'u-emp-vis-1',
+  'u-emp-vis-2',
+  'u-emp-rob-1',
+  'u-emp-rob-2',
+  'u-emp-rob-3',
+  'u-emp-rob-4',
+  'u-tl-proc',
+  'u-emp-proc-1',
+  'u-emp-proc-2',
+  'u-tl-exec',
+  'u-emp-exec-1',
+  'u-emp-exec-2',
+  'u-emp-exec-3',
+  'u-emp-exec-4',
+  'u-emp-exec-5',
+]);
+
 export class StorageService {
   private static isBrowser = typeof window !== 'undefined';
 
@@ -45,25 +67,25 @@ export class StorageService {
   // USERS
   // ============================================================
   static getUsers(): User[] {
-    if (!this.isBrowser) return INITIAL_USERS;
+    if (!this.isBrowser) return INITIAL_USERS.filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id));
     const stored = localStorage.getItem(STORAGE_KEYS.USERS);
+    const seedUsers = INITIAL_USERS.filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id));
     if (!stored) {
-      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
-      return INITIAL_USERS;
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(seedUsers));
+      return seedUsers;
     }
     const parsed: User[] = JSON.parse(stored);
     const seedById = new Map(INITIAL_USERS.map((u) => [u.id, u]));
-    const LEADERSHIP = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm']);
-    const overlayed = parsed.map((user) => {
-      const seed = seedById.get(user.id);
-      if (!seed || !LEADERSHIP.has(user.id)) return user;
-      return { ...user, name: seed.name, role_name: seed.role_name, role_code: seed.role_code };
-    });
-    const knownIds = new Set(overlayed.map((u) => u.id));
-    const missing = INITIAL_USERS.filter((u) => !knownIds.has(u.id));
-    const merged = missing.length === 0 ? overlayed : [...overlayed, ...missing];
-    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(merged));
-    return merged;
+    const named = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm', 'u-tl-sw', 'u-tl-vis', 'u-tl-rob']);
+    const overlayed = parsed
+      .filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id))
+      .map((user) => {
+        const seed = seedById.get(user.id);
+        if (!seed || !named.has(user.id)) return user;
+        return { ...user, name: seed.name, role_name: seed.role_name, role_code: seed.role_code };
+      });
+    localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(overlayed));
+    return overlayed;
   }
 
   static saveUsers(users: User[]) {
@@ -100,7 +122,16 @@ export class StorageService {
     const seedById = new Map(INITIAL_TEAMS.map((team) => [team.id, team]));
     const overlayed = parsed.map((team) => {
       const seed = seedById.get(team.id);
-      return seed ? { ...team, name: seed.name, code: seed.code, description: seed.description } : team;
+      return seed
+        ? {
+            ...team,
+            name: seed.name,
+            code: seed.code,
+            description: seed.description,
+            team_lead_id: seed.team_lead_id,
+            team_lead_name: seed.team_lead_name,
+          }
+        : team;
     });
     const knownIds = new Set(overlayed.map((team) => team.id));
     const missing = INITIAL_TEAMS.filter((team) => !knownIds.has(team.id));

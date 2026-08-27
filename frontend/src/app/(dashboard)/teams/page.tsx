@@ -6,6 +6,7 @@ import { Team, User } from '@/lib/types';
 import { MANAGEMENT_ROLES } from '@/components/org/orgHierarchy';
 import { Users, Plus, ShieldCheck, UserCheck, Cpu, HardHat, Camera, Bot, Wrench, ShoppingBag } from 'lucide-react';
 import { UsersApi, directoryStatus } from '@/lib/usersApi';
+import { apiRequest } from '@/lib/api';
 
 const TEAM_ICONS: Record<string, React.ReactNode> = {
   SOFTWARE: <Cpu className="w-5 h-5 text-cyan-400" />,
@@ -20,12 +21,15 @@ export default function FunctionalTeamsPage() {
   const [users, setUsers] = useState<User[]>([]);
 
   useEffect(() => {
-    void UsersApi.list().then((result) => {
+    void (async () => {
+      const result = await UsersApi.list();
       const next = result.ok ? result.users : StorageService.getUsers();
       if (result.ok) StorageService.saveUsers(next);
       setUsers(next);
-    });
-    setTeams(StorageService.getTeams());
+      const teamsResult = await apiRequest<{ teams: Team[] }>('/api/teams');
+      setTeams(teamsResult.ok ? teamsResult.data.teams : StorageService.getTeams());
+      if (teamsResult.ok) StorageService.saveTeams(teamsResult.data.teams);
+    })();
   }, []);
 
   const functionalMembers = users.filter(
@@ -103,10 +107,13 @@ export default function FunctionalTeamsPage() {
               <div className="pt-3 border-t border-slate-800/80">
                 <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                   <span>Assigned Members</span>
-                  <span className="font-bold text-slate-200">{teamMembers.length} Engineers</span>
+                  <span className="font-bold text-slate-200">{teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').length} members</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {teamMembers.map(m => (
+                  {teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').length === 0 ? (
+                    <p className="text-[11px] text-slate-500">No team members yet. You can add them later.</p>
+                  ) : (
+                    teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').map(m => (
                     <span key={m.id} className={`text-[10px] px-2 py-0.5 rounded border ${
                       directoryStatus(m).pending
                         ? 'bg-amber-950 text-amber-300 border-amber-800/60'
@@ -114,7 +121,8 @@ export default function FunctionalTeamsPage() {
                     }`}>
                       {m.name}{directoryStatus(m).pending ? ' · Signup' : ''}
                     </span>
-                  ))}
+                    ))
+                  )}
                 </div>
               </div>
             </div>

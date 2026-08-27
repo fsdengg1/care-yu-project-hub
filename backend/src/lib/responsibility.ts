@@ -17,12 +17,12 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
 
 export const NOT_RESPONSIBLE_MESSAGE = 'You are not the current responsible person for this item.';
 
-const TERMINAL_LEAD_STATUSES = new Set(['ORDER_CONVERTED', 'WON', 'LOST', 'ON_HOLD', 'DRAFT']);
+const TERMINAL_LEAD_STATUSES = new Set(['ORDER_CONVERTED', 'WON', 'LOST', 'ON_HOLD', 'DRAFT', 'CANCELLED']);
 const PENDING_TASK_STATUSES = new Set(['TODO', 'IN_PROGRESS', 'BLOCKED']);
 
 const LEAD_STAGE_RESPONSIBLE_ROLE: Record<string, string> = {
-  SUBMITTED_TO_PM: 'PROJECT_MANAGER',
   UNDER_PM_REVIEW: 'PROJECT_MANAGER',
+  SUBMITTED_TO_PM: 'PROJECT_MANAGER',
   RESUBMITTED_TO_PM: 'PROJECT_MANAGER',
   ACCEPTED_FOR_FEASIBILITY: 'PROJECT_MANAGER',
   FEASIBILITY_IN_PROGRESS: 'TEAM_LEAD',
@@ -82,16 +82,18 @@ function designatedUserForRole(roleCode: string, lead?: Lead): User | undefined 
     if (isActiveUser(named)) return named;
   }
 
-  if ((roleCode === 'BUSINESS_HEAD' || roleCode === 'SALES' || roleCode === 'ENG_DIRECTOR') && lead?.created_by_id) {
-    const creator = store.findUserById(lead.created_by_id);
+  if (roleCode === 'BUSINESS_HEAD' || roleCode === 'SALES' || roleCode === 'ENG_DIRECTOR') {
+    const creator = lead?.created_by_id ? store.findUserById(lead.created_by_id) : undefined;
     if (isActiveUser(creator) && creator?.role_code === roleCode) return creator;
-    if (isActiveUser(creator) && lead.sales_owner_id) {
-      const owner = store.findUserById(lead.sales_owner_id);
-      if (isActiveUser(owner)) return owner;
-    }
+    const owner = lead?.sales_owner_id ? store.findUserById(lead.sales_owner_id) : undefined;
+    if (isActiveUser(owner) && owner?.role_code === roleCode) return owner;
   }
 
   return [...users].sort((a, b) => a.employee_id.localeCompare(b.employee_id))[0];
+}
+
+export function findBusinessHead(lead?: Lead): User | undefined {
+  return designatedUserForRole('BUSINESS_HEAD', lead);
 }
 
 export function workflowRoleForLead(lead: Lead): string | undefined {
@@ -134,6 +136,17 @@ export function resolveResponsibleUser(params: {
   }
 
   return undefined;
+}
+
+export function resolveProjectManagerForAssignment(lead?: Lead, actor?: User): User | undefined {
+  if (actor?.role_code === 'PROJECT_MANAGER' && actor.status === 'ACTIVE') {
+    return actor;
+  }
+  if (actor?.reporting_manager_id) {
+    const manager = store.findUserById(actor.reporting_manager_id);
+    if (isActiveUser(manager) && manager?.role_code === 'PROJECT_MANAGER') return manager;
+  }
+  return designatedUserForRole('PROJECT_MANAGER', lead);
 }
 
 export function findPm(lead?: Lead): User | undefined {
@@ -196,6 +209,8 @@ export function transferLeadResponsibility(
     responsible_user_id: newUser.id,
     responsible_user_name: newUser.name,
     responsible_role_code: newUser.role_code,
+    current_owner_id: newUser.id,
+    current_owner_name: newUser.name,
     assigned_by_id: assignedBy.id,
     assigned_by_name: assignedBy.name,
     assigned_at: now,

@@ -1,6 +1,6 @@
 'use client';
 
-import { User } from './types';
+import { User, Lead } from './types';
 
 export interface NavItem {
   name: string;
@@ -135,7 +135,18 @@ export function isCeoViewOnly(user: User | null | undefined): boolean {
 
 export function canCreateLead(user: User | null | undefined): boolean {
   if (!user) return false;
-  return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code);
+  if (isCeoViewOnly(user)) return false;
+  return [
+    'BUSINESS_HEAD',
+    'ENG_DIRECTOR',
+    'SALES',
+    'PROJECT_MANAGER',
+    'TEAM_LEAD',
+    'EMPLOYEE',
+    'PROJECT_ENGINEER',
+    'CTO',
+    'SYSTEM_ADMIN',
+  ].includes(user.role_code);
 }
 
 export function canAccessGanttPlanning(user: User | null | undefined): boolean {
@@ -200,6 +211,14 @@ export function canReviewDailyUpdates(user: User | null | undefined): boolean {
 export function canHandleCommercial(user: User | null | undefined): boolean {
   if (!user) return false;
   return ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canHandleLeadCommercial(user: User | null | undefined, lead: Lead | null | undefined): boolean {
+  if (!user || !lead) return false;
+  if (user.role_code === 'SYSTEM_ADMIN' || user.role_code === 'BUSINESS_HEAD') return true;
+  if (!['ENG_DIRECTOR', 'SALES'].includes(user.role_code)) return false;
+  if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
+  return user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director';
 }
 
 export function hasPermission(user: User, requiredPermission: string): boolean {

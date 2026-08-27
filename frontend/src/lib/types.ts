@@ -221,7 +221,8 @@ export type LeadStatus =
   | 'ORDER_CONVERTED'
   | 'WON'
   | 'LOST'
-  | 'ON_HOLD';
+  | 'ON_HOLD'
+  | 'CANCELLED';
 
 export type PipelineStage =
   | 'PROJECT_INPUT'
@@ -436,6 +437,12 @@ export interface Lead {
   responsible_user_id?: string;
   responsible_user_name?: string;
   responsible_role_code?: string;
+  current_owner_id?: string;
+  current_owner_name?: string;
+  cancelled_at?: string;
+  cancelled_by_id?: string;
+  cancelled_by_name?: string;
+  cancel_reason?: string;
   assigned_by_id?: string;
   assigned_by_name?: string;
   assigned_at?: string;
