@@ -15,15 +15,22 @@ function loadBackendEnv() {
     path.resolve(here, '../../../backend/.env'),
   ];
   const envPath = candidates.find((candidate) => fs.existsSync(candidate));
+  const assignIfUnset = (key: string, raw: string | undefined) => {
+    const value = stripEnvValue(raw);
+    if (!value) return;
+    // Platform env (Render, etc.) always wins over a committed/local .env file.
+    if (process.env[key] == null || process.env[key] === '') {
+      process.env[key] = value;
+    }
+  };
+
   if (!envPath) {
-    dotenv.config();
+    dotenv.config({ quiet: true, override: false });
     return;
   }
   const parsed = dotenv.parse(fs.readFileSync(envPath));
   for (const [key, raw] of Object.entries(parsed)) {
-    const value = stripEnvValue(raw);
-    if (!value) continue;
-    process.env[key] = value;
+    assignIfUnset(key, raw);
   }
 }
 
@@ -35,7 +42,9 @@ loadBackendEnv(); // load backend/.env once at process start
 function required(name: string, fallback?: string): string {
   const value = stripEnvValue(process.env[name]) || fallback;
   if (!value) {
-    throw new Error(`Missing required environment variable: ${name}`);
+    throw new Error(
+      `Missing required environment variable: ${name}. Set it in the Render Environment tab (or backend/.env locally).`
+    );
   }
   return value;
 }

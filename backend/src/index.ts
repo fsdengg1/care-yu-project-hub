@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env.js';
-import { initStore, shutdownStore } from './store/db.js';
+import { initStore, isStoreInitialized, shutdownStore } from './store/db.js';
 import authRouter from './routes/auth.js';
 import masterRouter from './routes/master.js';
 import dashboardRouter from './routes/dashboard.js';
@@ -84,6 +84,7 @@ app.get('/api/health', (_req, res) => {
     ok: true,
     service: 'careyu-backend',
     env: env.nodeEnv,
+    store: isStoreInitialized() ? 'ready' : 'starting',
   });
 });
 
@@ -106,16 +107,11 @@ app.use('/api', masterRouter);
 
 async function start() {
   console.log('Starting CareYu backend...');
-  const storeInfo = await initStore();
-  console.log(
-    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
-  );
+  console.log(`[boot] NODE_ENV=${env.nodeEnv} PORT=${env.port} databaseSsl=${env.databaseSsl}`);
 
   const server = app.listen(env.port, '0.0.0.0', () => {
-    console.log(`Careyu backend running on http://localhost:${env.port}`);
-    logEmailConfigOnStartup();
+    console.log(`Careyu backend listening on 0.0.0.0:${env.port}`);
   });
-  startNotificationScheduler();
 
   server.on('error', (error: NodeJS.ErrnoException) => {
     if (error.code === 'EADDRINUSE') {
@@ -126,6 +122,13 @@ async function start() {
     }
     throw error;
   });
+
+  const storeInfo = await initStore();
+  console.log(
+    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
+  );
+  logEmailConfigOnStartup();
+  startNotificationScheduler();
 
   const shutdown = async (signal: string) => {
     console.log(`${signal} received, shutting down...`);

@@ -85,9 +85,11 @@ interface DbShape {
 interface SystemMetaRecord {
   id: string;
   demoOperationalPurgedAt?: string;
+  usersLeadershipPrunedAt?: string;
 }
 
 const LIVE_META_ID = 'pms-live';
+const LEADERSHIP_PRUNE_META_ID = 'users-keep-leadership-v1';
 
 const OPERATIONAL_COLLECTION_KEYS = [
   'leads',
@@ -144,7 +146,10 @@ function withPurgedOperationalData(parsed: Partial<DbShape>): Partial<DbShape> {
   for (const key of OPERATIONAL_COLLECTION_KEYS) {
     next[key] = [];
   }
-  next.systemMeta = [{ id: LIVE_META_ID, demoOperationalPurgedAt: new Date().toISOString() }];
+  next.systemMeta = [
+    ...(parsed.systemMeta ?? []).filter((item) => item.id !== LIVE_META_ID),
+    { id: LIVE_META_ID, demoOperationalPurgedAt: new Date().toISOString() },
+  ];
   return next;
 }
 
@@ -228,8 +233,19 @@ function stripIncompleteSignupUsers(users: User[]): User[] {
 }
 
 function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
-  const namedRoster = new Set(['u-ceo', 'u-cto', 'u-bh', 'u-ed', 'u-pm', 'u-tl-sw', 'u-tl-vis', 'u-tl-rob']);
-  const merged = mergeById(stored, seed).map((user) => {
+  const current = stored ?? [];
+  const ids = new Set(current.map((user) => user.id));
+  const emails = new Set(current.map((user) => user.email.trim().toLowerCase()));
+  const roles = new Set(current.map((user) => user.role_code));
+  const extra = seed.filter((item) => {
+    if (ids.has(item.id) || emails.has(item.email.trim().toLowerCase())) return false;
+    if (['CEO', 'BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(item.role_code) && roles.has(item.role_code)) {
+      return false;
+    }
+    return true;
+  });
+  const namedRoster = new Set(['u-ceo', 'u-bh', 'u-ed']);
+  const merged = [...current, ...extra].map((user) => {
     const fromSeed = seed.find((item) => item.id === user.id);
     const withVerified: User = {
       ...user,
@@ -238,14 +254,10 @@ function mergeUsers(stored: User[] | undefined, seed: User[]): User[] {
     if (!fromSeed || !namedRoster.has(user.id)) return withVerified;
     return {
       ...withVerified,
-      name: fromSeed.name,
-      role_name: fromSeed.role_name,
-      role_code: fromSeed.role_code,
-      email: fromSeed.email || withVerified.email,
-      team_id: fromSeed.team_id,
-      team_name: fromSeed.team_name,
-      team_lead_id: fromSeed.team_lead_id,
-      team_lead_name: fromSeed.team_lead_name,
+      name: user.name || fromSeed.name,
+      role_name: user.role_name || fromSeed.role_name,
+      role_code: user.role_code || fromSeed.role_code,
+      email: user.email || fromSeed.email,
     };
   });
   const withoutDemo = stripIncompleteSignupUsers(merged)
@@ -274,71 +286,7 @@ type CanonicalPerson = {
   clearTeamId?: boolean;
 };
 
-const CANONICAL_PEOPLE: CanonicalPerson[] = [
-  {
-    id: 'u-tl-rob',
-    name: 'Aakash',
-    email: 'robottech@careyu.ai',
-    aliases: [],
-    role_id: 'r-tl',
-    role_code: 'TEAM_LEAD',
-    role_name: 'Team Lead',
-    team_id: 't-robotics',
-    team_name: 'Robotics & Automation Solution Team',
-    reporting_manager_id: 'u-pm',
-  },
-  {
-    id: 'u-tl-sw',
-    name: 'Arun Kumar',
-    email: 'fsdlead1@careyu.ai',
-    aliases: ['arun@careyu.com'],
-    role_id: 'r-tl',
-    role_code: 'TEAM_LEAD',
-    role_name: 'Team Lead',
-    team_id: 't-sw',
-    team_name: 'Software Team',
-    reporting_manager_id: 'u-pm',
-  },
-  {
-    id: 'u-tl-vis',
-    name: 'Vanippriya',
-    email: 'projects@careyu.ai',
-    aliases: ['vani@careyu.com'],
-    role_id: 'r-tl',
-    role_code: 'TEAM_LEAD',
-    role_name: 'Team Lead',
-    team_id: 't-vision',
-    team_name: 'Vision Team',
-    reporting_manager_id: 'u-pm',
-  },
-  {
-    id: 'u-emp-kabitha',
-    name: 'Kabitha',
-    email: 'fsdengg1@careyu.ai',
-    aliases: ['kabitha@careyu.ai'],
-    role_id: 'r-emp',
-    role_code: 'EMPLOYEE',
-    role_name: 'Team Member',
-    team_id: 't-sw',
-    team_name: 'Software Team',
-    team_lead_id: 'u-tl-sw',
-    team_lead_name: 'Arun Kumar',
-    reporting_manager_id: 'u-tl-sw',
-    preferLiveEmail: true,
-  },
-  {
-    id: 'u-pm',
-    name: 'Arivan',
-    email: 'robotlead1@careyu.ai',
-    aliases: ['arivan@careyu.com'],
-    role_id: 'r-pm',
-    role_code: 'PROJECT_MANAGER',
-    role_name: 'Project Manager',
-    team_name: 'Projects Team',
-    reporting_manager_id: 'u-ceo',
-    clearTeamId: true,
-  },
-];
+const CANONICAL_PEOPLE: CanonicalPerson[] = [];
 
 function applyCanonicalPeople(users: User[]): User[] {
   const remove = new Set<string>();
@@ -443,8 +391,8 @@ function mergeTeams(stored: Team[] | undefined, seed: Team[]): Team[] {
       name: fromSeed.name,
       code: fromSeed.code,
       description: fromSeed.description,
-      team_lead_id: fromSeed.team_lead_id,
-      team_lead_name: fromSeed.team_lead_name || 'Not Assigned',
+      team_lead_id: team.team_lead_id,
+      team_lead_name: team.team_lead_name || 'Not Assigned',
     };
   });
 }
@@ -455,6 +403,48 @@ function refreshTeamCounts(db: DbShape): DbShape {
     member_count: db.users.filter((user) => user.team_id === team.id && user.status === 'ACTIVE').length,
   }));
   return db;
+}
+
+export function isLeadershipKeepUser(user: User): boolean {
+  const email = user.email.trim().toLowerCase();
+  const name = user.name.trim().toLowerCase();
+  if (user.role_code === 'CEO' || user.id === 'u-ceo') return true;
+  if (user.id === 'u-bh' || email.includes('shradha') || name.includes('shradha') || name.includes('sharadha')) return true;
+  if (
+    user.role_code === 'ENG_DIRECTOR' ||
+    user.id === 'u-ed' ||
+    email.startsWith('engg.director@') ||
+    name.includes('sabagiri') ||
+    name.includes('sabarigiri')
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isLeadershipPruned(parsed: Partial<DbShape>): boolean {
+  return (parsed.systemMeta ?? []).some(
+    (item) => item.id === LEADERSHIP_PRUNE_META_ID && Boolean(item.usersLeadershipPrunedAt)
+  );
+}
+
+export function pruneUsersToLeadership(db: DbShape): { db: DbShape; removed: User[] } {
+  const removed = db.users.filter((user) => !isLeadershipKeepUser(user));
+  const kept = db.users.filter(isLeadershipKeepUser);
+  const keepIds = new Set(kept.map((user) => user.id));
+  db.users = kept;
+  db.pendingSignups = [];
+  db.teams = db.teams.map((team) =>
+    team.team_lead_id && !keepIds.has(team.team_lead_id)
+      ? { ...team, team_lead_id: undefined, team_lead_name: 'Not Assigned' }
+      : team
+  );
+  const withoutFlag = (db.systemMeta ?? []).filter((item) => item.id !== LEADERSHIP_PRUNE_META_ID);
+  db.systemMeta = [
+    ...withoutFlag,
+    { id: LEADERSHIP_PRUNE_META_ID, usersLeadershipPrunedAt: new Date().toISOString() },
+  ];
+  return { db: refreshTeamCounts(db), removed };
 }
 
 function emptyDb(): DbShape {
@@ -657,14 +647,20 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
   if (removedIncomplete) {
     console.info('[store] Removed incomplete signup accounts from users', { removed: removedIncomplete });
   }
+
+  if (!isLeadershipPruned(merged)) {
+    const before = merged.users.length;
+    const { removed } = pruneUsersToLeadership(merged);
+    console.info('[store] Kept CEO, Shradha, and Engineering Director only', {
+      before,
+      kept: merged.users.length,
+      removed: removed.map((user) => user.email),
+    });
+  }
+
   cache = merged;
   await persistDb(merged);
   initialized = true;
-
-  const { ensureRobotLeadAccount } = await import('../lib/robotLead.js');
-  await ensureRobotLeadAccount();
-  const { ensureProjectManagerAccount } = await import('../lib/projectManagerAccount.js');
-  await ensureProjectManagerAccount();
 
   return { source, counts: countRecords(loadDb()) };
 }

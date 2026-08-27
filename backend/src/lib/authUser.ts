@@ -100,23 +100,23 @@ export function signupReportingManagerEmail() {
 }
 
 export function resolveSignupReportingManager(): { ok: true; manager: User } | { ok: false; message: string } {
+  const users = store.getUsers().filter((user) => user.status === 'ACTIVE' && effectiveAccountStatus(user) === 'ACTIVE');
   const configuredEmail = signupReportingManagerEmail();
-  const configured = store
-    .getUsers()
-    .find(
-      (user) =>
-        user.email.toLowerCase() === configuredEmail &&
-        user.status === 'ACTIVE' &&
-        effectiveAccountStatus(user) === 'ACTIVE'
-    );
+  const configured = users.find((user) => user.email.toLowerCase() === configuredEmail);
+  const fallback =
+    configured ||
+    users.find((user) => user.role_code === 'CEO') ||
+    users.find((user) => user.role_code === 'ENG_DIRECTOR') ||
+    users.find((user) => user.role_code === 'BUSINESS_HEAD') ||
+    users[0];
 
-  if (!configured) {
+  if (!fallback) {
     return {
       ok: false,
       message: 'Your account request was created, but no Reporting Manager is configured. Please contact Admin.',
     };
   }
-  return { ok: true, manager: configured };
+  return { ok: true, manager: fallback };
 }
 
 export function publicUser(user: User): User {

@@ -130,11 +130,6 @@ export default function UserManagementPage() {
     setDeleting(null);
   };
 
-  const managerName = (user: User) => {
-    const manager = users.find((item) => item.id === user.reporting_manager_id);
-    return user.reporting_manager_name || user.team_lead_name || manager?.name || '—';
-  };
-
   const pendingSignupCount = users.filter((user) => directoryStatus(user).pending).length;
 
   const filteredUsers = users
@@ -226,24 +221,25 @@ export default function UserManagementPage() {
           <table className="w-full text-left text-xs">
             <thead className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase tracking-wider text-slate-400">
               <tr>
-                <th className="p-3">Emp ID</th>
-                <th className="p-3">Employee Name</th>
+                <th className="p-3">ID</th>
+                <th className="p-3">Name</th>
+                <th className="p-3">Email</th>
+                <th className="p-3">Phone</th>
                 <th className="p-3">Role</th>
-                <th className="p-3">Functional Team</th>
-                <th className="p-3">Team Lead / Manager</th>
                 <th className="p-3">Status</th>
+                <th className="p-3">Created at</th>
                 <th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60 text-slate-300">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-xs text-slate-500">No matching users found in directory.</td>
+                  <td colSpan={8} className="p-8 text-center text-xs text-slate-500">No matching users found in directory.</td>
                 </tr>
               ) : (
-                filteredUsers.map((user) => (
+                filteredUsers.map((user, index) => (
                   <tr key={user.id} className="transition-colors hover:bg-slate-800/40">
-                    <td className="p-3 font-mono text-[11px] font-semibold text-cyan-400">{user.employee_id}</td>
+                    <td className="p-3 font-mono text-[11px] font-semibold text-cyan-400">{index + 1}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <div className="font-semibold text-slate-100">{user.name}</div>
@@ -253,17 +249,14 @@ export default function UserManagementPage() {
                           </span>
                         )}
                       </div>
-                      <div className="text-[11px] text-slate-400">{user.email}</div>
                     </td>
+                    <td className="p-3 text-[11px] text-slate-400">{user.email}</td>
+                    <td className="p-3 text-slate-400">{user.phone?.trim() || '—'}</td>
                     <td className="p-3">
                       <span className="rounded border border-cyan-800/60 bg-cyan-950 px-2 py-0.5 text-[10px] font-semibold text-cyan-300">
                         {user.role_name}
                       </span>
                     </td>
-                    <td className="p-3 text-slate-300">
-                      {user.team_name ? user.team_name : <span className="italic text-slate-500">Unassigned</span>}
-                    </td>
-                    <td className="p-3 text-slate-400">{managerName(user)}</td>
                     <td className="p-3">
                       {(() => {
                         const status = directoryStatus(user);
@@ -288,6 +281,7 @@ export default function UserManagementPage() {
                         );
                       })()}
                     </td>
+                    <td className="p-3 text-slate-400">{(user.created_at || '').slice(0, 10) || '—'}</td>
                     <td className="p-3">
                       <div className="flex justify-end gap-1.5">
                         <button

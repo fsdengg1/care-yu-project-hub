@@ -14,8 +14,7 @@ import { sendInvitationToManager, sendPasswordChangedEmail, sendPasswordResetEma
 import { maskEmail } from './emailDiagnostics.js';
 import { newId } from './leadWorkflow.js';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password.js';
-import { ensureRobotLeadAccount, isRobotLeadEmail } from './robotLead.js';
-import { ensureProjectManagerAccount, isProjectManagerEmail } from './projectManagerAccount.js';
+import { isRobotLeadEmail } from './robotLead.js';
 import {
   generateInvitationCode,
   generateSecureToken,
@@ -196,7 +195,7 @@ export async function signupUser(input: {
     };
   }
 
-  if (isRobotLeadEmail(email)) {
+  if (isRobotLeadEmail(email) && store.findUserByEmail(email)) {
     return {
       ok: false,
       status: 409,
@@ -280,8 +279,6 @@ export function lookupLoginMode(emailRaw: string): { loginMode: 'password' | 'in
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { loginMode: 'password' };
   }
-  if (isRobotLeadEmail(email)) return { loginMode: 'password' };
-  if (isProjectManagerEmail(email)) return { loginMode: 'password' };
   if (store.findPendingSignupByEmail(email)) return { loginMode: 'invitation' };
   const user = store.findUserByEmail(email);
   if (!user) return { loginMode: 'password' };
@@ -587,12 +584,6 @@ export async function authenticateLogin(input: {
   | { ok: false; status: number; message: string; code?: string }
 > {
   const email = input.email.trim().toLowerCase();
-  if (isRobotLeadEmail(email)) {
-    await ensureRobotLeadAccount();
-  }
-  if (isProjectManagerEmail(email)) {
-    await ensureProjectManagerAccount();
-  }
   const user = store.findUserByEmail(email);
 
   if (!user) {
@@ -616,7 +607,7 @@ export async function authenticateLogin(input: {
     };
   }
 
-  if (!isRobotLeadEmail(email) && !isProjectManagerEmail(email) && needsInvitationLogin(user)) {
+  if (needsInvitationLogin(user)) {
     if (effectiveAccountStatus(user) === 'INVITATION_EXPIRED') {
       return {
         ok: false,
@@ -634,43 +625,7 @@ export async function authenticateLogin(input: {
   }
 
   let passwordOk = false;
-  if (isRobotLeadEmail(email) && input.password === env.robotLeadPassword) {
-    passwordOk = true;
-    if (!user.password_hash || !(await verifyPassword(input.password, user.password_hash))) {
-      const migrated: User = {
-        ...user,
-        password_hash: await hashPassword(input.password),
-        email_verified: true,
-        account_status: 'ACTIVE',
-        invitation_code_hash: undefined,
-        password_created_at: user.password_created_at || new Date().toISOString(),
-        password_changed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      saveUser(migrated);
-      return { ok: true, user: publicUser(migrated) as User };
-    }
-  } else if (isProjectManagerEmail(email) && input.password === env.demoPassword) {
-    passwordOk = true;
-    if (!user.password_hash || !(await verifyPassword(input.password, user.password_hash))) {
-      const migrated: User = {
-        ...user,
-        name: 'Arivan',
-        role_id: 'r-pm',
-        role_code: 'PROJECT_MANAGER',
-        role_name: 'Project Manager',
-        password_hash: await hashPassword(input.password),
-        email_verified: true,
-        account_status: 'ACTIVE',
-        invitation_code_hash: undefined,
-        password_created_at: user.password_created_at || new Date().toISOString(),
-        password_changed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      saveUser(migrated);
-      return { ok: true, user: publicUser(migrated) as User };
-    }
-  } else if (user.password_hash) {
+  if (user.password_hash) {
     passwordOk = await verifyPassword(input.password, user.password_hash);
   } else if (input.password === env.demoPassword) {
     // Legacy seeded / admin-provisioned accounts until they set a personal password.
@@ -692,7 +647,7 @@ export async function authenticateLogin(input: {
     return { ok: false, status: 401, message: 'Invalid email or password. Please try again.' };
   }
 
-  if (!isRobotLeadEmail(email) && !isProjectManagerEmail(email) && user.email_verified === false) {
+  if (user.email_verified === false) {
     return {
       ok: false,
       status: 403,
