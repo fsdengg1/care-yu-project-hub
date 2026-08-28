@@ -132,8 +132,8 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify({ study, submit, start }),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message || (submit ? 'Unable to submit feasibility.' : 'Unable to save feasibility.') };
   },
 
   async reviewFeasibility(id: string, action: 'approve' | 'return' | 'reject', reason?: string) {

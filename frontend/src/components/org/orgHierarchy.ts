@@ -197,17 +197,36 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
     return rank !== 0 ? rank : a.name.localeCompare(b.name);
   };
 
-  const roots = chartPeople
-    .filter((user) => !user.reporting_manager_id || !directoryIds.has(user.reporting_manager_id))
-    .filter((user) => MANAGEMENT_ROLES.has(user.role_code))
+  function canonicalManagerId(user: User): string | undefined {
+    if (user.role_code === 'CEO') return undefined;
+    if (user.role_code === 'PROJECT_MANAGER') {
+      return directory.find((item) => item.role_code === 'ENG_DIRECTOR')?.id
+        || directory.find((item) => item.role_code === 'CEO')?.id;
+    }
+    if (MANAGEMENT_ROLES.has(user.role_code)) {
+      return directory.find((item) => item.role_code === 'CEO')?.id;
+    }
+    const managerId = user.reporting_manager_id;
+    if (managerId && directoryIds.has(managerId)) return managerId;
+    return managerId;
+  }
+
+  let roots = chartPeople
+    .filter((user) => MANAGEMENT_ROLES.has(user.role_code) && !canonicalManagerId(user))
     .sort(comparePeople);
+  if (roots.length === 0) {
+    roots = chartPeople.filter((user) => user.role_code === 'CEO').sort(comparePeople);
+  }
+  if (roots.length === 0) {
+    roots = chartPeople.filter((user) => MANAGEMENT_ROLES.has(user.role_code)).slice(0, 1);
+  }
 
   function teamsReportingTo(managerId: string): Team[] {
     return activeTeams.filter((team) => !attachedTeams.has(team.id) && managerIdForTeam(team, directory) === managerId);
   }
 
   function peopleReportingTo(managerId: string): User[] {
-    return chartPeople.filter((user) => user.reporting_manager_id === managerId && user.id !== managerId).sort(comparePeople);
+    return chartPeople.filter((user) => canonicalManagerId(user) === managerId && user.id !== managerId).sort(comparePeople);
   }
 
   function makePersonLeaf(user: User): OrgNode {

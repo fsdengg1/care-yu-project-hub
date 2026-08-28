@@ -52,10 +52,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const isOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
     || currentUser.role_code === 'BUSINESS_HEAD'
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
-  const isAssignedTL = currentUser.role_code === 'TEAM_LEAD' && (lead.assigned_team_lead_id === currentUser.id || currentUser.team_id === lead.assigned_team_id);
+  const isAssignedWorker =
+    lead.assigned_team_lead_id === currentUser.id ||
+    lead.assigned_member_id === currentUser.id ||
+    Boolean(currentUser.team_id && currentUser.team_id === lead.assigned_team_id);
+  const isAssignedTL = isAssignedWorker && (currentUser.role_code === 'TEAM_LEAD' || lead.assigned_team_lead_id === currentUser.id);
   const canFeasibility = canPrepareFeasibility(currentUser) && (
+    isAssignedWorker ||
     isAssignedTL ||
-    currentUser.team_id === lead.assigned_team_id ||
     lead.assigned_team_lead_id === currentUser.id ||
     lead.assigned_member_id === currentUser.id
   );
@@ -221,7 +225,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
                 className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
               >
                 <option value="">Use team default — {selectedTeam?.team_lead_name || 'Not assigned'}</option>
-                {users.filter((member) => member.team_id === assignTeamId && ['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER'].includes(member.role_code)).map((member) => (
+                {users.filter((member) => member.team_id === assignTeamId && !['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(member.role_code)).map((member) => (
                   <option key={member.id} value={member.id}>{member.name} — {member.role_name}</option>
                 ))}
               </select>
@@ -303,7 +307,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               </button>
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, true))}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, true), 'Unable to submit feasibility.')}
                 className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
                 <Send className="h-4 w-4" /> Submit Feasibility

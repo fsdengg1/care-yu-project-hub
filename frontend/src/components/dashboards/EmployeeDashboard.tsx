@@ -8,6 +8,7 @@ import { formatLongDate, WORK_STATUS_LABELS } from '@/lib/format';
 import { CheckSquare, Inbox, Plus } from 'lucide-react';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
+import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 
 export default function EmployeeDashboard({ user }: { user: User }) {
   const [assignments, setAssignments] = useState<WorkAssignment[]>([]);
@@ -64,6 +65,7 @@ export default function EmployeeDashboard({ user }: { user: User }) {
 
       <PendingActionsCard />
       <LeadPipelinePanel />
+      <LeadWorkflowTimeline />
 
       <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <div className="mb-3 flex items-center justify-between border-b border-slate-800 pb-2">

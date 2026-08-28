@@ -76,8 +76,10 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   }
   if (
     email === ENGINEERING_DIRECTOR_EMAIL ||
+    email === 'engg.director@careyu.ai' ||
     email.startsWith('sabarigiri@') ||
     email.startsWith('sabirigiri@') ||
+    email.startsWith('engg.director@') ||
     name.includes('sabarigiri') ||
     name.includes('sabirigiri') ||
     name.includes('sabagiri')
@@ -90,7 +92,7 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (email === robotEmail || name === 'aakash' || local === 'aakash') {
     return role('TEAM_LEAD', ROBOTICS_TEAM);
   }
-  if ((name.startsWith('arun') && !name.includes('arivan')) || (local.startsWith('arun') && !local.startsWith('arivan'))) {
+  if ((name.startsWith('arun') && !name.includes('arivan') && !name.includes('aravind')) || (local.startsWith('arun') && !local.startsWith('arivan') && !local.startsWith('aravind'))) {
     return role('TEAM_LEAD', SOFTWARE_TEAM);
   }
   if (name.includes('kabitha') || local.includes('kabitha')) {
@@ -98,6 +100,12 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   }
   if (name.includes('vani') || local.includes('vani')) {
     return role('TEAM_LEAD', VISION_TEAM);
+  }
+  if (name.includes('sanjay') || local.includes('sanjay') || email === SANJAY_EMAIL) {
+    return role('PROCUREMENT', PROCUREMENT_TEAM);
+  }
+  if (name.includes('aravind') || local.includes('aravind') || email === ARAVIND_EMAIL) {
+    return role('EXECUTION', EXECUTION_TEAM);
   }
   return null;
 }
@@ -136,18 +144,38 @@ export function applyDirectoryPlacement(user: User): User {
   return next;
 }
 
-function attachTeamLeadFields(users: User[]): User[] {
-  const leadsByTeam = new Map<string, User>();
-  for (const user of users) {
-    if (user.role_code === 'TEAM_LEAD' && user.team_id) {
-      leadsByTeam.set(user.team_id, user);
+function leadForTeam(teamId: string, users: User[]): User | undefined {
+  const members = users.filter((user) => user.team_id === teamId && user.status === 'ACTIVE');
+  return members.find((user) => user.role_code === 'TEAM_LEAD') || members[0];
+}
+
+function attachLeadershipReporting(users: User[]): User[] {
+  const ceo = users.find((user) => user.role_code === 'CEO');
+  const engineeringDirector = users.find((user) => user.role_code === 'ENG_DIRECTOR');
+  return users.map((user) => {
+    if (user.role_code === 'CEO') {
+      const next = { ...user };
+      delete next.reporting_manager_id;
+      delete next.reporting_manager_name;
+      return next;
     }
-  }
+    if (user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR' || user.role_code === 'CTO') {
+      return { ...user, reporting_manager_id: ceo?.id, reporting_manager_name: ceo?.name };
+    }
+    if (user.role_code === 'PROJECT_MANAGER') {
+      const boss = engineeringDirector || ceo;
+      return { ...user, reporting_manager_id: boss?.id, reporting_manager_name: boss?.name };
+    }
+    return user;
+  });
+}
+
+function attachTeamLeadFields(users: User[]): User[] {
   const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER');
 
   return users.map((user) => {
     if (!user.team_id) return user;
-    const lead = leadsByTeam.get(user.team_id);
+    const lead = leadForTeam(user.team_id, users);
     if (lead && user.id !== lead.id) {
       return {
         ...user,
@@ -157,7 +185,7 @@ function attachTeamLeadFields(users: User[]): User[] {
         reporting_manager_name: lead.name,
       };
     }
-    if (user.role_code === 'TEAM_LEAD' && pm) {
+    if (lead && user.id === lead.id && pm) {
       const next = {
         ...user,
         reporting_manager_id: pm.id,
@@ -173,7 +201,7 @@ function attachTeamLeadFields(users: User[]): User[] {
 
 function syncTeamRecords(users: User[]) {
   const teams = store.getTeams().map((team) => {
-    const lead = users.find((user) => user.team_id === team.id && user.role_code === 'TEAM_LEAD' && user.status === 'ACTIVE');
+    const lead = leadForTeam(team.id, users);
     return {
       ...team,
       team_lead_id: lead?.id,
@@ -215,7 +243,12 @@ function passwordForEmail(email: string): string {
 }
 
 async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
-  const existing = users.find((user) => user.role_code === 'ENG_DIRECTOR' || normalize(user.email) === ENGINEERING_DIRECTOR_EMAIL);
+  const existing = users.find(
+    (user) =>
+      user.role_code === 'ENG_DIRECTOR' ||
+      normalize(user.email) === ENGINEERING_DIRECTOR_EMAIL ||
+      normalize(user.email) === 'engg.director@careyu.ai'
+  );
   if (existing) {
     return users.map((user) =>
       user.id === existing.id ? withRole(user, role('ENG_DIRECTOR', { clearTeam: true })) : user
@@ -251,11 +284,50 @@ async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
   return [...users, created];
 }
 
+async function ensureTeamPerson(
+  users: User[],
+  spec: { name: string; email: string; matchName: string }
+): Promise<User[]> {
+  const existing = users.find((user) => {
+    const name = nameHaystack(user.name);
+    const email = normalize(user.email);
+    return name.includes(spec.matchName) || email === spec.email || emailLocal(email).includes(spec.matchName);
+  });
+  if (existing) {
+    return users.map((user) => (user.id === existing.id ? applyDirectoryPlacement({ ...user, name: existing.name }) : user));
+  }
+
+  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER');
+  const now = new Date().toISOString();
+  const created = applyDirectoryPlacement({
+    id: newId('u'),
+    employee_id: `CYA-${String(users.length + 101).padStart(3, '0')}`,
+    name: spec.name,
+    email: spec.email,
+    phone: '',
+    role_id: 'r-emp',
+    role_code: 'EMPLOYEE',
+    role_name: 'Team Member',
+    reporting_manager_id: pm?.id,
+    reporting_manager_name: pm?.name,
+    status: 'ACTIVE',
+    account_status: 'ACTIVE',
+    email_verified: true,
+    created_at: now,
+    updated_at: now,
+  });
+  const ready = await withWorkingPassword(created, env.demoPassword);
+  console.info('[auth] Functional team account ready', { name: ready.name, role: ready.role_code, team: ready.team_name });
+  return [...users, ready];
+}
+
 export async function ensureLiveDirectory() {
   const original = store.getUsers();
   let users = original.map((user) => applyDirectoryPlacement(user));
 
   users = await ensureEngineeringDirector(users);
+  users = await ensureTeamPerson(users, { name: 'Sanjay', email: SANJAY_EMAIL, matchName: 'sanjay' });
+  users = await ensureTeamPerson(users, { name: 'Aravind', email: ARAVIND_EMAIL, matchName: 'aravind' });
 
   const repaired: User[] = [];
   for (const user of users) {
@@ -264,11 +336,12 @@ export async function ensureLiveDirectory() {
       email === 'businesshead@careyu.ai' ||
       email === 'fsdengg1@careyu.ai' ||
       email === ENGINEERING_DIRECTOR_EMAIL ||
+      email === 'engg.director@careyu.ai' ||
       user.role_code === 'ENG_DIRECTOR';
     repaired.push(needsLoginRepair ? await withWorkingPassword(user, passwordForEmail(email)) : user);
   }
 
-  users = attachTeamLeadFields(repaired);
+  users = attachTeamLeadFields(attachLeadershipReporting(repaired));
 
   const changed =
     users.length !== original.length ||

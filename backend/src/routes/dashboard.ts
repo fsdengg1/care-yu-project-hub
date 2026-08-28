@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth, AuthedRequest } from '../middleware/auth.js';
 import { requirePermission } from '../lib/rbac.js';
 import { buildCeoDashboard, summarizeProjects } from '../lib/ceoDashboard.js';
-import { buildBusinessHeadDashboard, buildPmDashboard } from '../lib/leadWorkflow.js';
+import { buildBusinessHeadDashboard, buildLeadActivityFeed, buildPmDashboard } from '../lib/leadWorkflow.js';
 import { store } from '../store/db.js';
 
 const router = Router();
@@ -76,6 +76,15 @@ router.get(
   requirePermission('view:leads', 'create:lead'),
   (req: AuthedRequest, res) => {
     res.json(buildBusinessHeadDashboard(req.user!));
+  }
+);
+
+router.get(
+  '/activity',
+  requireAuth,
+  requirePermission('view:leads', 'view:dashboard:ceo', 'create:lead'),
+  (req: AuthedRequest, res) => {
+    res.json({ events: buildLeadActivityFeed(req.user!) });
   }
 );
 

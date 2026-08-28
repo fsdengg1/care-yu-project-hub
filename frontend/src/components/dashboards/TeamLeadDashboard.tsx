@@ -10,6 +10,7 @@ import { Users, ArrowRight, Clock } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
+import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 
 export default function TeamLeadDashboard({ user }: { user: User }) {
   const [assignments, setAssignments] = useState<FeasibilityTeamAssignment[]>([]);
@@ -45,6 +46,7 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
 
       <PendingActionsCard />
       <LeadPipelinePanel />
+      <LeadWorkflowTimeline />
 
       {pendingProjects.length > 0 && (
         <div className="bg-cyan-950/20 p-4 rounded-xl border border-cyan-800/60 space-y-3">

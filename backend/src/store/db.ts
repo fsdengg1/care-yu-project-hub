@@ -198,7 +198,6 @@ const RETIRED_DEMO_EMAILS = new Set([
   'bernard.hamilton@careyu.com',
   'shradha.patil@careyu.com',
   'sabarigiri.t@careyu.com',
-  'engg.director@careyu.ai',
   'karthik@careyu.com',
   'deepak@careyu.com',
   'meena@careyu.com',

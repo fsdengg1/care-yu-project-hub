@@ -7,6 +7,7 @@ import { User } from '@/lib/types';
 import { LeadApi } from '@/lib/leadApi';
 import { canCreateLead } from '@/lib/rbac';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
+import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 
 export default function EngineeringDashboard({ user }: { user: User }) {
   const [feasibilityCount, setFeasibilityCount] = useState(0);
@@ -91,6 +92,7 @@ export default function EngineeringDashboard({ user }: { user: User }) {
       </div>
 
       <LeadPipelinePanel title="Lead pipeline" />
+      <LeadWorkflowTimeline />
     </div>
   );
 }

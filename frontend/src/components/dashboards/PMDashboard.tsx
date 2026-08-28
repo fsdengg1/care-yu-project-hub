@@ -10,6 +10,7 @@ import { GanttChartSquare, Scan, ShieldAlert, MessageSquare, Inbox, ArrowRight, 
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
+import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 
 function statusClass(status: string) {
   if (status === 'BLOCKED') return 'border-rose-800 bg-rose-950 text-rose-300';
@@ -105,6 +106,7 @@ export default function PMDashboard({ user }: { user: User }) {
 
       <PendingActionsCard />
       <LeadPipelinePanel />
+      <LeadWorkflowTimeline />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[

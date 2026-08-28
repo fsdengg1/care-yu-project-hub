@@ -184,7 +184,7 @@ export function canPerformPmOperations(user: User | null | undefined): boolean {
 
 export function canPrepareFeasibility(user: User | null | undefined): boolean {
   if (!user) return false;
-  return ['TEAM_LEAD', 'EMPLOYEE', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return ['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function canPrepareCosting(user: User | null | undefined): boolean {

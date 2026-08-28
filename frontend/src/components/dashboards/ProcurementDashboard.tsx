@@ -6,6 +6,7 @@ import { ShoppingCart, Inbox } from 'lucide-react';
 import { apiRequest } from '@/lib/api';
 import { ProcurementRequest } from '@/lib/types';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
+import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 
 export default function ProcurementDashboard({ user }: { user: User }) {
   const [requests, setRequests] = useState<ProcurementRequest[]>([]);
@@ -56,6 +57,7 @@ export default function ProcurementDashboard({ user }: { user: User }) {
       </div>
 
       <LeadPipelinePanel />
+      <LeadWorkflowTimeline />
       <div className="bg-slate-900/90 p-8 rounded-xl border border-slate-800 text-center space-y-2">
         <Inbox className="w-6 h-6 text-slate-600 mx-auto" />
         <p className="text-xs text-slate-300 font-medium">

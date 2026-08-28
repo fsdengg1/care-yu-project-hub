@@ -245,6 +245,7 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   if (user.role_code === 'PROJECT_MANAGER' && lead.pm_id === user.id) return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
   if (lead.assigned_team_lead_id === user.id) return true;
+  if (lead.assigned_member_id === user.id) return true;
   if (lead.assigned_team_id && user.team_id === lead.assigned_team_id) return true;
   if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'COSTING_REJECTED'].includes(lead.status)) {
     return true;
@@ -273,11 +274,9 @@ export function canEditProjectInput(user: User, lead: Lead): boolean {
 export function canPrepareFeasibility(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (!['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status)) return false;
+  if (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id) return true;
   if (pendingTeamAssignment(lead.id)) return false;
-  if (user.role_code === 'TEAM_LEAD' && (lead.assigned_team_lead_id === user.id || user.team_id === lead.assigned_team_id)) {
-    return true;
-  }
-  if (lead.assigned_member_id === user.id) return true;
+  if (user.role_code === 'TEAM_LEAD' && user.team_id === lead.assigned_team_id) return true;
   if (user.team_id && user.team_id === lead.assigned_team_id) return true;
   return false;
 }
@@ -463,9 +462,12 @@ export function reviewLeadTeamIntake(
   comments?: string
 ): Lead {
   const isAdmin = user.role_code === 'SYSTEM_ADMIN';
-  const isAssignedLead = user.role_code === 'TEAM_LEAD' && lead.assigned_team_lead_id === user.id;
+  const isAssignedLead =
+    lead.assigned_team_lead_id === user.id ||
+    lead.assigned_member_id === user.id ||
+    (user.role_code === 'TEAM_LEAD' && Boolean(user.team_id) && user.team_id === lead.assigned_team_id);
   if (!isAdmin && !isAssignedLead) {
-    throw new LeadWorkflowError('Only the assigned Team Lead can accept or return this project.', 403);
+    throw new LeadWorkflowError('Only the assigned Team Lead or Team Member can accept or return this project.', 403);
   }
   if (lead.status !== 'ACCEPTED_FOR_FEASIBILITY' || !lead.assigned_team_id) {
     throw new LeadWorkflowError('This project is not awaiting Team Lead review.', 400);
@@ -1107,4 +1109,91 @@ export function emptyQuotation(partial: Partial<QuotationRecord> = {}): Quotatio
     delivery_terms: '',
     ...partial,
   };
+}
+
+const ACTIVITY_CAPTIONS: Record<string, string> = {
+  DRAFT: 'Lead created',
+  SUBMITTED_TO_PM: 'Forwarded to Project Manager',
+  UNDER_PM_REVIEW: 'PM started review',
+  RETURNED_TO_SALES: 'Returned to sales',
+  ADDITIONAL_INFORMATION_REQUIRED: 'PM requested more information',
+  RESUBMITTED_TO_PM: 'Resubmitted to Project Manager',
+  ACCEPTED_FOR_FEASIBILITY: 'PM accepted for feasibility',
+  FEASIBILITY_IN_PROGRESS: 'Team accepted — feasibility in progress',
+  FEASIBILITY_SUBMITTED: 'Feasibility submitted to PM',
+  FEASIBILITY_RETURNED: 'Feasibility returned to the team',
+  FEASIBILITY_REJECTED: 'Feasibility rejected',
+  COSTING_IN_PROGRESS: 'Sent to procurement / costing',
+  COSTING_SUBMITTED: 'Costing submitted to PM',
+  COSTING_RETURNED: 'Costing returned for revision',
+  COSTING_REJECTED: 'Costing rejected',
+  QUOTATION: 'Quotation prepared',
+  NEGOTIATION: 'Moved to negotiation',
+  ORDER_CONVERTED: 'Order converted',
+  LOST: 'Lead lost',
+  CANCELLED: 'Lead cancelled',
+};
+
+export type LeadWorkflowEvent = {
+  id: string;
+  at: string;
+  lead_id: string;
+  lead_number: string;
+  customer_name: string;
+  title: string;
+  actor: string;
+  status: string;
+  href: string;
+};
+
+export function buildLeadActivityFeed(user: User, limit = 40): LeadWorkflowEvent[] {
+  const leads = store.getLeads().map(hydrateLead).filter((lead) => {
+    if (['CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+    return canOwnLead(user, lead);
+  });
+  const leadMap = new Map(leads.map((lead) => [lead.id, lead]));
+  const events: LeadWorkflowEvent[] = [];
+
+  for (const lead of leads) {
+    events.push({
+      id: `created-${lead.id}`,
+      at: lead.created_at || lead.lead_date || lead.updated_at,
+      lead_id: lead.id,
+      lead_number: lead.lead_number,
+      customer_name: lead.customer_name,
+      title: 'Lead created',
+      actor: lead.created_by || lead.sales_owner,
+      status: 'DRAFT',
+      href: `/pre-sales/leads/${lead.id}`,
+    });
+  }
+
+  for (const item of store.getLeadStatusHistory()) {
+    const lead = leadMap.get(item.lead_id);
+    if (!lead) continue;
+    if (item.new_status === 'DRAFT' && item.old_status === 'DRAFT') continue;
+    events.push({
+      id: item.id,
+      at: item.created_at,
+      lead_id: lead.id,
+      lead_number: lead.lead_number,
+      customer_name: lead.customer_name,
+      title: ACTIVITY_CAPTIONS[item.new_status] || item.new_status.replace(/_/g, ' '),
+      actor: item.changed_by,
+      status: item.new_status,
+      href: `/pre-sales/leads/${lead.id}`,
+    });
+  }
+
+  events.sort((a, b) => b.at.localeCompare(a.at));
+  const seen = new Set<string>();
+  const unique: LeadWorkflowEvent[] = [];
+  for (const event of events) {
+    const key = `${event.lead_id}:${event.title}:${event.at.slice(0, 16)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(event);
+    if (unique.length >= limit) break;
+  }
+  return unique;
 }
