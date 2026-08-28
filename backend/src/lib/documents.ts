@@ -17,7 +17,15 @@ export function canAccessEntity(user: User, entityType: EntityDocument['entity_t
     const lead = store.getLeads().find((item) => item.id === entityId);
     if (!lead) return false;
     if (['CEO', 'CTO', 'PROJECT_MANAGER', 'BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return true;
-    return lead.created_by_id === user.id || lead.sales_owner_id === user.id || lead.assigned_team_lead_id === user.id;
+    return (
+      lead.created_by_id === user.id ||
+      lead.sales_owner_id === user.id ||
+      lead.assigned_team_lead_id === user.id ||
+      lead.assigned_member_id === user.id ||
+      lead.responsible_user_id === user.id ||
+      lead.pm_id === user.id ||
+      Boolean(user.team_id && user.team_id === lead.assigned_team_id)
+    );
   }
   if (entityType === 'PROJECT') {
     const project = store.getProjects().find((item) => item.id === entityId);

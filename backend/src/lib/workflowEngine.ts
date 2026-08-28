@@ -648,10 +648,13 @@ function defaultLeadRecipients(event: WorkflowEventKey, lead: Lead): Array<strin
 }
 
 export function documentNamesForLead(leadId: string): string {
-  return store
+  const leadDocs = store
     .getLeadDocuments()
     .filter((item) => item.lead_id === leadId)
-    .map((item) => item.file_name)
-    .filter(Boolean)
-    .join(', ');
+    .map((item) => item.file_name);
+  const entityDocs = store
+    .getEntityDocuments()
+    .filter((item) => item.entity_id === leadId && (item.entity_type === 'ADDITIONAL_INPUT' || item.entity_type === 'LEAD'))
+    .map((item) => item.original_file_name || item.file_name);
+  return [...leadDocs, ...entityDocs].filter(Boolean).join(', ');
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Download,
   Eye,
@@ -54,34 +54,71 @@ function readFile(file: File): Promise<string> {
   });
 }
 
+function isImageName(name: string) {
+  return ['jpg', 'jpeg', 'png', 'webp'].includes(extensionOf(name));
+}
+
 export default function EntityDocumentUpload({
   entityType,
   entityId,
   canEdit,
   ensureEntity,
   title = 'Documents',
+  listEntityTypes,
+  compact = false,
 }: {
   entityType: EntityDocument['entity_type'];
   entityId?: string;
   canEdit: boolean;
   ensureEntity: () => Promise<string | null>;
   title?: string;
+  listEntityTypes?: EntityDocument['entity_type'][];
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [documents, setDocuments] = useState<EntityDocument[]>([]);
+  const [previews, setPreviews] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const typesKey = (listEntityTypes?.length ? listEntityTypes : [entityType]).join(',');
 
-  const load = async (id: string) => {
-    const result = await DocumentsApi.list(entityType, id);
-    if (result.ok) setDocuments(result.documents);
-    else setError(result.message);
-  };
+  const load = useCallback(async (id: string) => {
+    const types = typesKey.split(',') as EntityDocument['entity_type'][];
+    const results = await Promise.all(types.map((type) => DocumentsApi.list(type, id)));
+    const seen = new Set<string>();
+    const docs: EntityDocument[] = [];
+    let hadError: string | null = null;
+    for (const result of results) {
+      if (!result.ok) {
+        hadError = result.message;
+        continue;
+      }
+      for (const doc of result.documents) {
+        if (seen.has(doc.id)) continue;
+        seen.add(doc.id);
+        docs.push(doc);
+      }
+    }
+    setDocuments(docs);
+    if (docs.length === 0 && hadError) setError(hadError);
+    else setError(null);
+    const images = docs.filter((doc) => isImageName(doc.file_name) || isImageName(doc.original_file_name));
+    const nextPreviews: Record<string, string> = {};
+    await Promise.all(
+      images.map(async (doc) => {
+        const file = await DocumentsApi.file(doc.id);
+        if (file.ok && file.data.document.file_url) {
+          nextPreviews[doc.id] = file.data.document.file_url;
+        }
+      })
+    );
+    setPreviews(nextPreviews);
+  }, [typesKey]);
 
   useEffect(() => {
     if (entityId) void load(entityId);
-  }, [entityId, entityType]);
+  }, [entityId, load]);
 
   const uploadFile = async (file: File) => {
     if (!isAllowedFileType(file.name) || file.size > MAX_FILE_SIZE) {
@@ -141,7 +178,7 @@ export default function EntityDocumentUpload({
 
   return (
     <div className="space-y-4">
-      <h3 className="font-semibold text-slate-200">{title}</h3>
+      <h3 className={`font-semibold text-slate-200 ${compact ? 'text-sm' : ''}`}>{title}</h3>
       {canEdit && (
         <div
           onDragOver={(event) => {
@@ -184,13 +221,25 @@ export default function EntityDocumentUpload({
         </div>
       )}
       {error && <div className="rounded-lg border border-rose-900 bg-rose-950/40 px-3 py-2 text-rose-300">{error}</div>}
+      {documents.length === 0 && !canEdit && (
+        <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-4 text-center text-slate-500">No documents uploaded.</div>
+      )}
       {documents.map((doc) => {
         const previewable = ['pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(extensionOf(doc.file_name));
+        const previewSrc = previews[doc.id];
         return (
           <div key={doc.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex min-w-0 items-start gap-3">
-                <FileGlyph name={doc.file_name} />
+                {previewSrc ? (
+                  <img
+                    src={previewSrc}
+                    alt={doc.original_file_name || doc.file_name}
+                    className="h-16 w-16 shrink-0 rounded-md border border-slate-700 object-cover"
+                  />
+                ) : (
+                  <FileGlyph name={doc.file_name} />
+                )}
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-100">{doc.original_file_name || doc.file_name}</div>
                   <div className="text-[11px] text-slate-400">{doc.file_size}</div>

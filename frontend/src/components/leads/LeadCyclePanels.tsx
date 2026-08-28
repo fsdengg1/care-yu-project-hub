@@ -5,6 +5,7 @@ import { LeadApi } from '@/lib/leadApi';
 import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
 import { formatInrCompact } from '@/lib/format';
+import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import {
   AlertTriangle, Check, CheckCircle2, RotateCcw, Send, Calculator, FileText, Handshake, Building2
 } from 'lucide-react';
@@ -119,6 +120,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     }
   };
 
+  const requireReason = (fn: () => Promise<unknown>, fail?: string) => {
+    if (!returnReason.trim()) {
+      setError('Enter a reason before sending back or rejecting this lead.');
+      return;
+    }
+    void run(fn, fail);
+  };
+
   const costingTotal =
     Number(costing.component_costs || 0) +
     Number(costing.procurement_costs || 0) +
@@ -158,32 +167,44 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             <CheckCircle2 className="h-4 w-4 text-cyan-400" /> PM Review
           </div>
           <p className="text-slate-300">Review scope, requirements, documents, and timeline. Approve to continue assignment, send back for correction, or cancel.</p>
+          <EntityDocumentUpload
+            title="Lead documents"
+            entityType="ADDITIONAL_INPUT"
+            listEntityTypes={['ADDITIONAL_INPUT', 'LEAD']}
+            entityId={lead.id}
+            canEdit={false}
+            compact
+            ensureEntity={async () => lead.id}
+          />
           {field('PM instructions / observations', pmNotes, setPmNotes, 2)}
           <textarea
             rows={2}
             value={returnReason}
             onChange={(e) => setReturnReason(e.target.value)}
-            placeholder="Required for send back or cancel"
+            placeholder="Required for send back or reject"
             className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100"
           />
           <div className="flex flex-wrap gap-2">
             <button
+              type="button"
               disabled={busy}
-              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'approve', notes: pmNotes }))}
+              onClick={() => void run(() => LeadApi.pmReview(lead.id, { action: 'approve', notes: pmNotes }))}
               className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
             >
               <Check className="h-4 w-4" /> Approve
             </button>
             <button
+              type="button"
               disabled={busy}
-              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'return', reason: returnReason, notes: pmNotes }))}
+              onClick={() => requireReason(() => LeadApi.pmReview(lead.id, { action: 'return', reason: returnReason.trim(), notes: pmNotes }))}
               className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500 disabled:opacity-50"
             >
               <RotateCcw className="h-4 w-4" /> Send Back
             </button>
             <button
+              type="button"
               disabled={busy}
-              onClick={() => run(() => LeadApi.cancel(lead.id, returnReason))}
+              onClick={() => requireReason(() => LeadApi.cancel(lead.id, returnReason.trim()), 'Unable to reject this lead.')}
               className="flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600 disabled:opacity-50"
             >
               Cancel / Reject
@@ -322,9 +343,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="font-bold text-emerald-300">PM Approval — Feasibility</div>
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'reject', returnReason))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
+            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewFeasibility(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'reject', returnReason.trim()))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}
@@ -379,9 +400,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="font-bold text-emerald-300">PM Approval — Costing</div>
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if revision is required" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
+            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewCosting(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason.trim()))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}

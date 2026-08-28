@@ -141,8 +141,8 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify({ action, reason }),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, status: result.status };
   },
 
   async saveCosting(id: string, costing: Partial<CostingRecord>, submit = false) {
@@ -159,8 +159,8 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify({ action, reason }),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, status: result.status };
   },
 
   async saveQuotation(id: string, quotation: Partial<QuotationRecord>, send = false) {
@@ -235,6 +235,12 @@ export const LeadApi = {
     } as LeadWorkflowPayload;
   },
 
+  async documentFile(id: string, documentId: string) {
+    const result = await call<{ document: import('./types').LeadDocument }>(`/api/leads/${id}/documents/${documentId}/file`);
+    if (result.ok) return result.data;
+    return { message: result.message };
+  },
+
   async myWork(): Promise<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }> {
     const result = await call<{ items: MyWorkItem[]; groups: Record<string, MyWorkItem[]> }>('/api/leads/my-work');
     if (result.ok) return result.data;
@@ -246,7 +252,7 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
-    if (result.ok) return syncPayload(result.data);
+    if (result.ok) return { ok: true as const, ...syncPayload(result.data) };
     return result;
   },
 

@@ -6,14 +6,15 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
+import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import { LEAD_STATUS_LABELS, formatRelativeTime, formatInrCompact } from '@/lib/format';
 import { canCreateLead } from '@/lib/rbac';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
-  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory
+  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory, EntityDocument
 } from '@/lib/types';
 import {
-  ArrowLeft, CheckCircle2, AlertTriangle, Send, Upload, Plus, X,
+    ArrowLeft, CheckCircle2, AlertTriangle, Send, Plus, X,
   Check, RotateCcw, Paperclip, Scan, ShieldAlert, Users, ChevronRight,
   Info, Zap
 } from 'lucide-react';
@@ -30,6 +31,7 @@ export default function LeadDetailPage() {
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [comments, setComments] = useState<LeadComment[]>([]);
   const [documents, setDocuments] = useState<LeadDocument[]>([]);
+  const [additionalDocuments, setAdditionalDocuments] = useState<EntityDocument[]>([]);
   const [history, setHistory] = useState<LeadStatusHistory[]>([]);
   const [teamAssignments, setTeamAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
@@ -93,6 +95,7 @@ export default function LeadDetailPage() {
       setActivities(payload.activities || StorageService.getLeadActivities(payload.lead.id));
       setComments(payload.comments || StorageService.getLeadComments(payload.lead.id));
       setDocuments(payload.documents || StorageService.getLeadDocuments(payload.lead.id));
+      setAdditionalDocuments(payload.additionalDocuments || []);
       setHistory(payload.history || StorageService.getLeadStatusHistory(payload.lead.id));
       setTeamAssignments(payload.assignments?.length ? payload.assignments : StorageService.getFeasibilityTeamAssignmentsByLeadId(payload.lead.id));
       setResubmitTechInput(payload.lead.technical_specifications || '');
@@ -177,12 +180,21 @@ export default function LeadDetailPage() {
   };
 
   const handlePMReturnToSales = async () => {
-    if (!pmReturnReason.trim()) return;
+    if (!pmReturnReason.trim()) {
+      setActionError('A return reason is required.');
+      return;
+    }
     setActionError(null);
-    await LeadApi.pmReview(lead.id, { action: 'return', reason: pmReturnReason });
+    setActionBusy(true);
+    const result = await LeadApi.pmReview(lead.id, { action: 'return', reason: pmReturnReason.trim() });
+    setActionBusy(false);
+    if (!result.ok) {
+      setActionError(result.message || 'Unable to send this lead back.');
+      return;
+    }
     setShowReturnModal(false);
     setPmReturnReason('');
-    loadData();
+    await loadData();
   };
 
   const handleSalesResubmit = async () => {
@@ -350,6 +362,23 @@ export default function LeadDetailPage() {
     setShowDocModal(false); setDocForm({ file_name: '', category: 'Technical Specification' }); loadData();
   };
 
+  const openLeadDocument = async (doc: LeadDocument) => {
+    const result = await LeadApi.documentFile(lead.id, doc.id);
+    const url = (result && 'document' in result && result.document.file_url) || doc.file_url;
+    if (!url) {
+      setActionError('File is not available for preview.');
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = doc.file_name;
+    link.target = '_blank';
+    link.rel = 'noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const statusColor = (s: string) => {
     if (s === 'PENDING_TEAM_LEAD_REVIEW') return 'text-amber-300 bg-amber-950 border-amber-800';
     if (s === 'ALLOCATED_TO_TEAM_MEMBER' || s === 'READY_TO_START') return 'text-emerald-300 bg-emerald-950 border-emerald-800';
@@ -368,7 +397,7 @@ export default function LeadDetailPage() {
     { key: 'commercial', label: 'Commercial' },
     { key: 'feasibility', label: `Feasibility Teams (${teamAssignments.length})` },
     { key: 'costing', label: 'Solution & Costing' },
-    { key: 'documents', label: `Documents (${documents.length})` },
+    { key: 'documents', label: `Documents (${documents.length + additionalDocuments.length})` },
     { key: 'communication', label: `Customer Comm. (${activities.length})` },
     { key: 'timeline', label: 'Activity Timeline' },
     { key: 'review', label: 'PM Review' },
@@ -810,6 +839,16 @@ export default function LeadDetailPage() {
                     ))}
                   </div>
                 )}
+                <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800">
+                  <EntityDocumentUpload
+                    title="Lead documents & images"
+                    entityType="ADDITIONAL_INPUT"
+                    listEntityTypes={['ADDITIONAL_INPUT', 'LEAD']}
+                    entityId={lead.id}
+                    canEdit={false}
+                    ensureEntity={async () => lead.id}
+                  />
+                </div>
               </div>
             );
           })()}
@@ -846,17 +885,17 @@ export default function LeadDetailPage() {
       {/* === TAB: DOCUMENTS === */}
       {activeTab === 'documents' && (
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <h3 className="font-bold text-slate-100 text-sm">Documents ({documents.length})</h3>
-            {(isPM || isSalesOwner) && (
-              <button onClick={() => setShowDocModal(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded text-xs flex items-center gap-1.5">
-                <Upload className="w-3.5 h-3.5" /> Upload
-              </button>
-            )}
-          </div>
-          {documents.length === 0 ? <div className="p-8 text-center text-slate-500">No documents uploaded.</div> : (
+          <EntityDocumentUpload
+            title="Documents"
+            entityType="ADDITIONAL_INPUT"
+            listEntityTypes={['ADDITIONAL_INPUT', 'LEAD']}
+            entityId={lead.id}
+            canEdit={Boolean(isPM || isSalesOwner)}
+            ensureEntity={async () => lead.id}
+          />
+          {documents.length > 0 && (
             <div className="divide-y divide-slate-800/60">
-              {documents.map(d => (
+              {documents.map((d) => (
                 <div key={d.id} className="py-2.5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <Paperclip className="w-4 h-4 text-cyan-400" />
@@ -866,17 +905,13 @@ export default function LeadDetailPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {d.file_url && (
-                      <a
-                        href={d.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        download={d.file_name}
-                        className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300"
-                      >
-                        View / Download
-                      </a>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => void openLeadDocument(d)}
+                      className="text-[11px] font-semibold text-cyan-400 hover:text-cyan-300"
+                    >
+                      View / Download
+                    </button>
                     <span className="text-[11px] text-slate-500 font-mono">{new Date(d.upload_date).toLocaleDateString()}</span>
                   </div>
                 </div>
@@ -966,7 +1001,7 @@ export default function LeadDetailPage() {
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
           <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">PM Input Completeness Checklist</h3>
           <div className="space-y-2">
-            {[['Customer Information', true], ['Contact Person', !!lead.customer_contact], ['Requirement Summary', !!lead.requirement_summary], ['Detailed Requirement', !!lead.detailed_requirement], ['Application / Use Case', !!lead.application], ['Technical Cycle Time', !!lead.cycle_time]].map(([label, ok]) => (
+            {[['Customer Information', true], ['Contact Person', !!lead.customer_contact], ['Requirement Summary', !!lead.requirement_summary], ['Detailed Requirement', !!lead.detailed_requirement], ['Application / Use Case', !!lead.application], ['Technical Cycle Time', !!lead.cycle_time], ['Documents', documents.length + additionalDocuments.length > 0]].map(([label, ok]) => (
               <div key={label as string} className="p-2.5 bg-slate-950 border border-slate-800 rounded flex justify-between items-center">
                 <span className="text-slate-300">{label as string}</span>
                 <span className={`font-bold flex items-center gap-1 ${ok ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -976,6 +1011,14 @@ export default function LeadDetailPage() {
               </div>
             ))}
           </div>
+          <EntityDocumentUpload
+            title="Submitted documents & images"
+            entityType="ADDITIONAL_INPUT"
+            listEntityTypes={['ADDITIONAL_INPUT', 'LEAD']}
+            entityId={lead.id}
+            canEdit={false}
+            ensureEntity={async () => lead.id}
+          />
         </div>
       )}
 
@@ -993,8 +1036,8 @@ export default function LeadDetailPage() {
             </div>
             <textarea rows={4} value={pmReturnReason} onChange={e => setPmReturnReason(e.target.value)} placeholder="Specify exact missing details…" className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded text-slate-100" />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setShowReturnModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Cancel</button>
-              <button onClick={handlePMReturnToSales} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded">Return to Sales</button>
+              <button type="button" onClick={() => setShowReturnModal(false)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded">Cancel</button>
+              <button type="button" disabled={!pmReturnReason.trim() || actionBusy} onClick={() => void handlePMReturnToSales()} className="px-4 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold rounded disabled:opacity-50">Return to Sales</button>
             </div>
           </div>
         </div>

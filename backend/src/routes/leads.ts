@@ -491,7 +491,7 @@ router.post('/:id/cancel', requireAuth, requirePermission('review:lead', 'assign
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
   if (!isPm(user)) return forbidden(res);
-  if (user.role_code !== 'SYSTEM_ADMIN' && leadOwnerId(lead) !== user.id) {
+  if (user.role_code !== 'SYSTEM_ADMIN' && leadOwnerId(lead) !== user.id && lead.pm_id !== user.id) {
     return forbidden(res, NOT_RESPONSIBLE_MESSAGE);
   }
   if (!PM_REVIEW_STATUSES.includes(lead.status) && lead.status !== 'ACCEPTED_FOR_FEASIBILITY') {
@@ -499,26 +499,30 @@ router.post('/:id/cancel', requireAuth, requirePermission('review:lead', 'assign
   }
   const reason = String(req.body?.reason || '').trim();
   if (!reason) return res.status(400).json({ message: 'A rejection reason is required.' });
-  const now = new Date().toISOString();
-  const updated = transitionLead(lead, 'CANCELLED', user, reason, {
-    cancel_reason: reason,
-    cancelled_at: now,
-    cancelled_by_id: user.id,
-    cancelled_by_name: user.name,
-    pending_action: false,
-    last_action_at: now,
-  });
-  comment(updated, user, reason, 'PM Review');
-  audit(user, updated, 'LEAD_CANCELLED', `${user.name} cancelled ${lead.lead_number}: ${reason}`);
-  emitLeadWorkflow({
-    event: 'PROJECT_CANCELLED',
-    lead: updated,
-    actor: user,
-    comments: reason,
-    message: `${user.name} cancelled "${lead.title}". Reason: ${reason}`,
-    extraRecipientIds: [lead.assigned_team_lead_id, lead.pm_id],
-  });
-  return res.json(payloadFor(updated));
+  try {
+    const now = new Date().toISOString();
+    const updated = transitionLead(lead, 'CANCELLED', user, reason, {
+      cancel_reason: reason,
+      cancelled_at: now,
+      cancelled_by_id: user.id,
+      cancelled_by_name: user.name,
+      pending_action: false,
+      last_action_at: now,
+    });
+    comment(updated, user, reason, 'PM Review');
+    audit(user, updated, 'LEAD_CANCELLED', `${user.name} cancelled ${lead.lead_number}: ${reason}`);
+    emitLeadWorkflow({
+      event: 'PROJECT_CANCELLED',
+      lead: updated,
+      actor: user,
+      comments: reason,
+      message: `${user.name} cancelled "${lead.title}". Reason: ${reason}`,
+      extraRecipientIds: [lead.assigned_team_lead_id, lead.pm_id],
+    });
+    return res.json(payloadFor(updated));
+  } catch (error) {
+    return workflowError(res, error);
+  }
 });
 
 router.post('/:id/forward', requireAuth, async (req: AuthedRequest, res) => {
@@ -577,39 +581,43 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   if (action === 'return') {
     const reason = String(req.body?.reason || '').trim();
     if (!reason) return res.status(400).json({ message: 'A return reason is required.' });
-    const creator = store.findUserById(lead.created_by_id);
-    let updated = transitionLead(lead, 'RETURNED_TO_SALES', user, reason, {
-      pm_return_reason: reason,
-      pm_review_notes: req.body?.notes,
-    });
-    if (creator) {
-      const transferred = transferLeadResponsibility(updated, creator, user, reason);
-      updated = saveLead({ ...transferred.lead, pending_action: true });
-      try {
-        await notificationService.notifyAssignment({
-          entityType: 'LEAD',
-          entityId: updated.id,
-          entityName: updated.title,
-          recipientUserId: creator.id,
-          assignedByUserId: user.id,
-          priority: updated.priority,
-          createdOn: updated.created_at,
-          eventKey: `LEAD_RETURNED:${updated.id}:${creator.id}:${updated.assigned_at}`,
-        });
-      } catch (error) {
-        console.error('[leads] return notification failed', error);
+    try {
+      const creator = store.findUserById(lead.created_by_id);
+      let updated = transitionLead(lead, 'RETURNED_TO_SALES', user, reason, {
+        pm_return_reason: reason,
+        pm_review_notes: req.body?.notes,
+      });
+      if (creator) {
+        const transferred = transferLeadResponsibility(updated, creator, user, reason);
+        updated = saveLead({ ...transferred.lead, pending_action: true });
+        try {
+          await notificationService.notifyAssignment({
+            entityType: 'LEAD',
+            entityId: updated.id,
+            entityName: updated.title,
+            recipientUserId: creator.id,
+            assignedByUserId: user.id,
+            priority: updated.priority,
+            createdOn: updated.created_at,
+            eventKey: `LEAD_RETURNED:${updated.id}:${creator.id}:${updated.assigned_at}`,
+          });
+        } catch (error) {
+          console.error('[leads] return notification failed', error);
+        }
       }
+      comment(updated, user, reason, 'Information Request');
+      audit(user, updated, 'LEAD_RETURNED_TO_SALES', `${user.name} returned ${lead.lead_number}: ${reason}`);
+      emitLeadWorkflow({
+        event: 'PROJECT_SENT_BACK',
+        lead: updated,
+        actor: user,
+        comments: reason,
+        message: `${user.name} sent "${lead.title}" back for correction.`,
+      });
+      return res.json(payloadFor(updated));
+    } catch (error) {
+      return workflowError(res, error);
     }
-    comment(updated, user, reason, 'Information Request');
-    audit(user, updated, 'LEAD_RETURNED_TO_SALES', `${user.name} returned ${lead.lead_number}: ${reason}`);
-    emitLeadWorkflow({
-      event: 'PROJECT_SENT_BACK',
-      lead: updated,
-      actor: user,
-      comments: reason,
-      message: `${user.name} sent "${lead.title}" back for correction.`,
-    });
-    return res.json(payloadFor(updated));
   }
 
   if (action === 'approve') {
