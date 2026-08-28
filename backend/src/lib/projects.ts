@@ -19,7 +19,8 @@ import {
   saveEscalation,
 } from './projectWorkflow.js';
 import { withComputedProgress } from './projectProgress.js';
-import { dispatchHandover, usersWithRole } from './lifecycleNotify.js';
+import { usersWithRole } from './lifecycleNotify.js';
+import { emitWorkflowEvent } from './workflowEngine.js';
 
 const EXECUTION_ROLES = new Set(['EMPLOYEE', 'TEAM_LEAD', 'PROCUREMENT', 'EXECUTION', 'PROJECT_ENGINEER']);
 
@@ -290,6 +291,7 @@ export function listVisibleProjects(user: User, status: ProjectStatus | 'ALL' = 
   syncConvertedLeadsToProjects();
   const projects = persistRefreshedProjects().filter((project) => {
     if (status === 'ALL') return project.status !== 'CANCELLED';
+    if (status === 'ACTIVE') return project.status === 'ACTIVE' || project.status === 'HANDOVER';
     return project.status === status;
   });
   return projects.filter((project) => canViewProject(user, project));
@@ -506,37 +508,54 @@ export function applyProjectPatch(
     next = {
       ...next,
       status: body.status,
-      current_phase: body.status === 'COMPLETED' ? 'COMPLETED' : next.current_phase,
+      current_phase:
+        body.status === 'COMPLETED' ? 'COMPLETED' : body.status === 'HANDOVER' ? 'HANDOVER' : next.current_phase,
       progress: body.status === 'COMPLETED' ? 100 : next.progress,
     };
-    if (body.status === 'COMPLETED') {
-      next = { ...next, pm_approved_at: now, current_phase: 'COMPLETED' };
+    const stakeholders = () => {
       const lead = next.lead_id ? store.getLeads().find((item) => item.id === next.lead_id) : undefined;
       const teamMembers = store
         .getUsers()
         .filter((item) => item.status === 'ACTIVE' && item.team_id && (next.team_ids || []).includes(item.team_id))
         .map((item) => item.id);
-      dispatchHandover({
-        recipientIds: [
-          next.team_lead_id,
-          next.assigned_member_id,
-          lead?.created_by_id,
-          lead?.sales_owner_id,
-          ...teamMembers,
-          ...usersWithRole('BUSINESS_HEAD', 'ENG_DIRECTOR', 'CEO').map((item) => item.id),
-        ],
+      return [
+        next.team_lead_id,
+        next.assigned_member_id,
+        lead?.created_by_id,
+        lead?.sales_owner_id,
+        ...teamMembers,
+        ...usersWithRole('BUSINESS_HEAD', 'ENG_DIRECTOR', 'CEO').map((item) => item.id),
+      ];
+    };
+    if (body.status === 'HANDOVER') {
+      next = { ...next, pm_approved_at: now, current_phase: 'HANDOVER' };
+      emitWorkflowEvent({
+        event: 'PROJECT_APPROVED_FOR_CLOSURE',
         actor: user,
         entityType: 'PROJECT',
         entityId: next.id,
         entityName: next.name,
+        recipientIds: stakeholders(),
         customer: next.customer_name,
-        title: `Project Closed – ${next.name}`,
-        message: `${user.name} closed ${next.code}. Handover and closure are complete.`,
-        actionRequired: 'Review project closure records',
-        ctaLabel: 'Open Project',
+        status: 'Ready for Handover',
+        message: `${user.name} approved ${next.code} for handover. Complete closure documents.`,
         actionUrl: `/projects/${next.id}`,
-        type: 'PROJECT_COMPLETED',
+        eventKey: `PROJECT_APPROVED_FOR_CLOSURE:${next.id}`,
+      });
+    }
+    if (body.status === 'COMPLETED') {
+      next = { ...next, pm_approved_at: now, current_phase: 'COMPLETED' };
+      emitWorkflowEvent({
+        event: 'PROJECT_CLOSED',
+        actor: user,
+        entityType: 'PROJECT',
+        entityId: next.id,
+        entityName: next.name,
+        recipientIds: stakeholders(),
+        customer: next.customer_name,
         status: 'Project Closed',
+        message: `${user.name} closed ${next.code}. Handover and closure are complete.`,
+        actionUrl: `/projects/${next.id}`,
         eventKey: `PROJECT_CLOSED:${next.id}`,
       });
     }

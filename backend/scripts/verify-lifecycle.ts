@@ -2,6 +2,7 @@ import { initStore, shutdownStore, store } from '../src/store/db.js';
 import {
   assignSubmittedLeadToPm,
   assignTeamToLead,
+  reviewLeadTeamIntake,
   buildPmDashboard,
   canHandleLeadCommercial,
   canPrepareQuotation,
@@ -91,10 +92,13 @@ async function main() {
 
   const assigned = assignTeamToLead(lead, pm!, team!.id, teamLead!.id, 'Prepare feasibility');
   lead = assigned.lead;
-  assert(lead.status === 'FEASIBILITY_IN_PROGRESS', `Accept & assign must start feasibility, got ${lead.status}`);
-  assert(lead.accepted_at, 'Accept & assign must record accepted_at');
-  report.step2b = 'OK — Accept & Assign Team moved the lead straight into feasibility';
-  report.step3 = `OK — Assigned to ${lead.assigned_team_name} / ${lead.assigned_team_lead_name}`;
+  assert(lead.status === 'ACCEPTED_FOR_FEASIBILITY', `Assign to Team Lead must wait for acceptance, got ${lead.status}`);
+  assert(lead.assigned_team_lead_id === teamLead!.id, 'Team Lead must own the assignment');
+  report.step2b = 'OK — PM approved and assigned Team Lead for review';
+
+  lead = reviewLeadTeamIntake(lead, teamLead!, 'accept');
+  assert(lead.status === 'FEASIBILITY_IN_PROGRESS', `Team Lead accept must start feasibility, got ${lead.status}`);
+  report.step3 = `OK — ${teamLead!.name} accepted ${lead.assigned_team_name}`;
 
   lead = transitionLead(lead, 'FEASIBILITY_SUBMITTED', teamLead!, 'Feasibility submitted to PM', {
     feasibility_study: emptyFeasibility({

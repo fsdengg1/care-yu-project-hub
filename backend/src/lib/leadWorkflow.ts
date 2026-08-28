@@ -22,8 +22,9 @@ import {
   resolveProjectManagerForAssignment,
   transferLeadResponsibility,
 } from './responsibility.js';
-import { assertAllowedTransition, leadOwnerId, PM_REVIEW_STATUSES } from './leadValidation.js';
-import { dispatchHandover } from './lifecycleNotify.js';
+import { assertAllowedTransition, LeadWorkflowError, leadOwnerId, PM_REVIEW_STATUSES } from './leadValidation.js';
+import { dispatchHandover, procurementUsers } from './lifecycleNotify.js';
+import { applyLeadWorkflowContext, workflowContextForStatus } from './workflowEngine.js';
 
 export function parseMoney(raw: unknown): number {
   const numeric = Number(String(raw ?? '').replace(/[₹,\s]/g, ''));
@@ -48,10 +49,12 @@ export function stageFromStatus(status: LeadStatus): PipelineStage {
     case 'FEASIBILITY_IN_PROGRESS':
     case 'FEASIBILITY_SUBMITTED':
     case 'FEASIBILITY_RETURNED':
+    case 'FEASIBILITY_REJECTED':
       return 'FEASIBILITY';
     case 'COSTING_IN_PROGRESS':
     case 'COSTING_SUBMITTED':
     case 'COSTING_RETURNED':
+    case 'COSTING_REJECTED':
       return 'COSTING';
     case 'QUOTATION':
       return 'QUOTATION';
@@ -92,14 +95,14 @@ export function hydrateLead(lead: Lead): Lead {
   const aligned = alignSeedLead(lead);
   const ownerId = aligned.current_owner_id || aligned.responsible_user_id;
   const ownerName = aligned.current_owner_name || aligned.responsible_user_name;
-  return {
+  return applyLeadWorkflowContext({
     ...aligned,
     pipeline_stage: stageFromStatus(aligned.status) || aligned.pipeline_stage,
     current_owner_id: ownerId,
     current_owner_name: ownerName,
     responsible_user_id: aligned.responsible_user_id || ownerId,
     responsible_user_name: aligned.responsible_user_name || ownerName,
-  };
+  });
 }
 
 export function findLead(id: string): Lead | undefined {
@@ -131,6 +134,7 @@ export function recordHistory(
     new_status: newStatus,
     changed_by: user.name,
     changed_by_id: user.id,
+    changed_by_role: user.role_name,
     reason,
     created_at: new Date().toISOString(),
   };
@@ -163,18 +167,25 @@ export function audit(
 export function notify(partial: Omit<NotificationItem, 'id' | 'created_at' | 'read_status'>) {
   if (!partial.recipient_id) return;
   const actor = partial.sender_id ? store.findUserById(partial.sender_id) : undefined;
+  const lead = partial.entity_type === 'LEAD' ? findLead(partial.entity_id) : undefined;
+  const ctx = lead ? workflowContextForStatus(lead.status) : undefined;
   dispatchHandover({
     recipientIds: [partial.recipient_id],
     actor,
     entityType: partial.entity_type,
     entityId: partial.entity_id,
-    entityName: partial.title,
+    entityName: lead?.title || partial.title,
+    customer: lead?.customer_name,
     title: partial.title,
     message: partial.message,
-    actionRequired: partial.title,
+    actionRequired: lead?.action_required || ctx?.action_required || partial.title,
     ctaLabel: 'Open',
-    actionUrl: partial.action_url,
+    actionUrl: partial.action_url || (lead ? `/pre-sales/leads/${lead.id}` : undefined),
     type: partial.type,
+    status: ctx?.status_label || lead?.status,
+    previousStatus: lead?.previous_status,
+    dueDate: lead?.due_date || lead?.customer_target_date,
+    assignedBy: lead?.assigned_by_name || actor?.name,
     priority: partial.priority,
     eventKey: partial.event_key || `${partial.type}:${partial.entity_id}:${partial.recipient_id}`,
   });
@@ -191,12 +202,20 @@ export function transitionLead(
   if (oldStatus !== nextStatus) {
     assertAllowedTransition(oldStatus, nextStatus);
   }
-  const updated = saveLead({
-    ...lead,
-    ...extra,
-    status: nextStatus,
-    pipeline_stage: stageFromStatus(nextStatus),
-  });
+  const now = new Date().toISOString();
+  const updated = saveLead(
+    applyLeadWorkflowContext(
+      {
+        ...lead,
+        ...extra,
+        status: nextStatus,
+        pipeline_stage: stageFromStatus(nextStatus),
+        previous_status: oldStatus,
+        last_action_at: now,
+      },
+      oldStatus
+    )
+  );
   if (oldStatus !== nextStatus) {
     recordHistory(updated, oldStatus, nextStatus, user, reason);
   }
@@ -227,7 +246,7 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
   if (lead.assigned_team_lead_id === user.id) return true;
   if (lead.assigned_team_id && user.team_id === lead.assigned_team_id) return true;
-  if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED'].includes(lead.status)) {
+  if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'COSTING_REJECTED'].includes(lead.status)) {
     return true;
   }
   return false;
@@ -254,9 +273,11 @@ export function canEditProjectInput(user: User, lead: Lead): boolean {
 export function canPrepareFeasibility(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (!['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status)) return false;
+  if (pendingTeamAssignment(lead.id)) return false;
   if (user.role_code === 'TEAM_LEAD' && (lead.assigned_team_lead_id === user.id || user.team_id === lead.assigned_team_id)) {
     return true;
   }
+  if (lead.assigned_member_id === user.id) return true;
   if (user.team_id && user.team_id === lead.assigned_team_id) return true;
   return false;
 }
@@ -277,6 +298,13 @@ export function handLeadToBusinessHead(lead: Lead, actor: User, reason = 'Ready 
   const businessHead = findBusinessHead(lead);
   if (!businessHead || businessHead.id === leadOwnerId(lead)) return saveLead(lead);
   const transferred = transferLeadResponsibility(lead, businessHead, actor, reason);
+  return saveLead(transferred.lead);
+}
+
+export function handLeadToProcurement(lead: Lead, actor: User, reason = 'Feasibility approved — procurement pending'): Lead {
+  const owner = procurementUsers()[0];
+  if (!owner || owner.id === leadOwnerId(lead)) return saveLead(lead);
+  const transferred = transferLeadResponsibility(lead, owner, actor, reason);
   return saveLead(transferred.lead);
 }
 
@@ -326,11 +354,31 @@ export function costingTotal(record: CostingRecord): number {
   );
 }
 
+export function pendingTeamAssignment(leadId: string): FeasibilityTeamAssignment | undefined {
+  return store
+    .getFeasibilityTeamAssignments()
+    .find((item) => item.lead_id === leadId && item.status === 'PENDING_TEAM_LEAD_REVIEW');
+}
+
+export function approveLeadForAssignment(lead: Lead, user: User, notes?: string): Lead {
+  if (lead.status === 'ACCEPTED_FOR_FEASIBILITY') return hydrateLead(lead);
+  const now = new Date().toISOString();
+  return transitionLead(lead, 'ACCEPTED_FOR_FEASIBILITY', user, 'PM review completed — ready for assignment', {
+    pm_review_notes: notes || lead.pm_review_notes,
+    reviewed_at: now,
+    accepted_at: lead.accepted_at || now,
+    accepted_by_id: lead.accepted_by_id || user.id,
+    accepted_by_name: lead.accepted_by_name || user.name,
+    pm_id: user.role_code === 'PROJECT_MANAGER' ? user.id : lead.pm_id || findPm()?.id,
+    pm_name: user.role_code === 'PROJECT_MANAGER' ? user.name : lead.pm_name || findPm()?.name,
+  });
+}
+
 export function assignTeamToLead(
   lead: Lead,
   user: User,
   teamId: string,
-  teamLeadId?: string,
+  assigneeId?: string,
   notes?: string
 ): { lead: Lead; assignment: FeasibilityTeamAssignment; previousResponsibleUserId?: string } {
   const team = store.getTeams().find((item) => item.id === teamId && item.status === 'ACTIVE');
@@ -338,24 +386,31 @@ export function assignTeamToLead(
     throw Object.assign(new Error('Selected team was not found in Organization Management.'), { status: 400 });
   }
   const users = store.getUsers();
-  const requestedLead = teamLeadId ? users.find((item) => item.id === teamLeadId) : undefined;
+  const requested = assigneeId ? users.find((item) => item.id === assigneeId) : undefined;
   const fallbackLead = team.team_lead_id ? users.find((item) => item.id === team.team_lead_id) : undefined;
-  const assignedLead = requestedLead || fallbackLead;
+  const assignee = requested || fallbackLead;
+  if (!assignee) {
+    throw Object.assign(new Error('Select a Team Lead or Team Member to assign this project.'), { status: 400 });
+  }
   const due = new Date();
   due.setDate(due.getDate() + 7);
+  const direct = assignee.role_code !== 'TEAM_LEAD';
+  const teamLead = direct
+    ? (assignee.team_lead_id ? users.find((item) => item.id === assignee.team_lead_id) : fallbackLead)
+    : assignee;
 
   const assignment: FeasibilityTeamAssignment = {
     id: newId('fta'),
     lead_id: lead.id,
     team_id: team.id,
     team_name: team.name,
-    team_lead_id: assignedLead?.id,
-    team_lead_name: assignedLead?.name || team.team_lead_name,
+    team_lead_id: teamLead?.id,
+    team_lead_name: teamLead?.name || team.team_lead_name,
     assignment_type: 'NORMAL',
     priority: lead.priority,
     due_date: due.toISOString().slice(0, 10),
     pm_instructions: notes || 'Prepare technical feasibility for this opportunity.',
-    status: 'PENDING_TEAM_LEAD_REVIEW',
+    status: direct ? 'READY_TO_START' : 'PENDING_TEAM_LEAD_REVIEW',
     created_by: user.name,
     created_by_id: user.id,
     created_at: new Date().toISOString(),
@@ -369,12 +424,20 @@ export function assignTeamToLead(
   store.saveFeasibilityTeamAssignments(assignments);
 
   const now = new Date().toISOString();
-  const updatedBase = transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Accepted and assigned to functional team', {
+  const nextStatus = direct ? 'FEASIBILITY_IN_PROGRESS' : 'ACCEPTED_FOR_FEASIBILITY';
+  const working =
+    lead.status === 'ACCEPTED_FOR_FEASIBILITY' || lead.status === 'FEASIBILITY_IN_PROGRESS'
+      ? lead
+      : approveLeadForAssignment(lead, user, notes);
+  const updatedBase = transitionLead(working, nextStatus, user, direct ? 'Directly assigned to team member' : 'Assigned to Team Lead', {
     assigned_team_id: team.id,
     assigned_team_name: team.name,
-    assigned_team_lead_id: assignedLead?.id,
-    assigned_team_lead_name: assignedLead?.name || team.team_lead_name,
-    pm_id: user.role_code === 'PROJECT_MANAGER' ? user.id : lead.pm_id || findPm()?.id,
+    assigned_team_lead_id: teamLead?.id,
+    assigned_team_lead_name: teamLead?.name || team.team_lead_name,
+    assignment_path: direct ? 'DIRECT_MEMBER' : 'TEAM_LEAD',
+    assigned_member_id: direct ? assignee.id : undefined,
+    assigned_member_name: direct ? assignee.name : undefined,
+    pm_id: user.role_code === 'PROJECT_MANAGER' ? user.id : working.pm_id || findPm()?.id,
     pm_name: user.role_code === 'PROJECT_MANAGER' ? user.name : lead.pm_name || findPm()?.name,
     pm_review_notes: notes || lead.pm_review_notes,
     reviewed_at: now,
@@ -383,20 +446,69 @@ export function assignTeamToLead(
     accepted_by_name: lead.accepted_by_name || user.name,
   });
 
-  let updated = updatedBase;
-  let previousId = updatedBase.responsible_user_id;
-  if (assignedLead?.id) {
-    const transferred = transferLeadResponsibility(
-      updatedBase,
-      assignedLead,
-      user,
-      notes || `Assigned to ${team.name}`
-    );
-    updated = saveLead(transferred.lead);
-    previousId = transferred.previous?.id;
+  const transferred = transferLeadResponsibility(
+    updatedBase,
+    assignee,
+    user,
+    notes || `Assigned to ${direct ? assignee.name : team.name}`
+  );
+  const updated = saveLead(transferred.lead);
+  return { lead: updated, assignment, previousResponsibleUserId: transferred.previous?.id };
+}
+
+export function reviewLeadTeamIntake(
+  lead: Lead,
+  user: User,
+  action: 'accept' | 'return',
+  comments?: string
+): Lead {
+  const isAdmin = user.role_code === 'SYSTEM_ADMIN';
+  const isAssignedLead = user.role_code === 'TEAM_LEAD' && lead.assigned_team_lead_id === user.id;
+  if (!isAdmin && !isAssignedLead) {
+    throw new LeadWorkflowError('Only the assigned Team Lead can accept or return this project.', 403);
+  }
+  if (lead.status !== 'ACCEPTED_FOR_FEASIBILITY' || !lead.assigned_team_id) {
+    throw new LeadWorkflowError('This project is not awaiting Team Lead review.', 400);
+  }
+  const note = (comments || '').trim();
+  const assignment = pendingTeamAssignment(lead.id);
+  const now = new Date().toISOString();
+
+  if (action === 'return') {
+    if (!note) throw new LeadWorkflowError('Comments are required when returning a project to the Project Manager.', 400);
+    if (assignment) {
+      const assignments = store.getFeasibilityTeamAssignments().map((item) =>
+        item.id === assignment.id ? { ...item, status: 'CANCELLED' as const, updated_at: now } : item
+      );
+      store.saveFeasibilityTeamAssignments(assignments);
+    }
+    let updated = transitionLead(lead, 'ACCEPTED_FOR_FEASIBILITY', user, note, {
+      assigned_team_id: undefined,
+      assigned_team_name: undefined,
+      assigned_team_lead_id: undefined,
+      assigned_team_lead_name: undefined,
+      assignment_path: undefined,
+      assigned_member_id: undefined,
+      assigned_member_name: undefined,
+      pm_return_reason: note,
+    });
+    const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
+    if (pm) {
+      const transferred = transferLeadResponsibility(updated, pm, user, note);
+      updated = saveLead({ ...transferred.lead, pending_action: true });
+    }
+    return hydrateLead(updated);
   }
 
-  return { lead: updated, assignment, previousResponsibleUserId: previousId };
+  if (assignment) {
+    const assignments = store.getFeasibilityTeamAssignments().map((item) =>
+      item.id === assignment.id ? { ...item, status: 'IN_PROGRESS' as const, updated_at: now } : item
+    );
+    store.saveFeasibilityTeamAssignments(assignments);
+  }
+  return transitionLead(lead, 'FEASIBILITY_IN_PROGRESS', user, 'Project accepted by Team Lead', {
+    accepted_at: now,
+  });
 }
 
 export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; project: Project } {
@@ -485,17 +597,23 @@ export function convertLeadToProject(lead: Lead, user: User): { lead: Lead; proj
 }
 
 function workItem(lead: Lead, category: MyWorkItem['category'], summary: string): MyWorkItem {
+  const hydrated = hydrateLead(lead);
   return {
     lead_id: lead.id,
     lead_number: lead.lead_number,
     title: lead.title,
     customer_name: lead.customer_name,
     status: lead.status,
-    pipeline_stage: hydrateLead(lead).pipeline_stage || stageFromStatus(lead.status),
+    pipeline_stage: hydrated.pipeline_stage || stageFromStatus(lead.status),
     category,
     summary,
     href: `/pre-sales/leads/${lead.id}`,
     priority: lead.priority,
+    due_date: hydrated.due_date,
+    action_required: hydrated.action_required || summary,
+    current_owner: hydrated.current_owner_name,
+    assigned_by: hydrated.assigned_by_name,
+    approval_pending: hydrated.approval_pending,
   };
 }
 
@@ -561,10 +679,10 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
 
     if (pmSeesLead) {
       if (PM_REVIEW_STATUSES.includes(lead.status) && (isOwner || user.role_code === 'SYSTEM_ADMIN')) {
-        add(lead, 'PM_REVIEW', 'Review project input, then accept and assign a team to start feasibility.');
+        add(lead, 'PM_REVIEW', 'Review project input. Approve, send back, or cancel.');
       }
       if (lead.status === 'ACCEPTED_FOR_FEASIBILITY' && !lead.assigned_team_id) {
-        add(lead, 'ASSIGN', 'Assign a functional team from Organization Management.');
+        add(lead, 'ASSIGN', 'Assign a Team Lead or Team Member to continue the workflow.');
       }
       if (lead.status === 'FEASIBILITY_SUBMITTED' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
         add(lead, 'FEASIBILITY_APPROVAL', 'Review submitted feasibility and approve or return to the team.');
@@ -572,6 +690,14 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
       if (lead.status === 'COSTING_SUBMITTED' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
         add(lead, 'COSTING_APPROVAL', 'Review submitted costing and approve or return for revision.');
       }
+    }
+
+    if (
+      user.role_code === 'TEAM_LEAD' &&
+      lead.status === 'ACCEPTED_FOR_FEASIBILITY' &&
+      lead.assigned_team_lead_id === user.id
+    ) {
+      add(lead, 'FEASIBILITY', 'Review requirements and accept the project, or return it to the Project Manager.');
     }
 
     if (
@@ -644,13 +770,16 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
           summary: project.intake_comment || 'Team Lead returned this project. Reassign or update instructions.',
         });
       }
-      if (project.tl_reviewed_at && !project.pm_approved_at && project.status === 'ACTIVE') {
+      if (project.tl_reviewed_at && !project.pm_approved_at && (project.status === 'ACTIVE' || project.status === 'HANDOVER')) {
         addGeneric({
           ...base,
-          status: 'PM_FINAL_REVIEW',
+          status: project.status === 'HANDOVER' ? 'HANDOVER' : 'PM_FINAL_REVIEW',
           pipeline_stage: 'EXECUTION',
           category: 'EXECUTION',
-          summary: 'Team Lead completed final validation. Approve handover and close the project.',
+          summary:
+            project.status === 'HANDOVER'
+              ? 'Complete handover documents and close the project.'
+              : 'Team Lead completed final validation. Approve handover and close the project.',
         });
       }
     }

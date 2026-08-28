@@ -35,7 +35,7 @@ router.get(
   requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates'),
   (req: AuthedRequest, res) => {
     const status = (typeof req.query.status === 'string' ? req.query.status : 'ACTIVE') as ProjectStatus | 'ALL';
-    const allowed: Array<ProjectStatus | 'ALL'> = ['ACTIVE', 'ON_HOLD', 'COMPLETED', 'CANCELLED', 'ALL'];
+    const allowed: Array<ProjectStatus | 'ALL'> = ['ACTIVE', 'ON_HOLD', 'HANDOVER', 'COMPLETED', 'CANCELLED', 'ALL'];
     const filter = allowed.includes(status) ? status : 'ACTIVE';
     const projects = listVisibleProjects(req.user!, filter === 'ALL' ? 'ALL' : filter);
     res.json({ projects, summary: summarizeProjects(projects) });
@@ -102,11 +102,14 @@ router.patch(
     if (!canManageProject(user, project)) {
       return res.status(403).json({ message: 'Only the assigned Project Manager can update this project.' });
     }
-    if (req.body?.status === 'COMPLETED') {
+    if (req.body?.status === 'COMPLETED' || req.body?.status === 'HANDOVER') {
       const blocked = completionBlockers(project);
       if (blocked) {
         return res.status(400).json({ message: blocked });
       }
+    }
+    if (req.body?.status === 'COMPLETED' && project.status !== 'HANDOVER' && project.status !== 'COMPLETED') {
+      req.body.status = 'HANDOVER';
     }
     const updated = applyProjectPatch(user, project, req.body || {});
     return res.json({ project: updated, detail: buildProjectDetail(user, project.id) });

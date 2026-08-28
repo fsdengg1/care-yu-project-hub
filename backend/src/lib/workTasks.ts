@@ -5,7 +5,7 @@ import { newId } from './leadWorkflow.js';
 import { canViewProject } from './dailyUpdates.js';
 import { notificationService } from './notificationService.js';
 import { reminderScheduleFields, transferTaskResponsibility } from './responsibility.js';
-import { dispatchHandover } from './lifecycleNotify.js';
+import { emitWorkflowEvent, WorkflowEventKey } from './workflowEngine.js';
 
 export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
@@ -42,40 +42,28 @@ export function isTaskFullyComplete(task: Task) {
   return task.status === 'DONE';
 }
 
-function projectLabel(task: Task) {
-  if (!task.project_id) return task.title;
-  return store.getProjects().find((item) => item.id === task.project_id)?.name || task.title;
-}
-
 function notifyTaskHandover(task: Task, actor: User, recipientIds: Array<string | undefined>, input: {
-  title: string;
+  event: WorkflowEventKey;
   message: string;
-  actionRequired: string;
-  ctaLabel: string;
-  type: 'TASK_ASSIGNED' | 'ACTION_REQUIRED' | 'APPROVAL_REQUIRED' | 'STATUS_CHANGED';
-  eventKey: string;
   status: string;
   comments?: string;
 }) {
   const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
-  dispatchHandover({
-    recipientIds,
+  emitWorkflowEvent({
+    event: input.event,
     actor,
     entityType: 'TASK',
     entityId: task.id,
     entityName: task.title,
+    recipientIds,
     customer: project?.customer_name,
-    title: input.title,
-    message: input.message,
-    actionRequired: input.actionRequired,
-    ctaLabel: input.ctaLabel,
-    actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
-    type: input.type,
     status: input.status,
     dueDate: task.due_date,
     comments: input.comments,
     assignedBy: actor.name,
-    eventKey: input.eventKey,
+    message: input.message,
+    actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
+    eventKey: `${input.event}:${task.id}`,
   });
 }
 
@@ -91,7 +79,6 @@ export function applyTaskLifecycle(
   const isReviewer = Boolean(reviewer && reviewer.id === user.id);
   const reviewAction = (opts?.reviewAction || '').toLowerCase();
   const comments = (opts?.comments || '').trim();
-  const name = projectLabel(next);
 
   if (reviewAction === 'approve' && (isReviewer || hasPermission(user, 'create:task'))) {
     next.status = 'DONE';
@@ -101,12 +88,8 @@ export function applyTaskLifecycle(
     next.last_action_at = now;
     next.next_reminder_at = undefined;
     notifyTaskHandover(next, user, [next.assigned_to_id], {
-      title: `Task Completed – ${name}`,
+      event: 'TASK_COMPLETED',
       message: `${user.name} approved "${next.title}". The task is complete.`,
-      actionRequired: 'No further action on this task',
-      ctaLabel: 'Open Task',
-      type: 'STATUS_CHANGED',
-      eventKey: `TASK_APPROVED:${next.id}:${now}`,
       status: 'Completed',
       comments,
     });
@@ -122,12 +105,8 @@ export function applyTaskLifecycle(
     next.responsible_user_name = next.assigned_to;
     next.remarks = comments || next.remarks;
     notifyTaskHandover(next, user, [next.assigned_to_id], {
-      title: `Task Correction Required – ${name}`,
+      event: 'TASK_SENT_BACK',
       message: `${user.name} sent "${next.title}" back for correction.${comments ? ` ${comments}` : ''}`,
-      actionRequired: 'Correct the task and resubmit',
-      ctaLabel: 'Open Task',
-      type: 'ACTION_REQUIRED',
-      eventKey: `TASK_SENT_BACK:${next.id}:${now}`,
       status: 'Correction Required',
       comments,
     });
@@ -139,12 +118,8 @@ export function applyTaskLifecycle(
     next.last_action_at = now;
     next.start_date = next.start_date || now.slice(0, 10);
     notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
-      title: `Task In Progress – ${name}`,
+      event: 'TASK_STARTED',
       message: `${user.name} started "${next.title}".`,
-      actionRequired: 'Monitor progress',
-      ctaLabel: 'Open Task',
-      type: 'STATUS_CHANGED',
-      eventKey: `TASK_STARTED:${next.id}`,
       status: 'Task In Progress',
     });
   }
@@ -163,12 +138,8 @@ export function applyTaskLifecycle(
     next.responsible_user_name = reviewer.name;
     next.last_action_at = now;
     notifyTaskHandover(next, user, [reviewer.id], {
-      title: `Task Completed – Pending Review – ${name}`,
+      event: 'TASK_COMPLETED',
       message: `${user.name} submitted "${next.title}" for Team Lead review.`,
-      actionRequired: 'Review the completed task',
-      ctaLabel: 'Review Task',
-      type: 'APPROVAL_REQUIRED',
-      eventKey: `TASK_PENDING_REVIEW:${next.id}:${now}`,
       status: 'Task Completed – Pending Team Lead Review',
       comments,
     });
@@ -183,12 +154,8 @@ export function applyTaskLifecycle(
     next.next_reminder_at = undefined;
     if (previous.status !== 'DONE' || previous.review_status === 'PENDING_TL_REVIEW') {
       notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
-        title: `Task Completed – ${name}`,
+        event: 'TASK_COMPLETED',
         message: `${user.name} completed "${next.title}".`,
-        actionRequired: 'Confirm completion if needed',
-        ctaLabel: 'Open Task',
-        type: 'STATUS_CHANGED',
-        eventKey: `TASK_COMPLETED:${next.id}:${now}`,
         status: 'Completed',
       });
     }
@@ -287,14 +254,19 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
     description: `${user.name} assigned "${task.title}" to ${assignee.name}.`,
   });
   if (assignee.id !== user.id) {
-    void notificationService.notifyAssignment({
+    emitWorkflowEvent({
+      event: 'TASK_ASSIGNED',
+      actor: user,
       entityType: 'TASK',
       entityId: task.id,
       entityName: task.title,
-      recipientUserId: assignee.id,
-      assignedByUserId: user.id,
-      priority: task.priority,
-      createdOn: now,
+      recipientIds: [assignee.id],
+      customer: project?.customer_name,
+      status: 'Task Assigned',
+      dueDate: task.due_date,
+      assignedBy: user.name,
+      message: `New task assigned to you for ${project?.name || task.title}. Please review the requirements and begin execution.`,
+      actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
       eventKey: `TASK_ASSIGNED:${task.id}:${assignee.id}:${now}`,
     });
   }

@@ -10,7 +10,7 @@ import {
   User,
 } from '../types.js';
 import { newId } from './leadWorkflow.js';
-import { dispatchHandover } from './lifecycleNotify.js';
+import { emitWorkflowEvent, WorkflowEventKey } from './workflowEngine.js';
 
 function canManageProject(user: User, project: Project): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
@@ -38,25 +38,36 @@ function resolveProjectTeamLead(project: Project): { team_lead_id?: string; team
 const EXECUTION_ASSIGNABLE = new Set(['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT']);
 
 function notify(
-  recipientId: string | undefined,
-  entry: Omit<NotificationItem, 'id' | 'created_at' | 'read_status' | 'recipient_id'>
+  recipientIds: Array<string | undefined>,
+  actor: User | undefined,
+  event: WorkflowEventKey,
+  input: {
+    entityType: string;
+    entityId: string;
+    entityName: string;
+    message: string;
+    actionUrl: string;
+    customer?: string;
+    status?: string;
+    comments?: string;
+    eventKey?: string;
+    priority?: NotificationItem['priority'];
+  }
 ) {
-  if (!recipientId) return;
-  const actor = entry.sender_id ? store.findUserById(entry.sender_id) : undefined;
-  dispatchHandover({
-    recipientIds: [recipientId],
-    actor,
-    entityType: entry.entity_type,
-    entityId: entry.entity_id,
-    entityName: entry.title,
-    title: entry.title,
-    message: entry.message,
-    actionRequired: entry.title,
-    ctaLabel: 'Open',
-    actionUrl: entry.action_url,
-    type: entry.type,
-    priority: entry.priority,
-    eventKey: entry.event_key || `${entry.type}:${entry.entity_id}:${recipientId}`,
+  emitWorkflowEvent({
+    event,
+    actor: actor || ({ name: 'System' } as User),
+    entityType: input.entityType,
+    entityId: input.entityId,
+    entityName: input.entityName,
+    recipientIds,
+    customer: input.customer,
+    status: input.status,
+    comments: input.comments,
+    actionUrl: input.actionUrl,
+    message: input.message,
+    eventKey: input.eventKey,
+    priority: input.priority,
   });
 }
 
@@ -129,6 +140,14 @@ export function canEscalateProject(user: User, project: Project) {
   return false;
 }
 
+export function canHandoverProject(user: User, project: Project) {
+  return canManageProject(user, project) && project.status === 'ACTIVE' && !completionBlockers(project);
+}
+
+export function canCloseProject(user: User, project: Project) {
+  return canManageProject(user, project) && project.status === 'HANDOVER';
+}
+
 export function projectActions(user: User, project: Project) {
   const intake = intakeStatusOf(project);
   return {
@@ -136,7 +155,8 @@ export function projectActions(user: User, project: Project) {
     canIntake: canReviewIntake(user, project),
     canTlReview: canTlFinalReview(user, project),
     canEscalate: canEscalateProject(user, project) && project.status === 'ACTIVE',
-    canComplete: canManageProject(user, project) && project.status === 'ACTIVE',
+    canHandover: canHandoverProject(user, project),
+    canComplete: canCloseProject(user, project),
     intake_status: intake,
   };
 }
@@ -198,26 +218,30 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
         : `${user.name} assigned ${next.code} directly to ${assignee.name}.`,
     new_value: assignee.id,
   });
-  notify(assignee.id, {
-    type: 'ACTION_REQUIRED',
-    title: path === 'TEAM_LEAD' ? `${next.code} needs your review` : `${next.code} assigned to you`,
+  notify([assignee.id], user, 'PROJECT_ASSIGNED', {
+    entityType: 'PROJECT',
+    entityId: next.id,
+    entityName: next.name,
+    customer: next.customer_name,
+    status: path === 'TEAM_LEAD' ? 'Assigned to Team Lead' : 'Directly Assigned',
     message:
       path === 'TEAM_LEAD'
         ? `${user.name} assigned ${next.customer_name} – ${next.name} for Team Lead review.`
         : `${user.name} assigned ${next.customer_name} – ${next.name} directly to you.`,
-    entity_type: 'PROJECT',
-    entity_id: next.id,
-    action_url: `/projects/${next.id}`,
+    actionUrl: `/projects/${next.id}`,
+    eventKey: `PROJECT_ASSIGNED:${next.id}:${assignee.id}`,
     priority: 'HIGH',
   });
   if (path === 'DIRECT_MEMBER' && teamLeadId && teamLeadId !== assignee.id) {
-    notify(teamLeadId, {
-      type: 'TASK_ASSIGNED',
-      title: `${next.code} assigned to ${assignee.name}`,
+    notify([teamLeadId], user, 'PROJECT_ASSIGNED', {
+      entityType: 'PROJECT',
+      entityId: next.id,
+      entityName: next.name,
+      customer: next.customer_name,
+      status: 'Directly Assigned',
       message: `${user.name} assigned this project directly to ${assignee.name}. You retain team visibility.`,
-      entity_type: 'PROJECT',
-      entity_id: next.id,
-      action_url: `/projects/${next.id}`,
+      actionUrl: `/projects/${next.id}`,
+      eventKey: `PROJECT_ASSIGNED_VISIBLE:${next.id}:${teamLeadId}`,
     });
   }
   return { project: next };
@@ -254,15 +278,18 @@ export function reviewProjectIntake(user: User, project: Project, action: 'accep
       ? `${user.name} accepted ${next.code}.`
       : `${user.name} returned ${next.code} to PM: ${note}`,
   });
-  notify(next.pm_id, {
-    type: accepted ? 'LEAD_ACCEPTED' : 'ACTION_REQUIRED',
-    title: accepted ? `${next.code} accepted by Team Lead` : `${next.code} returned by Team Lead`,
+  notify([next.pm_id], user, accepted ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED_TO_PM', {
+    entityType: 'PROJECT',
+    entityId: next.id,
+    entityName: next.name,
+    customer: next.customer_name,
+    status: accepted ? 'Project Accepted' : 'Returned to PM',
+    comments: note,
     message: accepted
       ? `${user.name} accepted ${next.customer_name} – ${next.name} and will break it into tasks.`
       : `${user.name} returned ${next.customer_name} – ${next.name}: ${note}`,
-    entity_type: 'PROJECT',
-    entity_id: next.id,
-    action_url: `/projects/${next.id}`,
+    actionUrl: `/projects/${next.id}`,
+    eventKey: `${accepted ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED_TO_PM'}:${next.id}`,
     priority: accepted ? 'MEDIUM' : 'HIGH',
   });
   return { project: next };
@@ -298,13 +325,16 @@ export function markTlFinalReview(user: User, project: Project, comments?: strin
     action: 'TL_FINAL_REVIEW',
     description: `${user.name} completed Team Lead final review on ${next.code}${note ? `: ${note}` : '.'}`,
   });
-  notify(next.pm_id, {
-    type: 'APPROVAL_REQUIRED',
-    title: `${next.code} ready for PM approval`,
-    message: `${user.name} completed Team Lead review. Please approve and close the project.`,
-    entity_type: 'PROJECT',
-    entity_id: next.id,
-    action_url: `/projects/${next.id}`,
+  notify([next.pm_id], user, 'FINAL_REVIEW_REQUIRED', {
+    entityType: 'PROJECT',
+    entityId: next.id,
+    entityName: next.name,
+    customer: next.customer_name,
+    status: 'Project Completed – Pending Final Review',
+    comments: note,
+    message: `${user.name} completed Team Lead review. Please approve handover and close the project.`,
+    actionUrl: `/projects/${next.id}`,
+    eventKey: `FINAL_REVIEW_REQUIRED:${next.id}`,
     priority: 'HIGH',
   });
   return { project: next };
@@ -405,14 +435,17 @@ export function notifyEscalationOwner(escalation: Escalation, actorName: string)
     ? store.getProjects().find((item) => item.id === escalation.project_id)
     : undefined;
   const owner = actorForLevel(project, escalation.current_level);
-  notify(owner?.id, {
-    type: 'ESCALATION',
-    title: `${escalation.code} needs ${escalation.current_level.replace('_', ' ')} action`,
+  const critical = escalation.current_level === 'CEO' || escalation.severity === 'CRITICAL';
+  notify([owner?.id], { name: actorName } as User, critical ? 'CRITICAL_ESCALATION' : 'ISSUE_ESCALATED', {
+    entityType: 'ESCALATION',
+    entityId: escalation.id,
+    entityName: escalation.issue,
+    customer: escalation.customer_name,
+    status: critical ? 'LEVEL 4 Escalation' : `Escalated to ${escalation.current_level}`,
     message: `${actorName} raised ${escalation.severity.toLowerCase()} issue: ${escalation.issue}`,
-    entity_type: 'ESCALATION',
-    entity_id: escalation.id,
-    action_url: `/dashboard/ceo/escalations/${escalation.id}`,
-    priority: escalation.severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH',
+    actionUrl: `/dashboard/ceo/escalations/${escalation.id}`,
+    eventKey: `ISSUE_ESCALATED:${escalation.id}:${escalation.current_level}`,
+    priority: critical ? 'CRITICAL' : 'HIGH',
   });
 }
 
@@ -488,26 +521,30 @@ export function resolveEscalation(user: User, escalation: Escalation, decision: 
     action: 'ESCALATION_RESOLVED',
     description: `${user.name} resolved ${next.code}: ${note}`,
   });
-  notify(next.raised_by_id, {
-    type: 'STATUS_CHANGED',
-    title: `${next.code} resolved`,
+  notify([next.raised_by_id], user, 'ISSUE_RESOLVED', {
+    entityType: 'ESCALATION',
+    entityId: next.id,
+    entityName: next.issue,
+    status: 'Issue Resolved',
+    comments: note,
     message: `${user.name} resolved the issue. Continue execution: ${note}`,
-    entity_type: 'ESCALATION',
-    entity_id: next.id,
-    action_url: next.project_id ? `/projects/${next.project_id}` : `/dashboard/ceo/escalations/${next.id}`,
+    actionUrl: next.project_id ? `/projects/${next.project_id}` : `/dashboard/ceo/escalations/${next.id}`,
+    eventKey: `ISSUE_RESOLVED:${next.id}`,
   });
   if (next.project_id) {
     const project = store.getProjects().find((item) => item.id === next.project_id);
     if (project) {
       persistProject({ ...project, issue: undefined, last_update_at: now });
       if (project.pm_id !== next.raised_by_id) {
-        notify(project.pm_id, {
-          type: 'STATUS_CHANGED',
-          title: `${next.code} resolved`,
+        notify([project.pm_id], user, 'ISSUE_RESOLVED', {
+          entityType: 'PROJECT',
+          entityId: project.id,
+          entityName: project.name,
+          customer: project.customer_name,
+          status: 'Issue Resolved',
           message: `${user.name} resolved ${project.code}. Work can continue.`,
-          entity_type: 'PROJECT',
-          entity_id: project.id,
-          action_url: `/projects/${project.id}`,
+          actionUrl: `/projects/${project.id}`,
+          eventKey: `ISSUE_RESOLVED:${next.id}:${project.id}`,
         });
       }
     }

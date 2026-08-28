@@ -19,7 +19,7 @@ import {
 
 // v6 — Phase 3A Architecture Correction (Lead-centric multi-team feasibility)
 const STORAGE_KEYS = {
-  USERS: 'cya_users_v9',
+  USERS: 'cya_users_v10',
   ROLES: 'cya_roles_v6',
   TEAMS: 'cya_teams_v8',
   AUDITS: 'cya_audits_v7',
@@ -39,6 +39,9 @@ const STORAGE_KEYS = {
 };
 
 const RETIRED_DEMO_USER_IDS = new Set([
+  'u-ceo',
+  'u-bh',
+  'u-ed',
   'u-robotlead1',
   'u-emp-sw',
   'u-emp-sw-2',
@@ -76,7 +79,7 @@ export class StorageService {
     }
     const parsed: User[] = JSON.parse(stored);
     const seedById = new Map(INITIAL_USERS.map((u) => [u.id, u]));
-    const named = new Set(['u-ceo', 'u-bh', 'u-ed']);
+    const named = new Set<string>();
     const overlayed = parsed
       .filter((user) => !RETIRED_DEMO_USER_IDS.has(user.id))
       .map((user) => {

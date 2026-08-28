@@ -110,13 +110,27 @@ export function resolveSignupReportingManager(): { ok: true; manager: User } | {
     users.find((user) => user.role_code === 'BUSINESS_HEAD') ||
     users[0];
 
-  if (!fallback) {
-    return {
-      ok: false,
-      message: 'Your account request was created, but no Reporting Manager is configured. Please contact Admin.',
-    };
-  }
-  return { ok: true, manager: fallback };
+  if (fallback) return { ok: true, manager: fallback };
+
+  const notifyEmail = env.invitationNotifyEmails[0] || env.supportEmail || 'admin@careyu.ai';
+  const now = new Date().toISOString();
+  return {
+    ok: true,
+    manager: {
+      id: 'system-invite',
+      employee_id: '',
+      name: 'CareYu Admin',
+      email: notifyEmail,
+      phone: '',
+      role_id: '',
+      role_code: 'CEO',
+      role_name: 'Admin',
+      status: 'ACTIVE',
+      account_status: 'ACTIVE',
+      created_at: now,
+      updated_at: now,
+    },
+  };
 }
 
 export function publicUser(user: User): User {

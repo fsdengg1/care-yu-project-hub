@@ -23,6 +23,9 @@ import {
   canPrepareCosting,
   canPrepareFeasibility,
   handLeadToBusinessHead,
+  handLeadToProcurement,
+  approveLeadForAssignment,
+  reviewLeadTeamIntake,
   convertLeadToProject,
   costingTotal,
   emptyCosting,
@@ -33,7 +36,6 @@ import {
   hydrateLead,
   isProcurementUser,
   newId,
-  notify,
   parseMoney,
   removeDocument,
   saveLead,
@@ -50,7 +52,7 @@ import {
   validateLeadPayload,
 } from '../lib/leadValidation.js';
 import { transact } from '../store/db.js';
-import { dispatchHandover } from '../lib/lifecycleNotify.js';
+import { documentNamesForLead, emitLeadWorkflow, emitWorkflowEvent } from '../lib/workflowEngine.js';
 import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
 import { canAccessEntity } from '../lib/documents.js';
 import { notificationService } from '../lib/notificationService.js';
@@ -101,30 +103,43 @@ function forbidden(
 }
 
 function recordPmSubmissionNotification(lead: Lead, actor: User, pmId: string) {
-  dispatchHandover({
-    recipientIds: [pmId],
+  emitLeadWorkflow({
+    event: 'PROJECT_SUBMITTED',
+    lead,
     actor,
-    entityType: 'LEAD',
-    entityId: lead.id,
-    entityName: lead.title,
-    customer: lead.customer_name,
-    title: `Project Submitted for PM Review – ${lead.title}`,
+    recipientIds: [pmId],
     message: `${actor.name} submitted ${lead.lead_number} – ${lead.customer_name} for PM review.`,
-    actionRequired: 'Review Project',
-    ctaLabel: 'Open Project',
-    actionUrl: `/pre-sales/leads/${lead.id}`,
-    type: 'NEW_LEAD_TO_PM',
-    status: 'Submitted to PM',
-    dueDate: lead.customer_target_date || lead.expected_project_timeline,
-    assignedBy: actor.name,
     details: [
-      ['Project name', lead.title],
-      ['Requirements', lead.requirement_summary || lead.detailed_requirement || lead.required_solution || ''],
-      ['Priority', String(lead.priority || 'Medium')],
-      ['Timeline', lead.expected_project_timeline || lead.customer_target_date || ''],
+      ['Documents', documentNamesForLead(lead.id)],
+      ['Submission date/time', lead.submitted_at || new Date().toISOString()],
     ],
-    priority: lead.priority === 'Critical' ? 'CRITICAL' : 'HIGH',
-    eventKey: `LEAD_SUBMITTED_PM:${lead.id}:${pmId}:${lead.submitted_at || lead.assigned_at}`,
+  });
+}
+
+function notifyOrderConverted(actor: User, lead: Lead, project: { id: string; name: string; code: string; customer_name: string; pm_id?: string; team_lead_id?: string; team_ids?: string[] }) {
+  const teamMembers = store
+    .getUsers()
+    .filter((item) => item.status === 'ACTIVE' && item.team_id && (project.team_ids || []).includes(item.team_id))
+    .map((item) => item.id);
+  emitLeadWorkflow({
+    event: 'NEGOTIATION_COMPLETED',
+    lead,
+    actor,
+    recipientIds: [project.pm_id],
+    message: `${actor.name} completed negotiation for ${lead.lead_number}.`,
+  });
+  emitWorkflowEvent({
+    event: 'ORDER_CONVERTED',
+    actor,
+    entityType: 'PROJECT',
+    entityId: project.id,
+    entityName: project.name,
+    recipientIds: [project.pm_id, project.team_lead_id, ...teamMembers],
+    customer: project.customer_name,
+    status: 'Order Converted',
+    message: `${actor.name} converted ${lead.lead_number} to ${project.code}. Execution can begin.`,
+    actionUrl: `/projects/${project.id}`,
+    eventKey: `ORDER_CONVERTED:${project.id}`,
   });
 }
 
@@ -452,28 +467,19 @@ router.post('/:id/accept', requireAuth, async (req: AuthedRequest, res) => {
   try {
     const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
     comment(result.lead, user, req.body?.notes || 'Accepted and assigned to team.', 'PM Review');
-    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
-      try {
-        await notificationService.notifyForward({
-          entityType: 'LEAD',
-          entityId: result.lead.id,
-          entityName: result.lead.title,
-          recipientUserId: result.lead.responsible_user_id,
-          assignedByUserId: user.id,
-          previousUserId: result.previousResponsibleUserId,
-          reason: req.body?.notes || `Assigned to ${result.lead.assigned_team_name}`,
-          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
-        });
-      } catch (error) {
-        console.error('[leads] accept assignment notification failed', error);
-      }
-    }
     audit(
       user,
       result.lead,
       'LEAD_ACCEPTED',
       `${user.name} accepted ${lead.lead_number} and assigned ${result.lead.assigned_team_name}.`
     );
+    emitLeadWorkflow({
+      event: 'PROJECT_ASSIGNED',
+      lead: result.lead,
+      actor: user,
+      comments: req.body?.notes,
+      message: `${user.name} accepted "${lead.title}" and assigned ${result.lead.assigned_team_name}.`,
+    });
     return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
   } catch (error) {
     return workflowError(res, error);
@@ -504,13 +510,13 @@ router.post('/:id/cancel', requireAuth, requirePermission('review:lead', 'assign
   });
   comment(updated, user, reason, 'PM Review');
   audit(user, updated, 'LEAD_CANCELLED', `${user.name} cancelled ${lead.lead_number}: ${reason}`);
-  notify({
-    recipient_id: lead.created_by_id,
-    type: 'STATUS_CHANGED',
-    title: `Lead cancelled: ${lead.lead_number}`,
+  emitLeadWorkflow({
+    event: 'PROJECT_CANCELLED',
+    lead: updated,
+    actor: user,
+    comments: reason,
     message: `${user.name} cancelled "${lead.title}". Reason: ${reason}`,
-    entity_type: 'LEAD',
-    entity_id: lead.id,
+    extraRecipientIds: [lead.assigned_team_lead_id, lead.pm_id],
   });
   return res.json(payloadFor(updated));
 });
@@ -596,39 +602,51 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
     }
     comment(updated, user, reason, 'Information Request');
     audit(user, updated, 'LEAD_RETURNED_TO_SALES', `${user.name} returned ${lead.lead_number}: ${reason}`);
+    emitLeadWorkflow({
+      event: 'PROJECT_SENT_BACK',
+      lead: updated,
+      actor: user,
+      comments: reason,
+      message: `${user.name} sent "${lead.title}" back for correction.`,
+    });
+    return res.json(payloadFor(updated));
+  }
+
+  if (action === 'approve') {
+    const updated = approveLeadForAssignment(lead, user, req.body?.notes);
+    comment(updated, user, req.body?.notes || 'PM review completed — ready for assignment.', 'PM Review');
+    audit(user, updated, 'LEAD_APPROVED', `${user.name} approved ${lead.lead_number} for assignment.`);
+    emitLeadWorkflow({
+      event: 'PROJECT_APPROVED',
+      lead: updated,
+      actor: user,
+      comments: req.body?.notes,
+      message: `${user.name} approved "${lead.title}". Ready for team assignment.`,
+    });
     return res.json(payloadFor(updated));
   }
 
   if (action !== 'approve_assign') {
-    return res.status(400).json({ message: 'Action must be approve_assign or return.' });
+    return res.status(400).json({ message: 'Action must be approve, approve_assign, or return.' });
   }
   const teamId = String(req.body?.team_id || '').trim();
   if (!teamId) return res.status(400).json({ message: 'Select a functional team from Organization Management.' });
   try {
     const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
     comment(result.lead, user, req.body?.notes || 'Approved and assigned to team.', 'PM Review');
-    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
-      try {
-        await notificationService.notifyForward({
-          entityType: 'LEAD',
-          entityId: result.lead.id,
-          entityName: result.lead.title,
-          recipientUserId: result.lead.responsible_user_id,
-          assignedByUserId: user.id,
-          previousUserId: result.previousResponsibleUserId,
-          reason: req.body?.notes || `Assigned to ${result.lead.assigned_team_name}`,
-          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
-        });
-      } catch (error) {
-        console.error('[leads] assign notification failed', error);
-      }
-    }
     audit(
       user,
       result.lead,
       'LEAD_ASSIGNED_TO_TEAM',
       `${user.name} assigned ${lead.lead_number} to ${result.lead.assigned_team_name}.`
     );
+    emitLeadWorkflow({
+      event: 'PROJECT_ASSIGNED',
+      lead: result.lead,
+      actor: user,
+      comments: req.body?.notes,
+      message: `${user.name} assigned "${lead.title}" to ${result.lead.assigned_team_name}.`,
+    });
     return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
   } catch (error) {
     const err = error as Error & { status?: number };
@@ -651,26 +669,55 @@ router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), async 
       req.body?.team_lead_id,
       req.body?.notes || req.body?.pm_instructions
     );
-    if (result.lead.responsible_user_id && result.lead.responsible_user_id !== user.id) {
-      try {
-        await notificationService.notifyForward({
-          entityType: 'LEAD',
-          entityId: result.lead.id,
-          entityName: result.lead.title,
-          recipientUserId: result.lead.responsible_user_id,
-          assignedByUserId: user.id,
-          previousUserId: result.previousResponsibleUserId,
-          reason: req.body?.notes || req.body?.pm_instructions,
-          eventKey: `LEAD_FORWARDED:${result.lead.id}:${result.lead.responsible_user_id}:${result.lead.assigned_at}`,
-        });
-      } catch (error) {
-        console.error('[leads] assign notification failed', error);
-      }
-    }
+    emitLeadWorkflow({
+      event: 'PROJECT_ASSIGNED',
+      lead: result.lead,
+      actor: user,
+      comments: req.body?.notes || req.body?.pm_instructions,
+      message: `${user.name} assigned "${lead.title}" to ${result.lead.assigned_member_name || result.lead.assigned_team_name}.`,
+    });
     return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
   } catch (error) {
     const err = error as Error & { status?: number };
     return res.status(err.status || 400).json({ message: err.message });
+  }
+});
+
+router.post('/:id/team-intake', requireAuth, async (req: AuthedRequest, res) => {
+  const user = req.user!;
+  const lead = findLead(paramId(req));
+  if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+  const action = String(req.body?.action || '').toLowerCase() === 'return' ? 'return' : 'accept';
+  try {
+    const updated = reviewLeadTeamIntake(lead, user, action, req.body?.comments);
+    comment(
+      updated,
+      user,
+      req.body?.comments || (action === 'accept' ? 'Team Lead accepted the project.' : 'Returned to PM'),
+      'PM Review'
+    );
+    audit(
+      user,
+      updated,
+      action === 'accept' ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED_TO_PM',
+      action === 'accept'
+        ? `${user.name} accepted ${lead.lead_number}.`
+        : `${user.name} returned ${lead.lead_number} to PM.`
+    );
+    emitLeadWorkflow({
+      event: action === 'accept' ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED_TO_PM',
+      lead: updated,
+      actor: user,
+      comments: req.body?.comments,
+      actionUrl: `/pre-sales/leads/${updated.id}`,
+      message:
+        action === 'accept'
+          ? `${user.name} accepted "${lead.title}" and will start feasibility.`
+          : `${user.name} returned "${lead.title}" to the Project Manager.`,
+    });
+    return res.json(payloadFor(updated));
+  } catch (error) {
+    return workflowError(res, error);
   }
 });
 
@@ -680,10 +727,12 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
   if (!canPrepareFeasibility(user, lead) && !isPm(user)) return forbidden(res, 'Only the assigned team can update feasibility.');
   const submit = Boolean(req.body?.submit);
+  const start = Boolean(req.body?.start);
   const current = lead.feasibility_study || emptyFeasibility();
   if (current.status === 'APPROVED' && !isPm(user)) {
     return forbidden(res, 'Approved feasibility is read-only.');
   }
+  const now = new Date().toISOString();
   const study: FeasibilityStudy = emptyFeasibility({
     ...current,
     ...req.body?.study,
@@ -691,7 +740,10 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
     status: submit ? 'SUBMITTED' : 'DRAFT',
     submitted_by: submit ? user.name : current.submitted_by,
     submitted_by_id: submit ? user.id : current.submitted_by_id,
-    submitted_at: submit ? new Date().toISOString() : current.submitted_at,
+    submitted_at: submit ? now : current.submitted_at,
+    started_at: start || submit ? current.started_at || now : current.started_at,
+    started_by: start || submit ? current.started_by || user.name : current.started_by,
+    started_by_id: start || submit ? current.started_by_id || user.id : current.started_by_id,
   });
   const nextStatus: LeadStatus = submit
     ? 'FEASIBILITY_SUBMITTED'
@@ -712,34 +764,27 @@ router.post('/:id/feasibility', requireAuth, requirePermission('create:feasibili
         pending_action: true,
       });
     }
-    notify({
-      recipient_id: pm?.id || findPm()?.id || '',
-      type: 'FEASIBILITY_SUBMITTED_TO_PM',
-      title: `Feasibility Submitted – Review Required – ${lead.title}`,
-      message: `${user.name} submitted feasibility for "${lead.title}".`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
-      action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
+    emitLeadWorkflow({
+      event: 'FEASIBILITY_SUBMITTED',
+      lead: updated,
+      actor: user,
+      comments: study.team_remarks,
+      details: [
+        ['Submitted by', user.name],
+        ['Completion date', study.submitted_at || ''],
+        ['Feasibility report', study.proposed_solution || study.technical_feasibility || ''],
+        ['Documents', (study.documents || []).join(', ')],
+      ],
     });
     audit(user, updated, 'FEASIBILITY_SUBMITTED', `${user.name} submitted feasibility for ${lead.lead_number}.`);
   } else {
     audit(user, updated, 'FEASIBILITY_SAVED', `${user.name} saved feasibility for ${lead.lead_number}.`);
-    if (nextStatus === 'FEASIBILITY_IN_PROGRESS' && lead.status !== 'FEASIBILITY_IN_PROGRESS') {
-      dispatchHandover({
-        recipientIds: [updated.assigned_team_lead_id, updated.pm_id],
+    if (nextStatus === 'FEASIBILITY_IN_PROGRESS' && (start || lead.status !== 'FEASIBILITY_IN_PROGRESS' || !current.started_at)) {
+      emitLeadWorkflow({
+        event: 'FEASIBILITY_STARTED',
+        lead: updated,
         actor: user,
-        entityType: 'LEAD',
-        entityId: updated.id,
-        entityName: updated.title,
-        customer: updated.customer_name,
-        title: `Feasibility In Progress – ${updated.title}`,
         message: `${user.name} started feasibility for ${updated.lead_number}.`,
-        actionRequired: 'Monitor feasibility progress',
-        ctaLabel: 'Open Feasibility',
-        actionUrl: `/pre-sales/leads/${updated.id}?tab=feasibility`,
-        type: 'FEASIBILITY_READY_TO_START',
-        status: 'Feasibility In Progress',
-        eventKey: `FEASIBILITY_STARTED:${updated.id}`,
       });
     }
   }
@@ -759,41 +804,41 @@ router.post(
       return res.status(400).json({ message: 'Feasibility is not awaiting PM approval.' });
     }
     const action = req.body?.action as string;
-    if (action === 'return') {
+    if (action === 'return' || action === 'reject') {
       const reason = String(req.body?.reason || '').trim();
-      if (!reason) return res.status(400).json({ message: 'A return reason is required.' });
-      const study = emptyFeasibility({ ...(lead.feasibility_study || {}), status: 'RETURNED', pm_return_reason: reason });
-      const updated = transitionLead(lead, 'FEASIBILITY_RETURNED', user, reason, {
+      if (!reason) return res.status(400).json({ message: 'A reason is required.' });
+      const rejected = action === 'reject';
+      const study = emptyFeasibility({
+        ...(lead.feasibility_study || {}),
+        status: rejected ? 'REJECTED' : 'RETURNED',
+        pm_return_reason: reason,
+      });
+      const updated = transitionLead(lead, rejected ? 'FEASIBILITY_REJECTED' : 'FEASIBILITY_RETURNED', user, reason, {
         feasibility_study: study,
         feasibility_return_reason: reason,
+        pending_action: !rejected,
       });
-      notify({
-        recipient_id: lead.assigned_team_lead_id || '',
-        type: 'FEASIBILITY_RETURNED_TO_TEAM',
-        title: `Feasibility Correction Required – ${lead.title}`,
-        message: `Feasibility requires correction. Please review the PM comments and resubmit.`,
-        entity_type: 'LEAD',
-        entity_id: lead.id,
-        action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
-      });
-      const allocations = store
-        .getFeasibilityEmployeeAllocations()
-        .filter((item) => item.lead_id === lead.id);
-      for (const allocation of allocations) {
-        if (allocation.employee_id && allocation.employee_id !== lead.assigned_team_lead_id) {
-          notify({
-            recipient_id: allocation.employee_id,
-            type: 'FEASIBILITY_RETURNED_TO_TEAM',
-            title: `Feasibility Correction Required – ${lead.title}`,
-            message: `${user.name}: ${reason}`,
-            entity_type: 'LEAD',
-            entity_id: lead.id,
-            action_url: `/pre-sales/leads/${lead.id}?tab=feasibility`,
-          });
-        }
+      const owner =
+        store.findUserById(lead.assigned_member_id || '') ||
+        store.findUserById(lead.assigned_team_lead_id || '');
+      let next = updated;
+      if (!rejected && owner) {
+        const transferred = transferLeadResponsibility(updated, owner, user, reason);
+        next = saveLead({ ...transferred.lead, pending_action: true });
       }
-      audit(user, updated, 'FEASIBILITY_RETURNED', `${user.name} returned feasibility for ${lead.lead_number}.`);
-      return res.json(payloadFor(updated));
+      const allocations = store.getFeasibilityEmployeeAllocations().filter((item) => item.lead_id === lead.id);
+      emitLeadWorkflow({
+        event: rejected ? 'FEASIBILITY_REJECTED' : 'FEASIBILITY_SENT_BACK',
+        lead: next,
+        actor: user,
+        comments: reason,
+        extraRecipientIds: allocations.map((item) => item.employee_id),
+        message: rejected
+          ? `${user.name} rejected feasibility for "${lead.title}". Reason: ${reason}`
+          : 'Feasibility requires correction. Please review the PM comments and resubmit.',
+      });
+      audit(user, next, rejected ? 'FEASIBILITY_REJECTED' : 'FEASIBILITY_RETURNED', `${user.name} ${rejected ? 'rejected' : 'returned'} feasibility for ${lead.lead_number}.`);
+      return res.json(payloadFor(next));
     }
     const study = emptyFeasibility({
       ...(lead.feasibility_study || {}),
@@ -802,21 +847,15 @@ router.post(
       pm_approved_at: new Date().toISOString(),
     });
     const updated = transitionLead(lead, 'COSTING_IN_PROGRESS', user, 'Feasibility approved', { feasibility_study: study });
-    store
-      .getUsers()
-      .filter(isProcurementUser)
-      .forEach((member) => {
-        notify({
-          recipient_id: member.id,
-          type: 'COSTING_ASSIGNED',
-          title: `Procurement Pending – ${lead.title}`,
-          message: `Feasibility approved for "${lead.title}". Start vendor identification, costing, and procurement documentation.`,
-          entity_type: 'LEAD',
-          entity_id: lead.id,
-        });
-      });
-    audit(user, updated, 'FEASIBILITY_APPROVED', `${user.name} approved feasibility for ${lead.lead_number}.`);
-    return res.json(payloadFor(updated));
+    const handed = handLeadToProcurement(updated, user, 'Feasibility approved — procurement pending');
+    emitLeadWorkflow({
+      event: 'FEASIBILITY_APPROVED',
+      lead: handed,
+      actor: user,
+      message: `Feasibility approved for "${lead.title}". Start vendor identification, costing, and procurement documentation.`,
+    });
+    audit(user, handed, 'FEASIBILITY_APPROVED', `${user.name} approved feasibility for ${lead.lead_number}.`);
+    return res.json(payloadFor(handed));
   }
 );
 
@@ -864,13 +903,12 @@ router.post('/:id/costing', requireAuth, requirePermission('create:costing', 'vi
         pending_action: true,
       });
     }
-    notify({
-      recipient_id: pm?.id || findPm()?.id || '',
-      type: 'COSTING_SUBMITTED_TO_PM',
-      title: `Procurement Submitted – Review Required – ${lead.title}`,
+    emitLeadWorkflow({
+      event: 'PROCUREMENT_SUBMITTED',
+      lead: updated,
+      actor: user,
+      details: [['Total estimated cost', `₹ ${record.total_estimated_cost.toLocaleString('en-IN')}`]],
       message: `${user.name} submitted procurement/costing totalling ₹ ${record.total_estimated_cost.toLocaleString('en-IN')}.`,
-      entity_type: 'LEAD',
-      entity_id: lead.id,
     });
     audit(user, updated, 'COSTING_SUBMITTED', `${user.name} submitted costing for ${lead.lead_number}.`);
   }
@@ -888,28 +926,33 @@ router.post(
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
     if (lead.status !== 'COSTING_SUBMITTED') return res.status(400).json({ message: 'Costing is not awaiting PM approval.' });
     const action = req.body?.action as string;
-    if (action === 'return') {
+    if (action === 'return' || action === 'reject') {
       const reason = String(req.body?.reason || '').trim();
       if (!reason) return res.status(400).json({ message: 'A return reason is required.' });
-      const record = emptyCosting({ ...(lead.costing || {}), status: 'RETURNED', pm_return_reason: reason });
-      const updated = transitionLead(lead, 'COSTING_RETURNED', user, reason, {
+      const rejected = action === 'reject';
+      const record = emptyCosting({
+        ...(lead.costing || {}),
+        status: rejected ? 'REJECTED' : 'RETURNED',
+        pm_return_reason: reason,
+      });
+      let updated = transitionLead(lead, rejected ? 'COSTING_REJECTED' : 'COSTING_RETURNED', user, reason, {
         costing: record,
         costing_return_reason: reason,
+        pending_action: !rejected,
       });
-      store
-        .getUsers()
-        .filter(isProcurementUser)
-        .forEach((member) => {
-          notify({
-            recipient_id: member.id,
-            type: 'COSTING_RETURNED',
-            title: `Procurement Correction Required – ${lead.title}`,
-            message: `${user.name} requested revision: "${reason}"`,
-            entity_type: 'LEAD',
-            entity_id: lead.id,
-          });
-        });
-      audit(user, updated, 'COSTING_RETURNED', `${user.name} returned costing for ${lead.lead_number}.`);
+      if (!rejected) {
+        updated = handLeadToProcurement(updated, user, reason);
+      }
+      emitLeadWorkflow({
+        event: rejected ? 'PROCUREMENT_REJECTED' : 'PROCUREMENT_SENT_BACK',
+        lead: updated,
+        actor: user,
+        comments: reason,
+        message: rejected
+          ? `${user.name} rejected procurement for "${lead.title}". Reason: ${reason}`
+          : `${user.name} requested procurement revision: "${reason}"`,
+      });
+      audit(user, updated, rejected ? 'COSTING_REJECTED' : 'COSTING_RETURNED', `${user.name} ${rejected ? 'rejected' : 'returned'} costing for ${lead.lead_number}.`);
       return res.json(payloadFor(updated));
     }
     const record = emptyCosting({
@@ -923,18 +966,11 @@ router.post(
       expected_value: record.total_estimated_cost || lead.expected_value,
     });
     updated = handLeadToBusinessHead(updated, user, 'Costing approved — ready for quotation');
-    const commercialRecipients = new Set(
-      [updated.current_owner_id, updated.responsible_user_id, lead.created_by_id].filter(Boolean) as string[]
-    );
-    commercialRecipients.forEach((recipientId) => {
-      notify({
-        recipient_id: recipientId,
-        type: 'QUOTATION_READY',
-        title: `Quotation Preparation Required – ${lead.title}`,
-        message: `Costing approved for "${lead.title}". Prepare the customer quotation.`,
-        entity_type: 'LEAD',
-        entity_id: lead.id,
-      });
+    emitLeadWorkflow({
+      event: 'PROCUREMENT_APPROVED',
+      lead: updated,
+      actor: user,
+      message: `Procurement approved for "${lead.title}". Prepare the customer quotation.`,
     });
     audit(user, updated, 'COSTING_APPROVED', `${user.name} approved costing for ${lead.lead_number}.`);
     return res.json(payloadFor(updated));
@@ -977,22 +1013,11 @@ router.post(
       `${user.name} ${send ? 'sent' : 'saved'} quotation for ${lead.lead_number}.`
     );
     if (send) {
-      const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
-      dispatchHandover({
-        recipientIds: [pm?.id, updated.pm_id],
+      emitLeadWorkflow({
+        event: 'QUOTATION_SUBMITTED',
+        lead: updated,
         actor: user,
-        entityType: 'LEAD',
-        entityId: updated.id,
-        entityName: updated.title,
-        customer: updated.customer_name,
-        title: `Quotation Submitted – ${updated.title}`,
         message: `${user.name} submitted the quotation. Negotiation can now begin.`,
-        actionRequired: 'Review quotation / follow negotiation',
-        ctaLabel: 'Open Lead',
-        actionUrl: `/pre-sales/leads/${updated.id}`,
-        type: 'QUOTATION_READY',
-        status: 'Quotation Submitted',
-        eventKey: `QUOTATION_SUBMITTED:${updated.id}:${updated.quotation?.sent_at || Date.now()}`,
       });
     }
     return res.json(payloadFor(updated));
@@ -1019,27 +1044,7 @@ router.post(
         lead.status === 'NEGOTIATION' ? lead : transitionLead(lead, 'NEGOTIATION', user, 'Moved to negotiation');
       const withHistory = appendNegotiation(working, user, { ...req.body, action: 'CONVERT' });
       const result = convertLeadToProject(withHistory, user);
-      const teamIds = result.project.team_ids || [];
-      const teamMembers = store
-        .getUsers()
-        .filter((item) => item.status === 'ACTIVE' && item.team_id && teamIds.includes(item.team_id))
-        .map((item) => item.id);
-      dispatchHandover({
-        recipientIds: [result.project.pm_id, result.project.team_lead_id, ...teamMembers],
-        actor: user,
-        entityType: 'PROJECT',
-        entityId: result.project.id,
-        entityName: result.project.name,
-        customer: result.project.customer_name,
-        title: `Order Converted – ${result.project.name}`,
-        message: `${user.name} converted ${lead.lead_number} to ${result.project.code}. Execution can begin.`,
-        actionRequired: 'Open project and assign execution work',
-        ctaLabel: 'Open Project',
-        actionUrl: `/projects/${result.project.id}`,
-        type: 'LEAD_CONVERTED',
-        status: 'Order Converted',
-        eventKey: `ORDER_CONVERTED:${result.project.id}`,
-      });
+      notifyOrderConverted(user, result.lead, result.project);
       audit(user, result.lead, 'ORDER_CONVERTED', `${user.name} converted ${lead.lead_number} to ${result.project.code}.`);
       return res.json({ ...payloadFor(result.lead), project: result.project });
     }
@@ -1070,27 +1075,7 @@ router.post('/:id/convert', requireAuth, requirePermission('convert:lead', 'crea
     return res.status(400).json({ message: 'Only quoted opportunities can be converted to an order.' });
   }
   const result = convertLeadToProject(lead, user);
-  const teamIds = result.project.team_ids || [];
-  const teamMembers = store
-    .getUsers()
-    .filter((item) => item.status === 'ACTIVE' && item.team_id && teamIds.includes(item.team_id))
-    .map((item) => item.id);
-  dispatchHandover({
-    recipientIds: [result.project.pm_id, result.project.team_lead_id, ...teamMembers],
-    actor: user,
-    entityType: 'PROJECT',
-    entityId: result.project.id,
-    entityName: result.project.name,
-    customer: result.project.customer_name,
-    title: `Order Converted – ${result.project.name}`,
-    message: `${user.name} converted ${lead.lead_number} to ${result.project.code}. Execution can begin.`,
-    actionRequired: 'Open project and assign execution work',
-    ctaLabel: 'Open Project',
-    actionUrl: `/projects/${result.project.id}`,
-    type: 'LEAD_CONVERTED',
-    status: 'Order Converted',
-    eventKey: `ORDER_CONVERTED:${result.project.id}`,
-  });
+  notifyOrderConverted(user, result.lead, result.project);
   return res.json({ ...payloadFor(result.lead), project: result.project });
 });
 

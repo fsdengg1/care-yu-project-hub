@@ -13,7 +13,7 @@ import {
 import { canOwnLead } from './leadWorkflow.js';
 import { persistComputedProgress } from './projectProgress.js';
 import { buildEscalation, notifyEscalationOwner, saveEscalation } from './projectWorkflow.js';
-import { dispatchHandover } from './lifecycleNotify.js';
+import { emitWorkflowEvent } from './workflowEngine.js';
 
 export const STALE_HOURS = 48; // working-period window for "No Recent Update"
 
@@ -438,26 +438,21 @@ export function notifyForSubmittedUpdate(update: DailyUpdate) {
   const project = update.project_id ? store.getProjects().find((item) => item.id === update.project_id) : undefined;
   const assignee = store.findUserById(update.user_id);
   const isBlocked = update.work_status === 'BLOCKED';
-  dispatchHandover({
-    recipientIds: [project?.pm_id, assignee?.team_lead_id, assignee?.reporting_manager_id],
-    actor: assignee,
+  emitWorkflowEvent({
+    event: isBlocked ? 'ISSUE_RAISED' : 'DAILY_UPDATE_SUBMITTED',
+    actor: assignee || ({ name: update.user_name } as User),
     entityType: 'DAILY_UPDATE',
     entityId: update.id,
     entityName: update.task_title || update.project_name,
+    recipientIds: [project?.pm_id, assignee?.team_lead_id, assignee?.reporting_manager_id],
     customer: update.customer_name || project?.customer_name,
-    title: isBlocked
-      ? `Issue Raised – ${update.project_name}`
-      : `Daily Update Submitted – ${update.project_name}`,
-    message: isBlocked
-      ? `${update.user_name}: BLOCKED — ${update.blocker || update.task_title}`
-      : `${update.user_name} submitted ${update.progress_percent}% on ${update.task_title}.`,
-    actionRequired: isBlocked ? 'Review the blocker and start resolution' : 'Review the daily update',
-    ctaLabel: isBlocked ? 'Review Issue' : 'Open Daily Update',
-    actionUrl: `/daily-updates/${update.id}`,
-    type: isBlocked ? 'DAILY_UPDATE_BLOCKED' : 'DAILY_UPDATE_SUBMITTED',
     status: isBlocked ? 'Issue / Blocker Identified' : 'Daily Update Submitted',
     dueDate: update.work_date,
     comments: [update.blocker, update.next_plan, update.work_completed].filter(Boolean).join(' | '),
+    message: isBlocked
+      ? `${update.user_name}: BLOCKED — ${update.blocker || update.task_title}`
+      : `${update.user_name} submitted ${update.progress_percent}% on ${update.task_title}.`,
+    actionUrl: `/daily-updates/${update.id}`,
     eventKey: `${isBlocked ? 'ISSUE_RAISED' : 'DAILY_UPDATE'}:${update.id}`,
   });
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
 import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
@@ -56,7 +56,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const canFeasibility = canPrepareFeasibility(currentUser) && (
     isAssignedTL ||
     currentUser.team_id === lead.assigned_team_id ||
-    lead.assigned_team_lead_id === currentUser.id
+    lead.assigned_team_lead_id === currentUser.id ||
+    lead.assigned_member_id === currentUser.id
   );
   const canViewFeasibility = canFeasibility || isPM || isCeoViewOnly(currentUser) || ['CTO', 'ENG_DIRECTOR', 'BUSINESS_HEAD'].includes(currentUser.role_code);
   const canCost = canPrepareCosting(currentUser);
@@ -94,10 +95,6 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   });
 
   const selectedTeam = teams.find((team) => team.id === assignTeamId);
-  const teamLeads = useMemo(
-    () => users.filter((user) => user.team_id === assignTeamId && (user.role_code === 'TEAM_LEAD' || user.id === selectedTeam?.team_lead_id)),
-    [users, assignTeamId, selectedTeam]
-  );
 
   const run = async (fn: () => Promise<unknown>, fail = 'Unable to update this lead.') => {
     setBusy(true);
@@ -141,17 +138,63 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
   return (
     <div className="space-y-4">
+      <div className="grid gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Current owner</div><div className="font-semibold text-slate-100">{lead.current_owner_name || lead.responsible_user_name || '—'}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Assigned by</div><div className="font-semibold text-slate-100">{lead.assigned_by_name || '—'}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Action required</div><div className="font-semibold text-cyan-300">{lead.action_required || '—'}</div></div>
+        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Due / next</div><div className="font-semibold text-slate-100">{lead.due_date || lead.next_action || '—'}</div></div>
+      </div>
       {error && (
         <div className="rounded-xl border border-rose-800 bg-rose-950/70 p-3 text-rose-300">{error}</div>
       )}
 
-      {isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM', 'ACCEPTED_FOR_FEASIBILITY'].includes(lead.status) && (
+      {isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-blue-800/80 bg-blue-950/40 p-5">
           <div className="flex items-center gap-2 border-b border-blue-800/60 pb-2 text-sm font-bold text-blue-300">
-            <CheckCircle2 className="h-4 w-4 text-cyan-400" /> Accept & Assign Team
+            <CheckCircle2 className="h-4 w-4 text-cyan-400" /> PM Review
           </div>
-          <p className="text-slate-300">If the project input is complete, assign a functional team. Feasibility starts immediately after this step.</p>
-          {field('Constraints / observations', pmNotes, setPmNotes, 2)}
+          <p className="text-slate-300">Review scope, requirements, documents, and timeline. Approve to continue assignment, send back for correction, or cancel.</p>
+          {field('PM instructions / observations', pmNotes, setPmNotes, 2)}
+          <textarea
+            rows={2}
+            value={returnReason}
+            onChange={(e) => setReturnReason(e.target.value)}
+            placeholder="Required for send back or cancel"
+            className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button
+              disabled={busy}
+              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'approve', notes: pmNotes }))}
+              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+            >
+              <Check className="h-4 w-4" /> Approve
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'return', reason: returnReason, notes: pmNotes }))}
+              className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500 disabled:opacity-50"
+            >
+              <RotateCcw className="h-4 w-4" /> Send Back
+            </button>
+            <button
+              disabled={busy}
+              onClick={() => run(() => LeadApi.cancel(lead.id, returnReason))}
+              className="flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600 disabled:opacity-50"
+            >
+              Cancel / Reject
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isPM && lead.status === 'ACCEPTED_FOR_FEASIBILITY' && (
+        <div className="space-y-4 rounded-xl border border-blue-800/80 bg-blue-950/40 p-5">
+          <div className="flex items-center gap-2 border-b border-blue-800/60 pb-2 text-sm font-bold text-blue-300">
+            <CheckCircle2 className="h-4 w-4 text-cyan-400" /> Team Assignment
+          </div>
+          <p className="text-slate-300">Assign to a Team Lead (they must accept) or directly to a Team Member. You retain PM ownership.</p>
+          {field('Instructions', pmNotes, setPmNotes, 2)}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Functional Team *</label>
@@ -171,48 +214,44 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               </select>
             </div>
             <div>
-              <label className="mb-1 block font-semibold text-slate-300">Team Lead (optional)</label>
+              <label className="mb-1 block font-semibold text-slate-300">Team Lead or Team Member *</label>
               <select
                 value={assignLeadId}
                 onChange={(e) => setAssignLeadId(e.target.value)}
                 className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
               >
                 <option value="">Use team default — {selectedTeam?.team_lead_name || 'Not assigned'}</option>
-                {teamLeads.map((member) => (
+                {users.filter((member) => member.team_id === assignTeamId && ['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER'].includes(member.role_code)).map((member) => (
                   <option key={member.id} value={member.id}>{member.name} — {member.role_name}</option>
                 ))}
               </select>
             </div>
           </div>
-          <textarea
-            rows={2}
-            value={returnReason}
-            onChange={(e) => setReturnReason(e.target.value)}
-            placeholder="Return reason (required only when returning for correction)"
-            className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100"
-          />
+          <button
+            disabled={busy}
+            data-demo="accept-assign-team"
+            onClick={() => {
+              if (!assignTeamId) {
+                setError('Select a functional team.');
+                return;
+              }
+              void run(() => LeadApi.pmReview(lead.id, { action: 'approve_assign', team_id: assignTeamId, team_lead_id: assignLeadId || undefined, notes: pmNotes }));
+            }}
+            className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500 disabled:opacity-50"
+          >
+            <Check className="h-4 w-4" /> Assign project
+          </button>
+        </div>
+      )}
+
+      {isAssignedTL && lead.status === 'ACCEPTED_FOR_FEASIBILITY' && Boolean(lead.assigned_team_id) && (
+        <div className="space-y-3 rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-5">
+          <div className="font-bold text-cyan-300">Team Lead Review</div>
+          <p className="text-slate-300">Review requirements, scope, documents, timeline, and PM instructions. Accept to start feasibility, or return to the PM.</p>
+          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Comments (required if returning to PM)" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex flex-wrap gap-2">
-            <button
-              disabled={busy}
-              data-demo="accept-assign-team"
-              onClick={() => {
-                if (!assignTeamId) {
-                  setError('Select a functional team to accept this lead and start feasibility.');
-                  return;
-                }
-                void run(() => LeadApi.pmReview(lead.id, { action: 'approve_assign', team_id: assignTeamId, team_lead_id: assignLeadId || undefined, notes: pmNotes }));
-              }}
-              className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-            >
-              <Check className="h-4 w-4" /> Accept & Assign Team
-            </button>
-            <button
-              disabled={busy}
-              onClick={() => run(() => LeadApi.pmReview(lead.id, { action: 'return', reason: returnReason, notes: pmNotes }))}
-              className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500 disabled:opacity-50"
-            >
-              <RotateCcw className="h-4 w-4" /> Return for Correction
-            </button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'accept', returnReason))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Accept Project</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Return to PM</button>
           </div>
         </div>
       )}
@@ -238,8 +277,17 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           </div>
           {field('Technical assumptions', study.technical_assumptions, (v) => setStudy({ ...study, technical_assumptions: v }), 2, approvedFeasibility)}
           {field('Team remarks', study.team_remarks, (v) => setStudy({ ...study, team_remarks: v }), 2, approvedFeasibility)}
-          {canFeasibility && !approvedFeasibility && lead.status !== 'FEASIBILITY_SUBMITTED' && (
+          {canFeasibility && !approvedFeasibility && ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status) && (
             <div className="flex flex-wrap items-center gap-2">
+              {!study.started_at && lead.status === 'FEASIBILITY_IN_PROGRESS' && (
+                <button
+                  disabled={busy}
+                  onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false, true))}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
+                >
+                  Start Feasibility
+                </button>
+              )}
               <input
                 value={feasibilityDoc}
                 onChange={(e) => setFeasibilityDoc(e.target.value)}
@@ -271,7 +319,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
             <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Return to Team</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.reviewFeasibility(lead.id, 'reject', returnReason))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}
@@ -326,8 +375,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="font-bold text-emerald-300">PM Approval — Costing</div>
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if revision is required" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Costing</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Return for Revision</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}

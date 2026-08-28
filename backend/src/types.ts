@@ -233,11 +233,13 @@ export type LeadStatus =
   | 'RESUBMITTED_TO_PM'
   | 'ACCEPTED_FOR_FEASIBILITY'
   | 'FEASIBILITY_IN_PROGRESS'
-  | 'FEASIBILITY_SUBMITTED'
-  | 'FEASIBILITY_RETURNED'
-  | 'COSTING_IN_PROGRESS'
-  | 'COSTING_SUBMITTED'
-  | 'COSTING_RETURNED'
+    | 'FEASIBILITY_SUBMITTED'
+    | 'FEASIBILITY_RETURNED'
+    | 'FEASIBILITY_REJECTED'
+    | 'COSTING_IN_PROGRESS'
+    | 'COSTING_SUBMITTED'
+    | 'COSTING_RETURNED'
+    | 'COSTING_REJECTED'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'ORDER_CONVERTED'
@@ -353,6 +355,7 @@ export interface LeadStatusHistory {
   new_status: LeadStatus;
   changed_by: string;
   changed_by_id: string;
+  changed_by_role?: string;
   reason?: string;
   created_at: string;
 }
@@ -436,6 +439,9 @@ export interface Lead {
   assigned_team_name?: string;
   assigned_team_lead_id?: string;
   assigned_team_lead_name?: string;
+  assignment_path?: 'TEAM_LEAD' | 'DIRECT_MEMBER';
+  assigned_member_id?: string;
+  assigned_member_name?: string;
   pm_id?: string;
   pm_name?: string;
   project_id?: string;
@@ -478,9 +484,15 @@ export interface Lead {
   next_reminder_at?: string;
   escalated_at?: string;
   escalated_to_user_id?: string;
+  previous_status?: LeadStatus;
+  previous_action?: string;
+  next_action?: string;
+  action_required?: string;
+  due_date?: string;
+  approval_pending?: boolean;
 }
 
-export type WorkflowRecordStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED';
+export type WorkflowRecordStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED' | 'REJECTED';
 
 export interface FeasibilityStudy {
   technical_feasibility: string;
@@ -496,6 +508,9 @@ export interface FeasibilityStudy {
   submitted_by?: string;
   submitted_by_id?: string;
   submitted_at?: string;
+  started_at?: string;
+  started_by?: string;
+  started_by_id?: string;
   pm_approved_by?: string;
   pm_approved_at?: string;
   pm_return_reason?: string;
@@ -545,7 +560,7 @@ export interface NegotiationEntry {
   commercial_changes: string;
   follow_up_date?: string;
   document_name?: string;
-  action: 'UPDATE' | 'REVISED_QUOTATION' | 'CONVERT' | 'LOST';
+  action: 'UPDATE' | 'REVISED_QUOTATION' | 'CONVERT' | 'LOST' | 'COMPLETE';
   created_by: string;
   created_by_id: string;
   created_at: string;
@@ -580,6 +595,10 @@ export interface MyWorkItem {
   href: string;
   priority: PriorityLevel;
   due_date?: string;
+  action_required?: string;
+  current_owner?: string;
+  assigned_by?: string;
+  approval_pending?: boolean;
 }
 
 // ============================================================
@@ -812,7 +831,7 @@ export interface DashboardMetrics {
 }
 
 export type ProjectHealth = 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
-export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'COMPLETED' | 'CANCELLED';
+export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'HANDOVER' | 'COMPLETED' | 'CANCELLED';
 export type ProjectIntakeStatus =
   | 'AWAITING_ASSIGNMENT'
   | 'PENDING_TL_REVIEW'

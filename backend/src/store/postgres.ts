@@ -108,8 +108,19 @@ export function getPool(): pg.Pool {
 
 export async function ensureSchema(): Promise<void> {
   const { USERS_TABLE_DDL } = await import('./usersTable.js');
+  const { RELATIONAL_TABLES, RELATIONAL_TABLE_NAMES, buildCreateTableSql, migrateJsonCollectionsIfNeeded } = await import(
+    './relationalStore.js'
+  );
+  try {
+    const parsedUrl = new URL(env.databaseUrl);
+    const dbName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, '') || '');
+    console.info(`[store] Applying schema on ${parsedUrl.hostname}:${parsedUrl.port}/${dbName}`);
+  } catch {
+    // URL parse failure is non-fatal; connection attempt below will surface a real error.
+  }
   const client = await getPool().connect();
   try {
+    await client.query(`SET search_path TO public`);
     await client.query(`
       CREATE TABLE IF NOT EXISTS store_collections (
         name TEXT PRIMARY KEY,
@@ -118,29 +129,80 @@ export async function ensureSchema(): Promise<void> {
       );
     `);
     await client.query(USERS_TABLE_DDL);
+    for (const def of RELATIONAL_TABLES) {
+      await client.query(buildCreateTableSql(def));
+    }
+    await client.query(`
+      COMMENT ON TABLE store_collections IS 'Legacy JSON backup. Live data is stored in relational tables (roles, teams, leads, ...).';
+      COMMENT ON TABLE users IS 'CareYu PMS user accounts';
+      COMMENT ON TABLE roles IS 'CareYu PMS roles';
+      COMMENT ON TABLE teams IS 'CareYu PMS teams';
+      COMMENT ON TABLE leads IS 'CareYu PMS leads';
+      COMMENT ON VIEW user_directory IS 'Directory projection of users';
+    `);
+    try {
+      await client.query(`ALTER SCHEMA public OWNER TO CURRENT_USER`);
+      await client.query(`
+        GRANT USAGE, CREATE ON SCHEMA public TO CURRENT_USER;
+        GRANT ALL ON ALL TABLES IN SCHEMA public TO CURRENT_USER;
+        GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO CURRENT_USER;
+        GRANT USAGE ON SCHEMA public TO PUBLIC;
+        REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+      `);
+    } catch (error) {
+      console.warn(
+        '[store] Schema grants/owner update skipped:',
+        error instanceof Error ? error.message : error
+      );
+    }
+
+    const jsonRows = await client.query<{ name: string; data: unknown }>(`SELECT name, data FROM store_collections`);
+    const jsonCollections = {} as Record<CollectionName, unknown[]>;
+    for (const name of COLLECTION_NAMES) jsonCollections[name] = [];
+    for (const row of jsonRows.rows) {
+      if ((COLLECTION_NAMES as string[]).includes(row.name)) {
+        jsonCollections[row.name as CollectionName] = Array.isArray(row.data) ? row.data : [];
+      }
+    }
+    const migrated = await migrateJsonCollectionsIfNeeded(client, jsonCollections);
+    if (migrated) {
+      await client.query(`UPDATE store_collections SET data = '[]'::jsonb, updated_at = NOW()`);
+      console.info('[store] Migrated store_collections JSON into relational tables');
+    }
+
+    const tables = await client.query<{ table_name: string }>(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+      ORDER BY table_name
+    `);
+    const names = tables.rows.map((row) => row.table_name);
+    const missing = ['store_collections', 'users', ...RELATIONAL_TABLE_NAMES].filter((name) => !names.includes(name));
+    if (missing.length) {
+      throw new Error(`PMS public schema is missing required tables: ${missing.join(', ')}`);
+    }
+    console.info(`[store] PMS public tables ready: ${names.join(', ')}`);
   } finally {
     client.release();
   }
 }
 
 export async function loadAllCollections(): Promise<Record<CollectionName, unknown[]>> {
-  const result = await getPool().query<{ name: string; data: unknown }>(
-    `SELECT name, data FROM store_collections`
-  );
   const out = {} as Record<CollectionName, unknown[]>;
   for (const name of COLLECTION_NAMES) {
     out[name] = [];
   }
-  for (const row of result.rows) {
-    if ((COLLECTION_NAMES as string[]).includes(row.name)) {
-      out[row.name as CollectionName] = Array.isArray(row.data) ? row.data : [];
-    }
+
+  const { loadRelationalCollections } = await import('./relationalStore.js');
+  const relational = await loadRelationalCollections(getPool());
+  for (const name of COLLECTION_NAMES) {
+    if (name === 'users') continue;
+    const rows = relational[name];
+    if (Array.isArray(rows)) out[name] = rows;
   }
+
   const { loadUsersTable } = await import('./usersTable.js');
-  const tableUsers = await loadUsersTable();
-  if (tableUsers.length) {
-    out.users = tableUsers;
-  }
+  out.users = await loadUsersTable();
   return out;
 }
 
@@ -150,18 +212,19 @@ export async function saveAllCollections(
   const client = await getPool().connect();
   try {
     const { saveUsersTable } = await import('./usersTable.js');
+    const { saveRelationalCollections } = await import('./relationalStore.js');
     await saveUsersTable((collections.users as User[]) ?? []);
     await client.query('BEGIN');
+    await saveRelationalCollections(client, collections);
     for (const name of COLLECTION_NAMES) {
-      const payload = name === 'users' ? [] : (collections[name] ?? []);
       await client.query(
         `
           INSERT INTO store_collections (name, data, updated_at)
-          VALUES ($1, $2::jsonb, NOW())
+          VALUES ($1, '[]'::jsonb, NOW())
           ON CONFLICT (name)
-          DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()
+          DO UPDATE SET data = '[]'::jsonb, updated_at = NOW()
         `,
-        [name, JSON.stringify(payload)]
+        [name]
       );
     }
     await client.query('COMMIT');

@@ -109,6 +109,13 @@ async function start() {
   console.log('Starting CareYu backend...');
   console.log(`[boot] NODE_ENV=${env.nodeEnv} PORT=${env.port} databaseSsl=${env.databaseSsl}`);
 
+  const storeInfo = await initStore();
+  console.log(
+    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
+  );
+  logEmailConfigOnStartup();
+  startNotificationScheduler();
+
   const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`Careyu backend listening on 0.0.0.0:${env.port}`);
   });
@@ -122,13 +129,6 @@ async function start() {
     }
     throw error;
   });
-
-  const storeInfo = await initStore();
-  console.log(
-    `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
-  );
-  logEmailConfigOnStartup();
-  startNotificationScheduler();
 
   const shutdown = async (signal: string) => {
     console.log(`${signal} received, shutting down...`);

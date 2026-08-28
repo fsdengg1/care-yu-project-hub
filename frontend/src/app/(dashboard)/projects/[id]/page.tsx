@@ -332,7 +332,7 @@ export default function ProjectDetailPage() {
       {detail.canManage && (
         <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">PM controls</h2>
-          <p className="text-slate-500">Overall progress is calculated from Gantt tasks. Completion needs Team Lead final review (unless you assigned a member directly) and no open escalations.</p>
+          <p className="text-slate-500">Overall progress is calculated from Gantt tasks. Approve handover after Team Lead final review, then close the project. Open escalations and in-progress tasks block closure.</p>
           <Link href={`/projects/planning?project=${project.id}`} className="inline-flex rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500">
             Open Gantt & Planning
           </Link>
@@ -342,7 +342,8 @@ export default function ProjectDetailPage() {
               <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
                 <option value="ACTIVE">In execution</option>
                 <option value="ON_HOLD">On hold</option>
-                <option value="COMPLETED">Completed</option>
+                <option value="HANDOVER">Ready for handover</option>
+                <option value="COMPLETED">Project closed</option>
               </select>
             </label>
             <label className="block">

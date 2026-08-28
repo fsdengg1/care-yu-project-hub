@@ -19,7 +19,7 @@ import {
   persistRefreshedProjects,
 } from './projects.js';
 import { ganttStatus, persistComputedProgress, phaseProgress } from './projectProgress.js';
-import { notificationService } from './notificationService.js';
+import { emitWorkflowEvent } from './workflowEngine.js';
 import { applyTaskLifecycle } from './workTasks.js';
 
 const DEFAULT_PHASES = [
@@ -105,14 +105,20 @@ function audit(user: User, action: string, description: string, entity: { id: st
 function notifyAssignee(task: Task, actor: User) {
   if (!task.assigned_to_id || task.assigned_to_id === actor.id) return;
   const now = task.updated_at || new Date().toISOString();
-  void notificationService.notifyAssignment({
+  const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
+  emitWorkflowEvent({
+    event: 'TASK_ASSIGNED',
+    actor,
     entityType: 'TASK',
     entityId: task.id,
     entityName: task.title,
-    recipientUserId: task.assigned_to_id,
-    assignedByUserId: actor.id,
-    priority: task.priority,
-    createdOn: now,
+    recipientIds: [task.assigned_to_id],
+    customer: project?.customer_name,
+    status: 'Task Assigned',
+    dueDate: task.due_date,
+    assignedBy: actor.name,
+    message: `New task assigned to you for ${project?.name || task.title}. Please review the requirements and begin execution.`,
+    actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
     eventKey: `TASK_ASSIGNED:${task.id}:${task.assigned_to_id}:${now}`,
   });
 }

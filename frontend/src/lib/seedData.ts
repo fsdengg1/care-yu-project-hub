@@ -140,49 +140,7 @@ export const INITIAL_TEAMS: Team[] = [
   }
 ];
 
-export const INITIAL_USERS: User[] = [
-  {
-    id: 'u-ceo',
-    employee_id: 'CYA-001',
-    name: 'Bernard Hamilton',
-    email: 'bernard.hamilton@careyu.com',
-    phone: '+91 98765 00001',
-    role_id: 'r-ceo',
-    role_code: 'CEO',
-    role_name: 'CEO',
-    status: 'ACTIVE',
-    created_at: '2026-01-01T00:00:00Z',
-    updated_at: '2026-01-01T00:00:00Z'
-  },
-  {
-    id: 'u-bh',
-    employee_id: 'CYA-002',
-    name: 'Sharadha Patil',
-    email: 'shradha.patil@careyu.com',
-    phone: '+91 98765 00002',
-    role_id: 'r-bh',
-    role_code: 'BUSINESS_HEAD',
-    role_name: 'Business Head',
-    reporting_manager_id: 'u-ceo',
-    status: 'ACTIVE',
-    created_at: '2026-01-02T00:00:00Z',
-    updated_at: '2026-01-02T00:00:00Z'
-  },
-  {
-    id: 'u-ed',
-    employee_id: 'CYA-003',
-    name: 'Sabarigiri',
-    email: 'engg.director@careyu.ai',
-    phone: '',
-    role_id: 'r-ed',
-    role_code: 'ENG_DIRECTOR',
-    role_name: 'Engineering Director',
-    reporting_manager_id: 'u-ceo',
-    status: 'ACTIVE',
-    created_at: '2026-01-02T00:00:00Z',
-    updated_at: '2026-01-02T00:00:00Z'
-  }
-];
+export const INITIAL_USERS: User[] = [];
 
 export const INITIAL_AUDITS: AuditLog[] = [];
 

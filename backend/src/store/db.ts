@@ -170,6 +170,9 @@ function mergeById<T extends { id: string }>(stored: T[] | undefined, seed: T[])
 const SEED_USER_IDS = new Set(INITIAL_USERS.map((user) => user.id));
 
 const RETIRED_DEMO_USER_IDS = new Set([
+  'u-ceo',
+  'u-bh',
+  'u-ed',
   'u-robotlead1',
   'u-emp-sw',
   'u-emp-sw-2',
@@ -192,6 +195,10 @@ const RETIRED_DEMO_USER_IDS = new Set([
 ]);
 
 const RETIRED_DEMO_EMAILS = new Set([
+  'bernard.hamilton@careyu.com',
+  'shradha.patil@careyu.com',
+  'sabarigiri.t@careyu.com',
+  'engg.director@careyu.ai',
   'karthik@careyu.com',
   'deepak@careyu.com',
   'meena@careyu.com',
@@ -503,7 +510,7 @@ function collectionsHaveData(parsed: Partial<DbShape> | Record<CollectionName, u
 
 function buildMergedDb(parsed: Partial<DbShape>): DbShape {
   return refreshTeamCounts({
-    users: mergeUsers(parsed.users, INITIAL_USERS),
+    users: mergeUsers(parsed.users, []),
     roles: mergeRoles(parsed.roles, INITIAL_ROLES),
     teams: mergeTeams(parsed.teams, INITIAL_TEAMS),
     leads: normalizeLeads(parsed.leads),
@@ -632,7 +639,7 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
     source = 'local-db.json';
   } else {
     parsed = {
-      users: INITIAL_USERS,
+      users: [],
       roles: INITIAL_ROLES,
       teams: INITIAL_TEAMS,
     };
@@ -649,13 +656,11 @@ export async function initStore(options?: { forceImportLocal?: boolean }): Promi
   }
 
   if (!isLeadershipPruned(merged)) {
-    const before = merged.users.length;
-    const { removed } = pruneUsersToLeadership(merged);
-    console.info('[store] Kept CEO, Shradha, and Engineering Director only', {
-      before,
-      kept: merged.users.length,
-      removed: removed.map((user) => user.email),
-    });
+    const withoutFlag = (merged.systemMeta ?? []).filter((item) => item.id !== LEADERSHIP_PRUNE_META_ID);
+    merged.systemMeta = [
+      ...withoutFlag,
+      { id: LEADERSHIP_PRUNE_META_ID, usersLeadershipPrunedAt: new Date().toISOString() },
+    ];
   }
 
   cache = merged;

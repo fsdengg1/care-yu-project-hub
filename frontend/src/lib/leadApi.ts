@@ -109,7 +109,7 @@ export const LeadApi = {
     return result;
   },
 
-  async pmReview(id: string, body: { action: 'approve_assign' | 'return'; team_id?: string; team_lead_id?: string; notes?: string; reason?: string }) {
+  async pmReview(id: string, body: { action: 'approve' | 'approve_assign' | 'return'; team_id?: string; team_lead_id?: string; notes?: string; reason?: string }) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/pm-review`, {
       method: 'POST',
       body: JSON.stringify(body),
@@ -118,16 +118,25 @@ export const LeadApi = {
     return { ok: false as const, message: result.message, status: result.status };
   },
 
-  async saveFeasibility(id: string, study: Partial<FeasibilityStudy>, submit = false) {
+  async teamIntake(id: string, action: 'accept' | 'return', comments?: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/team-intake`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comments }),
+    });
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, status: result.status };
+  },
+
+  async saveFeasibility(id: string, study: Partial<FeasibilityStudy>, submit = false, start = false) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/feasibility`, {
       method: 'POST',
-      body: JSON.stringify({ study, submit }),
+      body: JSON.stringify({ study, submit, start }),
     });
     if (result.ok) return syncPayload(result.data);
     return null;
   },
 
-  async reviewFeasibility(id: string, action: 'approve' | 'return', reason?: string) {
+  async reviewFeasibility(id: string, action: 'approve' | 'return' | 'reject', reason?: string) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/feasibility/review`, {
       method: 'POST',
       body: JSON.stringify({ action, reason }),
@@ -145,7 +154,7 @@ export const LeadApi = {
     return null;
   },
 
-  async reviewCosting(id: string, action: 'approve' | 'return', reason?: string) {
+  async reviewCosting(id: string, action: 'approve' | 'return' | 'reject', reason?: string) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/costing/review`, {
       method: 'POST',
       body: JSON.stringify({ action, reason }),

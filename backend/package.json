@@ -9,6 +9,7 @@
     "build": "tsc && node -e \"console.log('Backend compiled to dist/')\"",
     "typecheck": "tsc --noEmit",
     "db:ensure": "tsx scripts/ensure-database.ts",
+    "db:schema": "tsx scripts/apply-pms-schema.ts",
     "db:prune-users": "tsx scripts/prune-users-keep-leadership.ts",
     "db:migrate": "tsx scripts/migrate-to-postgres.ts",
     "db:migrate:force": "tsx scripts/migrate-to-postgres.ts --force-local",
