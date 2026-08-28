@@ -14,7 +14,7 @@ import { sendInvitationToManager, sendPasswordChangedEmail, sendPasswordResetEma
 import { maskEmail } from './emailDiagnostics.js';
 import { newId } from './leadWorkflow.js';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password.js';
-import { resolveDirectoryRole } from './directoryRoles.js';
+import { applyDirectoryPlacement, resolveDirectoryRole } from './directoryRoles.js';
 import { isRobotLeadEmail } from './robotLead.js';
 import {
   generateInvitationCode,
@@ -34,12 +34,13 @@ function nextEmployeeId() {
 }
 
 function saveUser(user: User) {
+  const placed = applyDirectoryPlacement(user);
   const users = store.getUsers();
-  const index = users.findIndex((item) => item.id === user.id);
+  const index = users.findIndex((item) => item.id === placed.id);
   if (index === -1) {
-    users.unshift(user);
+    users.unshift(placed);
   } else {
-    users[index] = user;
+    users[index] = placed;
   }
   store.saveUsers(users);
 }

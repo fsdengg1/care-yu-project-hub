@@ -93,7 +93,7 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'SOFTWARE',
     name: 'Software Team',
     description: 'PLC, SCADA, HMI, C#/.NET Automation Software, and Cloud/Edge Integration.',
-    team_lead_name: 'Not Assigned',
+    team_lead_name: 'Arun Kumar',
     member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
@@ -103,7 +103,7 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'VISION',
     name: 'Vision Team',
     description: '2D/3D Industrial Vision, OpenCV, Cognex/Keyence, AI Deep Learning Inspection.',
-    team_lead_name: 'Not Assigned',
+    team_lead_name: 'Vanippriya',
     member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
@@ -113,7 +113,7 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'ROBOTICS',
     name: 'Robotics & Automation Solution Team',
     description: 'FANUC, KUKA, ABB Robot Simulation, EOAT Design, Motion Control & AMR/AGV.',
-    team_lead_name: 'Not Assigned',
+    team_lead_name: 'Aakash',
     member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'

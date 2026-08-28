@@ -11,10 +11,13 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-type DirectoryRole = {
+type DirectoryPlacement = {
   role_id: string;
   role_code: string;
   role_name: string;
+  team_id?: string;
+  team_name?: string;
+  clearTeam?: boolean;
 };
 
 const ROLE_BY_CODE: Record<string, { role_id: string; role_name: string }> = {
@@ -24,7 +27,18 @@ const ROLE_BY_CODE: Record<string, { role_id: string; role_name: string }> = {
   PROJECT_MANAGER: { role_id: 'r-pm', role_name: 'Project Manager' },
   TEAM_LEAD: { role_id: 'r-tl', role_name: 'Team Lead' },
   EMPLOYEE: { role_id: 'r-emp', role_name: 'Team Member' },
+  PROCUREMENT: { role_id: 'r-proc', role_name: 'Procurement / Costing' },
+  EXECUTION: { role_id: 'r-exec', role_name: 'Execution' },
 };
+
+const SOFTWARE_TEAM = { team_id: 't-sw', team_name: 'Software Team' };
+const VISION_TEAM = { team_id: 't-vision', team_name: 'Vision Team' };
+const ROBOTICS_TEAM = { team_id: 't-robotics', team_name: 'Robotics & Automation Solution Team' };
+const PROCUREMENT_TEAM = { team_id: 't-procurement', team_name: 'Procurement / Costing Team' };
+const EXECUTION_TEAM = { team_id: 't-execution', team_name: 'Execution Team' };
+
+const SANJAY_EMAIL = 'sanjay@careyu.ai';
+const ARAVIND_EMAIL = 'aravind@careyu.ai';
 
 function normalize(value: string) {
   return value.trim().toLowerCase();
@@ -34,14 +48,23 @@ function nameHaystack(name: string) {
   return normalize(name).replace(/[^a-z]/g, '');
 }
 
-export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryRole | null {
+function emailLocal(email: string) {
+  return email.split('@')[0] || '';
+}
+
+function role(code: keyof typeof ROLE_BY_CODE, extra: Omit<DirectoryPlacement, 'role_id' | 'role_code' | 'role_name'> = {}): DirectoryPlacement {
+  return { ...ROLE_BY_CODE[code], role_code: code, ...extra };
+}
+
+export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryPlacement | null {
   const email = normalize(emailRaw);
   const name = nameHaystack(nameRaw);
+  const local = emailLocal(email);
   const pmEmail = projectManagerEmail();
   const robotEmail = robotLeadEmail();
 
   if (email === 'ceo@careyu.ai' || name.includes('bernard')) {
-    return { ...ROLE_BY_CODE.CEO, role_code: 'CEO' };
+    return role('CEO', { clearTeam: true });
   }
   if (
     email === 'businesshead@careyu.ai' ||
@@ -49,7 +72,7 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryR
     name.includes('shradha') ||
     name.includes('sharadha')
   ) {
-    return { ...ROLE_BY_CODE.BUSINESS_HEAD, role_code: 'BUSINESS_HEAD' };
+    return role('BUSINESS_HEAD', { clearTeam: true });
   }
   if (
     email === ENGINEERING_DIRECTOR_EMAIL ||
@@ -59,25 +82,105 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryR
     name.includes('sabirigiri') ||
     name.includes('sabagiri')
   ) {
-    return { ...ROLE_BY_CODE.ENG_DIRECTOR, role_code: 'ENG_DIRECTOR' };
+    return role('ENG_DIRECTOR', { clearTeam: true });
   }
   if (email === pmEmail || name === 'arivan') {
-    return { ...ROLE_BY_CODE.PROJECT_MANAGER, role_code: 'PROJECT_MANAGER' };
+    return role('PROJECT_MANAGER', { clearTeam: true });
   }
-  if (email === robotEmail || name === 'aakash') {
-    return { ...ROLE_BY_CODE.TEAM_LEAD, role_code: 'TEAM_LEAD' };
+  if (email === robotEmail || name === 'aakash' || local === 'aakash') {
+    return role('TEAM_LEAD', ROBOTICS_TEAM);
+  }
+  if ((name.startsWith('arun') && !name.includes('arivan')) || (local.startsWith('arun') && !local.startsWith('arivan'))) {
+    return role('TEAM_LEAD', SOFTWARE_TEAM);
+  }
+  if (name.includes('kabitha') || local.includes('kabitha')) {
+    return role('EMPLOYEE', SOFTWARE_TEAM);
+  }
+  if (name.includes('vani') || local.includes('vani')) {
+    return role('TEAM_LEAD', VISION_TEAM);
   }
   return null;
 }
 
-function withRole(user: User, role: DirectoryRole): User {
-  const catalog = store.getRoles().find((item) => item.code === role.role_code);
+function withRole(user: User, placement: DirectoryPlacement): User {
+  const catalog = store.getRoles().find((item) => item.code === placement.role_code);
   return {
     ...user,
-    role_id: catalog?.id || role.role_id,
-    role_code: role.role_code,
-    role_name: catalog?.name || role.role_name,
+    role_id: catalog?.id || placement.role_id,
+    role_code: placement.role_code,
+    role_name: catalog?.name || placement.role_name,
   };
+}
+
+export function applyDirectoryPlacement(user: User): User {
+  const placement = resolveDirectoryRole(user.email, user.name);
+  if (!placement) return user;
+
+  let next = withRole(user, placement);
+  if (placement.clearTeam) {
+    next = { ...next };
+    delete next.team_id;
+    delete next.team_name;
+    delete next.team_lead_id;
+    delete next.team_lead_name;
+    return next;
+  }
+  if (placement.team_id) {
+    const team = store.getTeams().find((item) => item.id === placement.team_id);
+    next = {
+      ...next,
+      team_id: placement.team_id,
+      team_name: team?.name || placement.team_name,
+    };
+  }
+  return next;
+}
+
+function attachTeamLeadFields(users: User[]): User[] {
+  const leadsByTeam = new Map<string, User>();
+  for (const user of users) {
+    if (user.role_code === 'TEAM_LEAD' && user.team_id) {
+      leadsByTeam.set(user.team_id, user);
+    }
+  }
+  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER');
+
+  return users.map((user) => {
+    if (!user.team_id) return user;
+    const lead = leadsByTeam.get(user.team_id);
+    if (lead && user.id !== lead.id) {
+      return {
+        ...user,
+        team_lead_id: lead.id,
+        team_lead_name: lead.name,
+        reporting_manager_id: lead.id,
+        reporting_manager_name: lead.name,
+      };
+    }
+    if (user.role_code === 'TEAM_LEAD' && pm) {
+      const next = {
+        ...user,
+        reporting_manager_id: pm.id,
+        reporting_manager_name: pm.name,
+      };
+      delete next.team_lead_id;
+      delete next.team_lead_name;
+      return next;
+    }
+    return user;
+  });
+}
+
+function syncTeamRecords(users: User[]) {
+  const teams = store.getTeams().map((team) => {
+    const lead = users.find((user) => user.team_id === team.id && user.role_code === 'TEAM_LEAD' && user.status === 'ACTIVE');
+    return {
+      ...team,
+      team_lead_id: lead?.id,
+      team_lead_name: lead?.name || 'Not Assigned',
+    };
+  });
+  store.saveTeams(teams);
 }
 
 async function withWorkingPassword(user: User, password: string): Promise<User> {
@@ -115,7 +218,7 @@ async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
   const existing = users.find((user) => user.role_code === 'ENG_DIRECTOR' || normalize(user.email) === ENGINEERING_DIRECTOR_EMAIL);
   if (existing) {
     return users.map((user) =>
-      user.id === existing.id ? withRole(user, { ...ROLE_BY_CODE.ENG_DIRECTOR, role_code: 'ENG_DIRECTOR' }) : user
+      user.id === existing.id ? withRole(user, role('ENG_DIRECTOR', { clearTeam: true })) : user
     );
   }
 
@@ -140,7 +243,7 @@ async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
         created_at: now,
         updated_at: now,
       },
-      { ...ROLE_BY_CODE.ENG_DIRECTOR, role_code: 'ENG_DIRECTOR' }
+      role('ENG_DIRECTOR', { clearTeam: true })
     ),
     env.demoPassword
   );
@@ -150,10 +253,7 @@ async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
 
 export async function ensureLiveDirectory() {
   const original = store.getUsers();
-  let users = original.map((user) => {
-    const role = resolveDirectoryRole(user.email, user.name);
-    return role ? withRole(user, role) : user;
-  });
+  let users = original.map((user) => applyDirectoryPlacement(user));
 
   users = await ensureEngineeringDirector(users);
 
@@ -168,23 +268,31 @@ export async function ensureLiveDirectory() {
     repaired.push(needsLoginRepair ? await withWorkingPassword(user, passwordForEmail(email)) : user);
   }
 
+  users = attachTeamLeadFields(repaired);
+
   const changed =
-    repaired.length !== original.length ||
-    repaired.some((user, index) => {
+    users.length !== original.length ||
+    users.some((user) => {
       const prev = original.find((item) => item.id === user.id);
       return (
         !prev ||
         prev.role_code !== user.role_code ||
         prev.role_name !== user.role_name ||
         prev.password_hash !== user.password_hash ||
-        prev.email !== user.email
+        prev.email !== user.email ||
+        prev.team_id !== user.team_id ||
+        prev.team_name !== user.team_name ||
+        prev.team_lead_id !== user.team_lead_id ||
+        prev.reporting_manager_id !== user.reporting_manager_id
       );
     });
 
   if (changed) {
-    store.saveUsers(repaired);
+    store.saveUsers(users);
     console.info('[auth] Live directory roles restored', {
-      users: repaired.map((user) => ({ email: user.email, role: user.role_code })),
+      users: users.map((user) => ({ name: user.name, role: user.role_code, team: user.team_name || null })),
     });
   }
+
+  syncTeamRecords(users);
 }

@@ -103,19 +103,21 @@ export default function FunctionalTeamsPage() {
               <div className="pt-3 border-t border-slate-800/80">
                 <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
                   <span>Assigned Members</span>
-                  <span className="font-bold text-slate-200">{teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').length} members</span>
+                  <span className="font-bold text-slate-200">{teamMembers.length} {teamMembers.length === 1 ? 'person' : 'people'}</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').length === 0 ? (
+                  {teamMembers.length === 0 ? (
                     <p className="text-[11px] text-slate-500">No team members yet. You can add them later.</p>
                   ) : (
-                    teamMembers.filter((u) => u.role_code !== 'TEAM_LEAD').map(m => (
+                    teamMembers.map(m => (
                     <span key={m.id} className={`text-[10px] px-2 py-0.5 rounded border ${
                       directoryStatus(m).pending
                         ? 'bg-amber-950 text-amber-300 border-amber-800/60'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                        : m.role_code === 'TEAM_LEAD'
+                          ? 'bg-cyan-950 text-cyan-300 border-cyan-800/60'
+                          : 'bg-slate-800 text-slate-300 border-slate-700'
                     }`}>
-                      {m.name}{directoryStatus(m).pending ? ' · Signup' : ''}
+                      {m.name}{m.role_code === 'TEAM_LEAD' ? ' · Lead' : ''}{directoryStatus(m).pending ? ' · Signup' : ''}
                     </span>
                     ))
                   )}
