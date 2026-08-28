@@ -131,6 +131,9 @@ export const env = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '8h',
   jwtRememberExpiresIn: process.env.JWT_REMEMBER_EXPIRES_IN ?? '30d',
   demoPassword: required('DEMO_PASSWORD', 'Careyu@123'),
+  /** Optional live-account login repair for the FSD engineer who cannot sign in. */
+  fsdEngg1Password: stripEnvValue(process.env.FSDENGG1_PASSWORD),
+  businessHeadPassword: stripEnvValue(process.env.BUSINESSHEAD_PASSWORD),
   robotLeadEmail: (process.env.ROBOT_LEAD_EMAIL ?? 'robottech@careyu.ai').trim().toLowerCase(),
   robotLeadPassword: stripEnvValue(process.env.ROBOT_LEAD_PASSWORD) || 'Careyu@9865',
   databaseUrl: required('DATABASE_URL'),

@@ -72,8 +72,8 @@ export const LeadApi = {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, errors: result.errors, status: result.status };
   },
 
   async update(id: string, body: Partial<Lead>) {
@@ -81,8 +81,8 @@ export const LeadApi = {
       method: 'PATCH',
       body: JSON.stringify(body),
     });
-    if (result.ok) return syncPayload(result.data);
-    return null;
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message, errors: result.errors, status: result.status };
   },
 
   async submit(id: string) {

@@ -14,6 +14,7 @@ import { sendInvitationToManager, sendPasswordChangedEmail, sendPasswordResetEma
 import { maskEmail } from './emailDiagnostics.js';
 import { newId } from './leadWorkflow.js';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password.js';
+import { resolveDirectoryRole } from './directoryRoles.js';
 import { isRobotLeadEmail } from './robotLead.js';
 import {
   generateInvitationCode,
@@ -224,7 +225,11 @@ export async function signupUser(input: {
   }
 
   const roles = store.getRoles();
-  const role = roles.find((item) => item.code === 'EMPLOYEE') || roles[0];
+  const mapped = resolveDirectoryRole(email, name);
+  const role =
+    (mapped && roles.find((item) => item.code === mapped.role_code)) ||
+    roles.find((item) => item.code === 'EMPLOYEE') ||
+    roles[0];
   if (!role) return { ok: false, status: 500, message: 'Unable to create your account right now. Please try again.' };
 
   const previousPending = store.findPendingSignupByEmail(email);

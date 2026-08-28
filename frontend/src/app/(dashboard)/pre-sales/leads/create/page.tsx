@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
+import { useAuth } from '@/components/auth/AuthProvider';
 import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User } from '@/lib/types';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
@@ -32,8 +33,8 @@ function fieldClass(invalid?: boolean) {
 function CreateLeadForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { user: currentUser } = useAuth();
   const editId = searchParams.get('id');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [leadId, setLeadId] = useState<string | null>(editId);
   const [leadNumber, setLeadNumber] = useState('');
   const [leadStatus, setLeadStatus] = useState('DRAFT');
@@ -102,14 +103,12 @@ function CreateLeadForm() {
   const canEdit = ['DRAFT', 'RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(leadStatus);
 
   useEffect(() => {
-    const user = StorageService.getCurrentUser();
-    setCurrentUser(user);
-    if (user && !canCreateLead(user)) {
+    if (currentUser && !canCreateLead(currentUser)) {
       router.replace('/pre-sales/leads');
       return;
     }
     setLeadNumber(StorageService.generateLeadNumber());
-    if (user?.role_code === 'ENG_DIRECTOR') {
+    if (currentUser?.role_code === 'ENG_DIRECTOR') {
       setFormData((prev) => ({ ...prev, business_vertical: 'Engineering Director' }));
     }
     if (editId) {
@@ -175,7 +174,7 @@ function CreateLeadForm() {
         }));
       })();
     }
-  }, [editId, router]);
+  }, [currentUser, editId, router]);
 
   const payloadFromForm = (user: User, status: 'DRAFT' | 'SUBMITTED_TO_PM') => {
     return {
@@ -247,15 +246,32 @@ function CreateLeadForm() {
       const existingId = leadIdRef.current;
       if (existingId) {
         const updated = await LeadApi.update(existingId, payload);
-        return updated?.lead.id || existingId;
+        if (!updated.ok) {
+          const nextErrors: Record<string, string> = {};
+          for (const item of updated.errors || []) nextErrors[item.field] = item.message;
+          if (Object.keys(nextErrors).length) {
+            setFieldErrors(nextErrors);
+            setMissing(Object.keys(nextErrors));
+          }
+          throw new Error(updated.message || 'Unable to save the draft.');
+        }
+        return updated.payload.lead.id || existingId;
       }
       const created = await LeadApi.create(payload);
-      if (!created?.lead) throw new Error('Unable to save the draft.');
-      const id = created.lead.id;
+      if (!created.ok || !created.payload?.lead) {
+        const nextErrors: Record<string, string> = {};
+        for (const item of created.ok ? [] : created.errors || []) nextErrors[item.field] = item.message;
+        if (Object.keys(nextErrors).length) {
+          setFieldErrors(nextErrors);
+          setMissing(Object.keys(nextErrors));
+        }
+        throw new Error((created.ok ? undefined : created.message) || 'Unable to save the draft.');
+      }
+      const id = created.payload.lead.id;
       leadIdRef.current = id;
       setLeadId(id);
-      setLeadNumber(created.lead.lead_number);
-      setLeadStatus(created.lead.status);
+      setLeadNumber(created.payload.lead.lead_number);
+      setLeadStatus(created.payload.lead.status);
       router.replace(`/pre-sales/leads/create?id=${id}`);
       return id;
     })();
@@ -301,9 +317,11 @@ function CreateLeadForm() {
         description: `Saved draft for Lead ${leadNumber} (${formData.title}).`,
       });
       setSuccessMessage('Lead saved as draft successfully.');
+      setMissing([]);
+      setFieldErrors({});
       window.setTimeout(() => setSuccessMessage(null), 4000);
-    } catch {
-      setValidationError('Unable to save the draft. Please try again.');
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'Unable to save the draft. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -349,8 +367,8 @@ function CreateLeadForm() {
       setSuccessMessage('Lead submitted to Project Manager successfully.');
       setConfirmSubmit(false);
       router.push(`/pre-sales/leads/${id}`);
-    } catch {
-      setValidationError('Unable to submit the lead. Please try again.');
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'Unable to submit the lead. Please try again.');
       setConfirmSubmit(false);
     } finally {
       setBusy(false);
@@ -411,8 +429,10 @@ function CreateLeadForm() {
         <div className="flex items-center gap-3 rounded-xl border border-rose-800/80 bg-rose-950/80 p-4 text-xs text-rose-300">
           <AlertCircle className="h-5 w-5 shrink-0 text-rose-400" />
           <div>
-            <div className="font-bold">Please complete all required fields before submitting the lead.</div>
-            <div className="mt-0.5">{validationError}</div>
+            {missing.length > 0 && (
+              <div className="font-bold">Please complete all required fields before submitting the lead.</div>
+            )}
+            <div className={missing.length > 0 ? 'mt-0.5' : 'font-bold'}>{validationError}</div>
           </div>
         </div>
       )}
