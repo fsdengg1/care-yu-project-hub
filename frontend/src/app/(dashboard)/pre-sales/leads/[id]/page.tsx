@@ -215,12 +215,7 @@ export default function LeadDetailPage() {
 
   const handleSalesResubmit = async () => {
     const previousStatus = lead.status;
-    const updated = await LeadApi.update(lead.id, { technical_specifications: resubmitTechInput });
-    if (!updated.ok) {
-      setActionError(updated.message || 'Unable to update this lead.');
-      return;
-    }
-    const submitted = await LeadApi.submit(lead.id);
+    const submitted = await LeadApi.submit(lead.id, { technical_specifications: resubmitTechInput });
     if (!submitted.ok) {
       setActionError(submitted.message);
       return;

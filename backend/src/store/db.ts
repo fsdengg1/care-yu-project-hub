@@ -129,6 +129,26 @@ let writeChain: Promise<void> = Promise.resolve();
 let persistPaused = false;
 let initialized = false;
 let mutex: Promise<void> = Promise.resolve();
+const dirtyCollections = new Set<CollectionName>();
+
+function markDirty(...names: CollectionName[]) {
+  for (const name of names) dirtyCollections.add(name);
+}
+
+function takeDirty(): CollectionName[] {
+  const names = [...dirtyCollections];
+  dirtyCollections.clear();
+  return names;
+}
+
+function snapshotDb(db: DbShape): DbShape {
+  const snap: Record<string, unknown> = {};
+  for (const key of Object.keys(db) as (keyof DbShape)[]) {
+    const value = db[key];
+    snap[key as string] = Array.isArray(value) ? value.slice() : structuredClone(value);
+  }
+  return snap as unknown as DbShape;
+}
 
 function isDemoOperationalPurged(parsed: Partial<DbShape>): boolean {
   return (parsed.systemMeta ?? []).some((item) => item.id === LIVE_META_ID && Boolean(item.demoOperationalPurgedAt));
@@ -563,13 +583,20 @@ function countRecords(db: DbShape): Record<string, number> {
   return counts;
 }
 
-async function persistDb(db: DbShape): Promise<void> {
+async function persistDb(db: DbShape, names?: CollectionName[]): Promise<void> {
+  if (names) {
+    if (!names.length) return;
+    await saveAllCollections(toCollections(db), names);
+    return;
+  }
   await saveAllCollections(toCollections(db));
 }
 
 function enqueuePersist(db: DbShape): void {
+  const names = takeDirty();
+  if (!names.length) return;
   writeChain = writeChain
-    .then(() => persistDb(db))
+    .then(() => persistDb(db, names))
     .catch((error) => {
       console.error('[store] Failed to persist to Postgres:', error);
     });
@@ -590,15 +617,16 @@ function saveDb(db: DbShape) {
 export async function transact<T>(fn: () => T | Promise<T>): Promise<T> {
   const run = mutex.then(async () => {
     await writeChain;
-    const snapshot = structuredClone(loadDb());
+    const snapshot = snapshotDb(loadDb());
     persistPaused = true;
     try {
       const result = await fn();
       persistPaused = false;
-      await persistDb(loadDb());
+      await persistDb(loadDb(), takeDirty());
       return result;
     } catch (error) {
       cache = snapshot;
+      dirtyCollections.clear();
       persistPaused = false;
       throw error;
     } finally {
@@ -697,7 +725,9 @@ export const store = {
   saveTeams(teams: Team[]) {
     const db = loadDb();
     db.teams = teams;
-    saveDb(refreshTeamCounts(db));
+    refreshTeamCounts(db);
+    markDirty('teams');
+    saveDb(db);
   },
   getLeads(): Lead[] {
     return loadDb().leads;
@@ -748,51 +778,62 @@ export const store = {
     );
     next.unshift({ ...pending, email });
     db.pendingSignups = next;
+    markDirty('pendingSignups');
     saveDb(db);
   },
   deletePendingSignup(id: string) {
     const db = loadDb();
     db.pendingSignups = (db.pendingSignups ?? []).filter((item) => item.id !== id);
+    markDirty('pendingSignups');
     saveDb(db);
   },
   saveUsers(users: User[]) {
     const db = loadDb();
     db.users = stripIncompleteSignupUsers(users).filter((user) => !isSmokeTestAccount(user));
-    saveDb(refreshTeamCounts(db));
+    refreshTeamCounts(db);
+    markDirty('users', 'teams');
+    saveDb(db);
   },
   saveLeads(leads: Lead[]) {
     const db = loadDb();
     db.leads = leads;
+    markDirty('leads');
     saveDb(db);
   },
   saveProjects(projects: Project[]) {
     const db = loadDb();
     db.projects = projects;
+    markDirty('projects');
     saveDb(db);
   },
   saveEscalations(escalations: Escalation[]) {
     const db = loadDb();
     db.escalations = escalations;
+    markDirty('escalations');
     saveDb(db);
   },
   saveAudits(audits: AuditLog[]) {
     const db = loadDb();
     db.audits = audits;
+    markDirty('audits');
     saveDb(db);
   },
   saveNotifications(notifications: NotificationItem[]) {
     const db = loadDb();
     db.notifications = notifications;
+    markDirty('notifications');
     saveDb(db);
   },
   saveTasks(tasks: Task[]) {
     const db = loadDb();
     db.tasks = tasks;
+    markDirty('tasks');
     saveDb(db);
   },
   saveDailyUpdates(dailyUpdates: DailyUpdate[]) {
     const db = loadDb();
     db.dailyUpdates = dailyUpdates;
+    markDirty('dailyUpdates');
     saveDb(db);
   },
   getLeadDocuments(): LeadDocument[] {
@@ -801,6 +842,7 @@ export const store = {
   saveLeadDocuments(leadDocuments: LeadDocument[]) {
     const db = loadDb();
     db.leadDocuments = leadDocuments;
+    markDirty('leadDocuments');
     saveDb(db);
   },
   getLeadComments(): LeadComment[] {
@@ -809,6 +851,7 @@ export const store = {
   saveLeadComments(leadComments: LeadComment[]) {
     const db = loadDb();
     db.leadComments = leadComments;
+    markDirty('leadComments');
     saveDb(db);
   },
   getLeadActivities(): LeadActivity[] {
@@ -817,6 +860,7 @@ export const store = {
   saveLeadActivities(leadActivities: LeadActivity[]) {
     const db = loadDb();
     db.leadActivities = leadActivities;
+    markDirty('leadActivities');
     saveDb(db);
   },
   getLeadStatusHistory(): LeadStatusHistory[] {
@@ -825,6 +869,7 @@ export const store = {
   saveLeadStatusHistory(leadStatusHistory: LeadStatusHistory[]) {
     const db = loadDb();
     db.leadStatusHistory = leadStatusHistory;
+    markDirty('leadStatusHistory');
     saveDb(db);
   },
   getFeasibilityTeamAssignments(): FeasibilityTeamAssignment[] {
@@ -833,6 +878,7 @@ export const store = {
   saveFeasibilityTeamAssignments(feasibilityTeamAssignments: FeasibilityTeamAssignment[]) {
     const db = loadDb();
     db.feasibilityTeamAssignments = feasibilityTeamAssignments;
+    markDirty('feasibilityTeamAssignments');
     saveDb(db);
   },
   getFeasibilityEmployeeAllocations(): FeasibilityEmployeeAllocation[] {
@@ -841,6 +887,7 @@ export const store = {
   saveFeasibilityEmployeeAllocations(feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[]) {
     const db = loadDb();
     db.feasibilityEmployeeAllocations = feasibilityEmployeeAllocations;
+    markDirty('feasibilityEmployeeAllocations');
     saveDb(db);
   },
   getProjectPhases(): ProjectPhase[] {
@@ -849,6 +896,7 @@ export const store = {
   saveProjectPhases(projectPhases: ProjectPhase[]) {
     const db = loadDb();
     db.projectPhases = projectPhases;
+    markDirty('projectPhases');
     saveDb(db);
   },
   getConversations(): Conversation[] {
@@ -857,6 +905,7 @@ export const store = {
   saveConversations(conversations: Conversation[]) {
     const db = loadDb();
     db.conversations = conversations;
+    markDirty('conversations');
     saveDb(db);
   },
   getConversationParticipants(): ConversationParticipant[] {
@@ -865,6 +914,7 @@ export const store = {
   saveConversationParticipants(conversationParticipants: ConversationParticipant[]) {
     const db = loadDb();
     db.conversationParticipants = conversationParticipants;
+    markDirty('conversationParticipants');
     saveDb(db);
   },
   getChatMessages(): ChatMessage[] {
@@ -873,6 +923,7 @@ export const store = {
   saveChatMessages(chatMessages: ChatMessage[]) {
     const db = loadDb();
     db.chatMessages = chatMessages;
+    markDirty('chatMessages');
     saveDb(db);
   },
   getEntityDocuments(): EntityDocument[] {
@@ -881,6 +932,7 @@ export const store = {
   saveEntityDocuments(entityDocuments: EntityDocument[]) {
     const db = loadDb();
     db.entityDocuments = entityDocuments;
+    markDirty('entityDocuments');
     saveDb(db);
   },
   getStageTransitions(): StageTransition[] {
@@ -889,6 +941,7 @@ export const store = {
   saveStageTransitions(stageTransitions: StageTransition[]) {
     const db = loadDb();
     db.stageTransitions = stageTransitions;
+    markDirty('stageTransitions');
     saveDb(db);
   },
   getOutboundEmails(): OutboundEmail[] {
@@ -897,6 +950,7 @@ export const store = {
   saveOutboundEmails(outboundEmails: OutboundEmail[]) {
     const db = loadDb();
     db.outboundEmails = outboundEmails;
+    markDirty('outboundEmails');
     saveDb(db);
   },
   getForumPosts(): ForumPost[] {
@@ -905,6 +959,7 @@ export const store = {
   saveForumPosts(forumPosts: ForumPost[]) {
     const db = loadDb();
     db.forumPosts = forumPosts;
+    markDirty('forumPosts');
     saveDb(db);
   },
   getForumComments(): ForumComment[] {
@@ -913,6 +968,7 @@ export const store = {
   saveForumComments(forumComments: ForumComment[]) {
     const db = loadDb();
     db.forumComments = forumComments;
+    markDirty('forumComments');
     saveDb(db);
   },
   getForumReactions(): ForumReaction[] {
@@ -921,6 +977,7 @@ export const store = {
   saveForumReactions(forumReactions: ForumReaction[]) {
     const db = loadDb();
     db.forumReactions = forumReactions;
+    markDirty('forumReactions');
     saveDb(db);
   },
   getForumTags(): ForumTag[] {
@@ -929,6 +986,7 @@ export const store = {
   saveForumTags(forumTags: ForumTag[]) {
     const db = loadDb();
     db.forumTags = forumTags;
+    markDirty('forumTags');
     saveDb(db);
   },
   getForumLiveMessages(): ForumLiveMessage[] {
@@ -937,6 +995,7 @@ export const store = {
   saveForumLiveMessages(forumLiveMessages: ForumLiveMessage[]) {
     const db = loadDb();
     db.forumLiveMessages = forumLiveMessages;
+    markDirty('forumLiveMessages');
     saveDb(db);
   },
   getAssignmentHistory(): AssignmentHistory[] {
@@ -945,6 +1004,7 @@ export const store = {
   saveAssignmentHistory(assignmentHistory: AssignmentHistory[]) {
     const db = loadDb();
     db.assignmentHistory = assignmentHistory;
+    markDirty('assignmentHistory');
     saveDb(db);
   },
   getNotificationDeliveries(): NotificationDelivery[] {
@@ -953,6 +1013,7 @@ export const store = {
   saveNotificationDeliveries(notificationDeliveries: NotificationDelivery[]) {
     const db = loadDb();
     db.notificationDeliveries = notificationDeliveries;
+    markDirty('notificationDeliveries');
     saveDb(db);
   },
   appendAudit(entry: Omit<AuditLog, 'id' | 'created_at'>): AuditLog {

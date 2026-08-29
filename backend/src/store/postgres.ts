@@ -224,26 +224,19 @@ export async function loadAllCollections(): Promise<Record<CollectionName, unkno
 }
 
 export async function saveAllCollections(
-  collections: Record<CollectionName, unknown[]>
+  collections: Record<CollectionName, unknown[]>,
+  only?: CollectionName[]
 ): Promise<void> {
+  const selected = only?.length ? new Set(only) : null;
   const client = await getPool().connect();
   try {
-    const { saveUsersTable } = await import('./usersTable.js');
     const { saveRelationalCollections } = await import('./relationalStore.js');
-    await saveUsersTable((collections.users as User[]) ?? []);
-    await client.query('BEGIN');
-    await saveRelationalCollections(client, collections);
-    for (const name of COLLECTION_NAMES) {
-      await client.query(
-        `
-          INSERT INTO store_collections (name, data, updated_at)
-          VALUES ($1, '[]'::jsonb, NOW())
-          ON CONFLICT (name)
-          DO UPDATE SET data = '[]'::jsonb, updated_at = NOW()
-        `,
-        [name]
-      );
+    if (!selected || selected.has('users')) {
+      const { saveUsersTable } = await import('./usersTable.js');
+      await saveUsersTable((collections.users as User[]) ?? []);
     }
+    await client.query('BEGIN');
+    await saveRelationalCollections(client, collections, only);
     await client.query('COMMIT');
   } catch (error) {
     try {

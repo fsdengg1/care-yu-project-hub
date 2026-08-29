@@ -85,8 +85,11 @@ export const LeadApi = {
     return { ok: false as const, message: result.message, errors: result.errors, status: result.status };
   },
 
-  async submit(id: string) {
-    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/submit`, { method: 'POST', body: '{}' });
+  async submit(id: string, body: Partial<Lead> = {}) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
     if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
     return { ok: false as const, message: result.message, errors: result.errors, status: result.status };
   },

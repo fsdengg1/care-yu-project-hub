@@ -13,7 +13,7 @@ import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import SubmitLeadModal from '@/components/leads/SubmitLeadModal';
 import { validateLeadForm, numericAmount } from '@/lib/leadValidation';
 import { workflowStatusPresentation } from '@/lib/format';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Plus, Save, Send } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Loader2, Plus, Save, Send } from 'lucide-react';
 
 const SOLUTION_OPTIONS = [
   'Vision Inspection System',
@@ -329,6 +329,7 @@ function CreateLeadForm() {
   };
 
   const handleSubmit = async () => {
+    if (busy) return;
     if (!currentUser || !canCreateLead(currentUser)) {
       setValidationError('This action is not permitted for your role.');
       return;
@@ -345,9 +346,11 @@ function CreateLeadForm() {
     setBusy(true);
     setValidationError(null);
     try {
-      const id = await persistDraft(currentUser);
-      if (!id) throw new Error('Unable to save the lead before submit.');
-      const submitted = await LeadApi.submit(id);
+      const payload = payloadFromForm(currentUser, 'SUBMITTED_TO_PM');
+      const existingId = leadIdRef.current;
+      const submitted = existingId
+        ? await LeadApi.submit(existingId, payload)
+        : await LeadApi.create(payload);
       if (!submitted.ok) {
         const nextErrors: Record<string, string> = {};
         for (const item of submitted.errors || []) nextErrors[item.field] = item.message;
@@ -356,6 +359,9 @@ function CreateLeadForm() {
         setValidationError(submitted.message || 'Unable to submit this lead. The Project Manager assignment was not completed.');
         return;
       }
+      const id = submitted.payload.lead.id;
+      leadIdRef.current = id;
+      setLeadId(id);
       StorageService.logAudit({
         user_id: currentUser.id,
         user_name: currentUser.name,
@@ -426,7 +432,7 @@ function CreateLeadForm() {
             className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-cyan-500 disabled:opacity-50"
             data-demo="submit-to-pm"
           >
-            <Send className="h-4 w-4" /> Submit to PM
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {busy ? 'Submitting…' : 'Submit to PM'}
           </button>
         </div>
       </div>

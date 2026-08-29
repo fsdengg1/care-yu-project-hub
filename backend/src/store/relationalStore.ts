@@ -158,9 +158,12 @@ export async function loadRelationalCollections(
 
 export async function saveRelationalCollections(
   client: pg.PoolClient,
-  collections: Partial<Record<CollectionName, unknown[]>>
+  collections: Partial<Record<CollectionName, unknown[]>>,
+  only?: CollectionName[]
 ): Promise<void> {
+  const selected = only ? new Set(only) : null;
   for (const def of RELATIONAL_TABLES) {
+    if (selected && !selected.has(def.collection)) continue;
     const records = ((collections[def.collection] as Record<string, unknown>[] | undefined) ?? []).filter(
       (record) => record && record.id
     );
