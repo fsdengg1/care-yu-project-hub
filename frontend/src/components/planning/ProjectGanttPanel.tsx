@@ -11,9 +11,11 @@ import ProjectGanttChart from '@/components/planning/ProjectGanttChart';
 export default function ProjectGanttPanel({
   user,
   projectId,
+  lockLabel,
 }: {
   user: User;
   projectId?: string;
+  lockLabel?: string;
 }) {
   const allowed = canAccessGanttPlanning(user);
   const [projects, setProjects] = useState<PlanningProjectSummary[]>([]);
@@ -78,7 +80,7 @@ export default function ProjectGanttPanel({
         <div className="flex flex-wrap items-center gap-2">
           {!canEdit && (
             <span className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-300">
-              <Lock className="h-3 w-3" /> Read Only
+              <Lock className="h-3 w-3" /> {lockLabel || 'Read Only'}
             </span>
           )}
           {!projectId && projects.length > 1 && (

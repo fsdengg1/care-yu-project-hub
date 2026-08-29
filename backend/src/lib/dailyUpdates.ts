@@ -129,6 +129,7 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
   const latest = latestUpdateFor(task.id, task.id);
   const taskType = task.task_type || (task.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK');
   const isNonProject = taskType === 'NON_PROJECT_TASK' || !task.project_id;
+  const dependsOn = task.depends_on_id ? store.getTasks().find((item) => item.id === task.depends_on_id) : undefined;
   return {
     id: task.id,
     source: 'TASK',
@@ -148,16 +149,23 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
         ? 'PENDING_TL_REVIEW'
         : task.review_status === 'CORRECTION_REQUIRED'
           ? 'CORRECTION_REQUIRED'
-          : latest?.work_status || taskStatusToWork(task.status),
-    last_update_at: latest?.submitted_at || task.last_update_at,
+          : taskStatusToWork(task.status),
+    last_update_at: task.last_update_at || latest?.submitted_at || task.updated_at,
     assigned_to_id: task.assigned_to_id,
     assigned_to: task.assigned_to,
-    progress_percent: latest?.progress_percent ?? task.progress_percent ?? 0,
-    blocked: task.status === 'BLOCKED' || latest?.work_status === 'BLOCKED',
-    blocker: latest?.blocker || task.blocked_reason,
+    progress_percent: task.progress_percent ?? latest?.progress_percent ?? 0,
+    blocked: task.status === 'BLOCKED',
+    blocker: task.blocked_reason || latest?.blocker,
     task_type: taskType,
     start_date: task.start_date,
     review_status: task.review_status,
+    description: task.description,
+    assigned_by: task.assigned_by,
+    team_lead_name: project?.team_lead_name,
+    depends_on_title: dependsOn?.title,
+    remarks: task.remarks,
+    next_plan: latest?.next_plan,
+    dependency: latest?.dependency,
   };
 }
 
@@ -392,20 +400,27 @@ export function applyUpdateToTask(update: DailyUpdate) {
   const tasks = store.getTasks();
   const index = tasks.findIndex((task) => task.id === update.task_id);
   if (index === -1) return;
-  const nextStatus: Task['status'] =
-    update.work_status === 'BLOCKED'
-      ? 'BLOCKED'
-      : update.work_status === 'COMPLETED'
-        ? 'DONE'
-        : update.work_status === 'IN_PROGRESS'
-          ? 'IN_PROGRESS'
-          : tasks[index].status;
+  const previous = tasks[index];
+  if (previous.status === 'BLOCKED' && update.work_status !== 'BLOCKED') {
+    tasks[index] = {
+      ...previous,
+      last_update_at: update.submitted_at || update.updated_at,
+      updated_at: new Date().toISOString(),
+    };
+    store.saveTasks(tasks);
+    return;
+  }
+  let nextStatus: Task['status'] = previous.status;
+  if (update.work_status === 'BLOCKED') nextStatus = 'BLOCKED';
+  else if (update.work_status === 'IN_PROGRESS' && previous.status === 'TODO') nextStatus = 'IN_PROGRESS';
+  else if (update.work_status === 'COMPLETED' && previous.status === 'TODO') nextStatus = 'IN_PROGRESS';
   tasks[index] = {
-    ...tasks[index],
+    ...previous,
     status: nextStatus,
     progress_percent: update.progress_percent,
     last_update_at: update.submitted_at || update.updated_at,
-    blocked_reason: update.work_status === 'BLOCKED' ? update.blocker : undefined,
+    blocked_reason: update.work_status === 'BLOCKED' ? update.blocker : previous.blocked_reason,
+    start_date: previous.start_date || (nextStatus === 'IN_PROGRESS' ? todayDate() : previous.start_date),
     updated_at: new Date().toISOString(),
   };
   store.saveTasks(tasks);

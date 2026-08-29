@@ -38,10 +38,11 @@ export const ProjectsApi = {
     });
   },
 
-  async assign(id: string, assigneeId: string) {
+  async assign(id: string, assigneeId: string | string[]) {
+    const assigneeIds = Array.isArray(assigneeId) ? assigneeId : [assigneeId];
     return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/assign`, {
       method: 'POST',
-      body: JSON.stringify({ assignee_id: assigneeId }),
+      body: JSON.stringify({ assignee_id: assigneeIds[0], assignee_ids: assigneeIds }),
     });
   },
 

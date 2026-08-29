@@ -38,6 +38,16 @@ function resolveProjectTeamLead(project: Project): { team_lead_id?: string; team
   return { team_lead_id: project.team_lead_id, team_lead_name: project.team_lead_name };
 }
 
+function isAssignedTeamLead(user: User, project: Project) {
+  if (user.role_code !== 'TEAM_LEAD') return false;
+  if (resolveProjectTeamLead(project).team_lead_id === user.id) return true;
+  return Boolean(user.team_id && (project.team_ids || []).includes(user.team_id));
+}
+
+function uniqueIds(values: Array<string | undefined>) {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 const EXECUTION_ASSIGNABLE = new Set(['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT']);
 
 function notify(
@@ -117,6 +127,7 @@ const LAST_ACTION_LABELS: Record<string, string> = {
   PROJECT_RETURNED: 'Project returned to PM',
   TASK_ASSIGNED: 'Task assigned',
   TASK_STARTED: 'Task started',
+  TASK_PROGRESS_UPDATED: 'Progress updated',
   TASK_COMPLETED: 'Task completed',
   DAILY_UPDATE_SUBMITTED: 'Daily update submitted',
   MONITOR_ON_TRACK: 'Marked on track',
@@ -143,10 +154,19 @@ export function projectWorkflowView(project: Project): ProjectWorkflowSnapshot {
     .filter((item) => item.project_id === project.id && item.status !== 'RESOLVED')
     .sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at));
   const latestEsc = openEscalations[0];
-  const tasks = store.getTasks().filter((task) => task.project_id === project.id);
-  const hasUpdates = store
-    .getDailyUpdates()
-    .some((item) => item.project_id === project.id && item.submission_status === 'SUBMITTED');
+  const tasks = store.getTasks().filter((task) => task.project_id === project.id && !task.is_milestone);
+  const pendingReview = tasks.some((task) => task.review_status === 'PENDING_TL_REVIEW');
+  const anyBlocked = tasks.some((task) => task.status === 'BLOCKED');
+  const anyInProgress = tasks.some(
+    (task) => task.status === 'IN_PROGRESS' && task.review_status !== 'PENDING_TL_REVIEW' && task.review_status !== 'CORRECTION_REQUIRED'
+  );
+  const allDone =
+    tasks.length > 0 &&
+    tasks.every((task) => {
+      if (task.review_status === 'PENDING_TL_REVIEW' || task.review_status === 'CORRECTION_REQUIRED') return false;
+      return task.status === 'DONE';
+    });
+  const last = project.last_action;
 
   let step = 1;
   let stage = 'Project Assignment';
@@ -176,14 +196,22 @@ export function projectWorkflowView(project: Project): ProjectWorkflowSnapshot {
     step = 8;
     stage = 'Resolution & Completion';
     status = 'Pending PM Approval';
+  } else if (allDone) {
+    step = 8;
+    stage = 'Resolution & Completion';
+    status = 'Pending Team Lead Final Review';
   } else if (latestEsc) {
     step = 7;
     stage = 'Escalation';
     status = `Level ${escalationLevelNumber(latestEsc.current_level)} — ${latestEsc.current_level.replace(/_/g, ' ')}`;
-  } else if (project.monitor_status === 'ISSUE_IDENTIFIED' || Boolean(project.issue)) {
+  } else if (project.monitor_status === 'ISSUE_IDENTIFIED' || Boolean(project.issue) || anyBlocked) {
     step = 6;
     stage = 'Team Lead Review & Monitor';
     status = 'Issue / Blocker Identified';
+  } else if (pendingReview) {
+    step = 6;
+    stage = 'Team Lead Review & Monitor';
+    status = 'Pending Review';
   } else if (intake === 'RETURNED') {
     step = 1;
     stage = 'Project Assignment';
@@ -195,33 +223,23 @@ export function projectWorkflowView(project: Project): ProjectWorkflowSnapshot {
   } else if (intake === 'PENDING_TL_REVIEW') {
     step = 2;
     stage = 'Team Lead Review';
-    status = 'Pending Review';
-  } else if (intake === 'ACCEPTED' || project.current_phase === 'TASK_BREAKDOWN') {
+    status = 'Assigned';
+  } else if (last === 'DAILY_UPDATE_SUBMITTED') {
+    step = 5;
+    stage = 'Daily Work Update';
+    status = 'Updates in Progress';
+  } else if (anyInProgress || last === 'TASK_STARTED' || last === 'TASK_PROGRESS_UPDATED') {
+    step = 4;
+    stage = 'Team Member Execution';
+    status = 'In Progress';
+  } else if (tasks.length) {
+    step = 4;
+    stage = 'Team Member Execution';
+    status = 'Assigned';
+  } else if (intake === 'ACCEPTED' || intake === 'IN_EXECUTION' || project.current_phase === 'TASK_BREAKDOWN') {
     step = 3;
     stage = 'Task Breakdown';
     status = 'Accepted';
-  } else if (intake === 'IN_EXECUTION') {
-    if (project.monitor_status === 'ON_TRACK') {
-      step = 6;
-      stage = 'Team Lead Review & Monitor';
-      status = 'On Track';
-    } else if (hasUpdates) {
-      step = 5;
-      stage = 'Daily Work Update';
-      status = 'Updates in Progress';
-    } else if (tasks.some((task) => task.status === 'IN_PROGRESS' || task.status === 'BLOCKED' || task.status === 'DONE')) {
-      step = 4;
-      stage = 'Team Member Execution';
-      status = 'In Progress';
-    } else if (tasks.length) {
-      step = 4;
-      stage = 'Team Member Execution';
-      status = 'Assigned';
-    } else {
-      step = 3;
-      stage = 'Task Breakdown';
-      status = 'Accepted';
-    }
   }
 
   return {
@@ -297,12 +315,17 @@ function ensureDirectMemberTask(project: Project, assignee: User, actor: User) {
   });
 }
 
-export function assignableUsersFor(project: Project): User[] {
-  const users = store.getUsers().filter((user) => user.status === 'ACTIVE' && EXECUTION_ASSIGNABLE.has(user.role_code));
-  const teamIds = project.team_ids || [];
-  if (!teamIds.length) return users;
-  const inTeam = users.filter((user) => user.team_id && teamIds.includes(user.team_id));
-  return inTeam.length ? inTeam : users;
+export function assignableUsersFor(_project?: Project): User[] {
+  return store
+    .getUsers()
+    .filter((user) => user.status === 'ACTIVE' && EXECUTION_ASSIGNABLE.has(user.role_code))
+    .sort((a, b) => {
+      const team = (a.team_name || '').localeCompare(b.team_name || '');
+      if (team) return team;
+      if (a.role_code === 'TEAM_LEAD' && b.role_code !== 'TEAM_LEAD') return -1;
+      if (a.role_code !== 'TEAM_LEAD' && b.role_code === 'TEAM_LEAD') return 1;
+      return a.name.localeCompare(b.name);
+    });
 }
 
 const PRE_PM_INTAKE = new Set<ProjectIntakeStatus>(['DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR']);
@@ -320,21 +343,13 @@ export function canPmReviewCreateProject(user: User, project: Project) {
 }
 
 export function canReviewIntake(user: User, project: Project) {
-  const lead = resolveProjectTeamLead(project);
-  return (
-    user.role_code === 'TEAM_LEAD' &&
-    lead.team_lead_id === user.id &&
-    intakeStatusOf(project) === 'PENDING_TL_REVIEW' &&
-    project.status === 'ACTIVE'
-  );
+  return isAssignedTeamLead(user, project) && intakeStatusOf(project) === 'PENDING_TL_REVIEW' && project.status === 'ACTIVE';
 }
 
 export function canTlFinalReview(user: User, project: Project) {
-  const lead = resolveProjectTeamLead(project);
   const intake = intakeStatusOf(project);
   if (
-    user.role_code !== 'TEAM_LEAD' ||
-    lead.team_lead_id !== user.id ||
+    !isAssignedTeamLead(user, project) ||
     !['ACCEPTED', 'IN_EXECUTION'].includes(intake) ||
     project.tl_reviewed_at ||
     project.status !== 'ACTIVE'
@@ -352,8 +367,7 @@ export function canTlFinalReview(user: User, project: Project) {
 export function canEscalateProject(user: User, project: Project) {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (canManageProject(user, project)) return true;
-  const lead = resolveProjectTeamLead(project);
-  if (user.role_code === 'TEAM_LEAD' && lead.team_lead_id === user.id) return true;
+  if (isAssignedTeamLead(user, project)) return true;
   if (['BUSINESS_HEAD', 'ENG_DIRECTOR', 'CEO'].includes(user.role_code)) return true;
   return false;
 }
@@ -371,19 +385,14 @@ export function canBreakdownTasks(user: User, project: Project) {
   if (!['ACCEPTED', 'IN_EXECUTION'].includes(intake) || project.status !== 'ACTIVE' || project.tl_reviewed_at) {
     return false;
   }
-  if (user.role_code === 'TEAM_LEAD' && resolveProjectTeamLead(project).team_lead_id === user.id) return true;
+  if (isAssignedTeamLead(user, project)) return true;
   if (canManageProject(user, project) && project.assignment_path === 'DIRECT_MEMBER') return true;
   return false;
 }
 
 export function canMonitorProject(user: User, project: Project) {
   const intake = intakeStatusOf(project);
-  return (
-    user.role_code === 'TEAM_LEAD' &&
-    resolveProjectTeamLead(project).team_lead_id === user.id &&
-    ['ACCEPTED', 'IN_EXECUTION'].includes(intake) &&
-    project.status === 'ACTIVE'
-  );
+  return isAssignedTeamLead(user, project) && ['ACCEPTED', 'IN_EXECUTION'].includes(intake) && project.status === 'ACTIVE';
 }
 
 export function projectActions(user: User, project: Project) {
@@ -402,39 +411,63 @@ export function projectActions(user: User, project: Project) {
   };
 }
 
-export function assignProject(user: User, project: Project, assigneeId: string) {
+export function assignProject(user: User, project: Project, assigneeIds: string | string[]) {
   if (!canAssignProject(user, project)) {
     return { error: 'Only the assigned Project Manager can assign this project.', status: 403 as const };
   }
-  const assignee = store.findUserById(assigneeId);
-  if (!assignee || assignee.status !== 'ACTIVE') {
-    return { error: 'Select a Team Lead or Team Member to assign this project.' };
+  const ids = uniqueIds(Array.isArray(assigneeIds) ? assigneeIds : [assigneeIds]);
+  if (!ids.length) {
+    return { error: 'Select at least one Team Lead or Team Member to assign this project.' };
   }
-  if (!EXECUTION_ASSIGNABLE.has(assignee.role_code)) {
-    return { error: 'Assign the project to a Team Lead or Team Member.' };
+
+  const assignees: User[] = [];
+  for (const id of ids) {
+    const assignee = store.findUserById(id);
+    if (!assignee || assignee.status !== 'ACTIVE') {
+      return { error: 'Select a Team Lead or Team Member to assign this project.' };
+    }
+    if (!EXECUTION_ASSIGNABLE.has(assignee.role_code)) {
+      return { error: 'Assign the project to a Team Lead or Team Member.' };
+    }
+    assignees.push(assignee);
   }
 
   const now = new Date().toISOString();
-  const path: ProjectAssignmentPath = assignee.role_code === 'TEAM_LEAD' ? 'TEAM_LEAD' : 'DIRECT_MEMBER';
+  const teamLeads = assignees.filter((item) => item.role_code === 'TEAM_LEAD');
+  const members = assignees.filter((item) => item.role_code !== 'TEAM_LEAD');
+  const path: ProjectAssignmentPath = teamLeads.length ? 'TEAM_LEAD' : 'DIRECT_MEMBER';
   const teamIds = new Set(project.team_ids || []);
-  if (assignee.team_id) teamIds.add(assignee.team_id);
+  for (const assignee of assignees) {
+    if (assignee.team_id) teamIds.add(assignee.team_id);
+  }
 
   let teamLeadId = project.team_lead_id;
   let teamLeadName = project.team_lead_name;
-  if (path === 'TEAM_LEAD') {
-    teamLeadId = assignee.id;
-    teamLeadName = assignee.name;
-  } else if (assignee.team_lead_id) {
-    const lead = store.findUserById(assignee.team_lead_id);
-    teamLeadId = assignee.team_lead_id;
-    teamLeadName = lead?.name || assignee.team_lead_name;
+  if (teamLeads.length) {
+    teamLeadId = teamLeads[0].id;
+    teamLeadName = teamLeads.map((item) => item.name).join(', ');
+  } else {
+    const withLead = members.find((item) => item.team_lead_id);
+    if (withLead?.team_lead_id) {
+      const lead = store.findUserById(withLead.team_lead_id);
+      teamLeadId = withLead.team_lead_id;
+      teamLeadName = lead?.name || withLead.team_lead_name;
+    }
   }
+
+  const existingMemberNames = (project.assigned_member_name || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean);
+  const memberNames = [...new Set([...existingMemberNames, ...members.map((item) => item.name)])];
+  const assignedMemberId = members[0]?.id || project.assigned_member_id;
+  const assignedMemberName = memberNames.length ? memberNames.join(', ') : project.assigned_member_name;
 
   const next: Project = {
     ...project,
     assignment_path: path,
-    assigned_member_id: path === 'DIRECT_MEMBER' ? assignee.id : undefined,
-    assigned_member_name: path === 'DIRECT_MEMBER' ? assignee.name : undefined,
+    assigned_member_id: assignedMemberId,
+    assigned_member_name: assignedMemberName,
     assigned_by_id: user.id,
     assigned_by_name: user.name,
     assigned_at: now,
@@ -443,14 +476,17 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
     team_lead_name: teamLeadName,
     intake_status: path === 'TEAM_LEAD' ? 'PENDING_TL_REVIEW' : 'IN_EXECUTION',
     intake_comment: undefined,
-    tl_accepted_at: path === 'DIRECT_MEMBER' ? now : undefined,
+    tl_accepted_at: path === 'DIRECT_MEMBER' ? now : project.tl_accepted_at,
     current_phase: path === 'TEAM_LEAD' ? 'TEAM_LEAD_REVIEW' : 'EXECUTION',
     ...stampProjectAction(user, 'PROJECT_ASSIGNED'),
   };
   persistProject(next);
-  if (path === 'DIRECT_MEMBER') {
-    ensureDirectMemberTask(next, assignee, user);
+  for (const member of members) {
+    ensureDirectMemberTask(next, member, user);
   }
+
+  const names = assignees.map((item) => item.name).join(', ');
+  const teamNames = [...new Set(assignees.map((item) => item.team_name).filter(Boolean))].join(', ');
   store.appendAudit({
     user_id: user.id,
     user_name: user.name,
@@ -461,32 +497,34 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
     action: 'PROJECT_ASSIGNED',
     description:
       path === 'TEAM_LEAD'
-        ? `${user.name} assigned ${next.code} to Team Lead ${assignee.name} for review.`
-        : `${user.name} assigned ${next.code} directly to ${assignee.name}.`,
-    new_value: assignee.id,
+        ? `${user.name} assigned ${next.code} to ${names}${teamNames ? ` (${teamNames})` : ''} for review.`
+        : `${user.name} assigned ${next.code} directly to ${names}${teamNames ? ` (${teamNames})` : ''}.`,
+    new_value: ids.join(','),
   });
-  notify([assignee.id], user, 'PROJECT_ASSIGNED', {
-    entityType: 'PROJECT',
-    entityId: next.id,
-    entityName: next.name,
-    customer: next.customer_name,
-    status: path === 'TEAM_LEAD' ? 'Assigned to Team Lead' : 'Directly Assigned',
-    message:
-      path === 'TEAM_LEAD'
+  for (const assignee of assignees) {
+    const isLead = assignee.role_code === 'TEAM_LEAD';
+    notify([assignee.id], user, 'PROJECT_ASSIGNED', {
+      entityType: 'PROJECT',
+      entityId: next.id,
+      entityName: next.name,
+      customer: next.customer_name,
+      status: isLead ? 'Assigned to Team Lead' : 'Directly Assigned',
+      message: isLead
         ? `${user.name} assigned ${next.customer_name} – ${next.name} for Team Lead review.`
         : `${user.name} assigned ${next.customer_name} – ${next.name} directly to you.`,
-    actionUrl: `/projects/${next.id}`,
-    eventKey: `PROJECT_ASSIGNED:${next.id}:${assignee.id}`,
-    priority: 'HIGH',
-  });
-  if (path === 'DIRECT_MEMBER' && teamLeadId && teamLeadId !== assignee.id) {
+      actionUrl: `/projects/${next.id}`,
+      eventKey: `PROJECT_ASSIGNED:${next.id}:${assignee.id}`,
+      priority: 'HIGH',
+    });
+  }
+  if (path === 'DIRECT_MEMBER' && teamLeadId && !ids.includes(teamLeadId)) {
     notify([teamLeadId], user, 'PROJECT_ASSIGNED', {
       entityType: 'PROJECT',
       entityId: next.id,
       entityName: next.name,
       customer: next.customer_name,
       status: 'Directly Assigned',
-      message: `${user.name} assigned this project directly to ${assignee.name}. You retain team visibility.`,
+      message: `${user.name} assigned this project directly to ${names}. You retain team visibility.`,
       actionUrl: `/projects/${next.id}`,
       eventKey: `PROJECT_ASSIGNED_VISIBLE:${next.id}:${teamLeadId}`,
     });
@@ -561,7 +599,7 @@ export function reviewProjectIntake(user: User, project: Project, action: 'accep
     intake_comment: note || undefined,
     tl_accepted_at: accepted ? now : undefined,
     current_phase: accepted ? 'TASK_BREAKDOWN' : 'RETURNED_TO_PM',
-    monitor_status: accepted ? 'ON_TRACK' : undefined,
+    monitor_status: accepted ? undefined : project.monitor_status,
     ...stampProjectAction(user, accepted ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED'),
   };
   persistProject(next);
@@ -662,7 +700,7 @@ export function completionBlockers(project: Project): string | null {
   if (incomplete.length) {
     return 'All tasks must be completed and approved before project completion.';
   }
-  if (project.assignment_path !== 'DIRECT_MEMBER' && project.team_lead_id && !project.tl_reviewed_at) {
+  if (project.team_lead_id && !project.tl_reviewed_at) {
     return 'Team Lead final review is required before PM approval.';
   }
   return null;

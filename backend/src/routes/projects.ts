@@ -149,7 +149,10 @@ router.post(
     const user = req.user!;
     const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
     if (!project) return res.status(404).json({ message: 'Project not found.' });
-    const result = assignProject(user, project, String(req.body?.assignee_id || ''));
+    const result = assignProject(user, project, [
+      ...((Array.isArray(req.body?.assignee_ids) ? req.body.assignee_ids : []) as unknown[]).map((id) => String(id)),
+      String(req.body?.assignee_id || ''),
+    ]);
     if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
     return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
   }

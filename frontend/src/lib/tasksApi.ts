@@ -6,7 +6,8 @@ export interface CreateTaskPayload {
   description?: string;
   task_type: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
   project_id?: string;
-  assigned_to_id: string;
+  assigned_to_id?: string;
+  assigned_to_ids?: string[];
   start_date?: string;
   due_date?: string;
   priority?: string;

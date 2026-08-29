@@ -12,7 +12,7 @@ import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
-import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
+import TeamLeadExecutionPanel from '@/components/dashboards/TeamLeadExecutionPanel';
 
 function assignedTeamIds(lead: Lead): string[] {
   return [...new Set([...(lead.assigned_team_ids || []), ...(lead.assigned_team_id ? [lead.assigned_team_id] : [])].filter(Boolean))];
@@ -104,13 +104,14 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6 rounded-xl border border-slate-800">
         <div className="flex items-center gap-2 text-indigo-400 font-semibold uppercase tracking-wider text-xs"><Users className="w-4 h-4" /> Team Lead Dashboard</div>
         <h1 className="text-2xl font-bold text-slate-100 mt-1">{user.name}</h1>
-        <p className="text-slate-400 text-xs mt-0.5">Project intake, task breakdown, daily updates, and escalation for your team.</p>
+        <p className="text-slate-400 text-xs mt-0.5">Project review, task assignment, daily updates, and issue management for your team.</p>
       </div>
+
+      <TeamLeadExecutionPanel user={user} />
 
       <PendingActionsCard />
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
-      <ProjectGanttPanel user={user} />
 
       {awaitingReview.length > 0 && (
         <div className="bg-cyan-950/20 p-4 rounded-xl border border-cyan-800/60 space-y-3">

@@ -1045,6 +1045,13 @@ export interface WorkAssignment {
   task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
   start_date?: string;
   review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
+  description?: string;
+  assigned_by?: string;
+  team_lead_name?: string;
+  depends_on_title?: string;
+  remarks?: string;
+  next_plan?: string;
+  dependency?: string;
 }
 
 export interface ProjectActivityItem {

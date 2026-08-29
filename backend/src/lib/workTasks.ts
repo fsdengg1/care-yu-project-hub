@@ -7,6 +7,7 @@ import { notificationService } from './notificationService.js';
 import { reminderScheduleFields, transferTaskResponsibility } from './responsibility.js';
 import { emitWorkflowEvent, WorkflowEventKey } from './workflowEngine.js';
 import { intakeStatusOf, markAcceptedInExecution, persistProject, stampProjectAction } from './projectWorkflow.js';
+import { persistComputedProgress } from './projectProgress.js';
 
 export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
@@ -118,6 +119,7 @@ export function applyTaskLifecycle(
   if (requestedStart) {
     next.last_action_at = now;
     next.start_date = next.start_date || now.slice(0, 10);
+    if (!(next.progress_percent || 0)) next.progress_percent = 10;
     notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
       event: 'TASK_STARTED',
       message: `${user.name} started "${next.title}".`,
@@ -181,10 +183,27 @@ export function canViewTask(user: User, task: Task) {
   return false;
 }
 
-export function createWorkTask(user: User, body: Record<string, unknown>) {
+type CreateWorkTaskResult = { error: string; status?: number } | { task: Task; tasks: Task[] };
+
+export function createWorkTask(user: User, body: Record<string, unknown>): CreateWorkTaskResult {
   if (!canCreateWorkTask(user)) {
     return { error: 'You do not have permission to create a task.', status: 403 as const };
   }
+  const extraIds = Array.isArray(body.assigned_to_ids)
+    ? (body.assigned_to_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+  const primary = String(body.assigned_to_id || '').trim();
+  const assigneeIds = [...new Set([...extraIds, ...(primary ? [primary] : [])])];
+  if (assigneeIds.length > 1) {
+    const created: Task[] = [];
+    for (const id of assigneeIds) {
+      const result = createWorkTask(user, { ...body, assigned_to_id: id, assigned_to_ids: undefined });
+      if ('error' in result) return created.length ? { task: created[0], tasks: created } : result;
+      created.push(result.task);
+    }
+    return { task: created[0], tasks: created };
+  }
+
   const title = String(body.title || '').trim() || 'Untitled task';
   const taskType =
     body.task_type === 'NON_PROJECT_TASK' || (!body.task_type && !body.project_id)
@@ -283,9 +302,10 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
         current_phase: 'EXECUTION',
         ...stampProjectAction(user, 'TASK_ASSIGNED'),
       });
+      persistComputedProgress(project.id);
     }
   }
-  return { task };
+  return { task, tasks: [task] };
 }
 
 export function updateWorkTask(user: User, id: string, body: Record<string, unknown>) {
@@ -299,8 +319,30 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     current.assigned_by_id === user.id ||
     hasPermission(user, 'create:task') ||
     ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
-  const canExecute = current.assigned_to_id === user.id || canManage;
+  const project = current.project_id ? store.getProjects().find((item) => item.id === current.project_id) : undefined;
+  const isProjectTeamLead = user.role_code === 'TEAM_LEAD' && Boolean(project && project.team_lead_id === user.id);
+  const canExecute = current.assigned_to_id === user.id || canManage || isProjectTeamLead;
   if (!canExecute) return { error: 'forbidden' as const };
+  if (
+    current.review_status === 'PENDING_TL_REVIEW' &&
+    current.assigned_to_id === user.id &&
+    !canManage &&
+    !isProjectTeamLead
+  ) {
+    return { error: 'This task is awaiting Team Lead review and can no longer be edited.', status: 403 as const };
+  }
+  if (
+    current.status === 'BLOCKED' &&
+    !['TEAM_LEAD', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)
+  ) {
+    const resumeAttempt =
+      (body.status && String(body.status) !== 'BLOCKED') ||
+      body.progress_percent !== undefined ||
+      body.review_action;
+    if (resumeAttempt) {
+      return { error: 'This task is blocked until the Team Lead resolves the issue.', status: 403 as const };
+    }
+  }
 
   const next: Task = { ...current, updated_at: new Date().toISOString() };
   if (canManage) {
@@ -335,10 +377,24 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   if (body.status && ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED'].includes(String(body.status))) {
     next.status = body.status as Task['status'];
   }
+  if (
+    current.status === 'BLOCKED' &&
+    next.status === 'IN_PROGRESS' &&
+    user.role_code !== 'TEAM_LEAD' &&
+    !['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)
+  ) {
+    return { error: 'Only the Team Lead can clear a blocked task.', status: 403 as const };
+  }
   if (body.progress_percent !== undefined) {
     next.progress_percent = Math.max(0, Math.min(100, Number(body.progress_percent) || 0));
+    next.last_update_at = new Date().toISOString();
+    if (next.status === 'TODO' && next.progress_percent > 0) next.status = 'IN_PROGRESS';
   }
   if (body.blocked_reason !== undefined) next.blocked_reason = String(body.blocked_reason);
+  if (canExecute && body.remarks !== undefined) next.remarks = String(body.remarks);
+  if (next.status === 'IN_PROGRESS' && current.status === 'BLOCKED') {
+    next.blocked_reason = undefined;
+  }
   if (next.status === 'DONE' && current.assigned_to_id !== user.id && !canManage) {
     return { error: 'You can only complete tasks assigned to you.', status: 403 as const };
   }
@@ -367,9 +423,31 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
       });
     }
   }
-  if (next.status === 'IN_PROGRESS' && current.status !== 'IN_PROGRESS' && next.project_id) {
+  if (current.status === 'BLOCKED' && next.status === 'IN_PROGRESS' && next.project_id) {
+    const project = store.getProjects().find((item) => item.id === next.project_id);
+    if (project) {
+      const stillBlocked = store
+        .getTasks()
+        .some((task) => task.project_id === next.project_id && task.id !== next.id && task.status === 'BLOCKED');
+      persistProject({
+        ...project,
+        issue: stillBlocked ? project.issue : undefined,
+        monitor_status: stillBlocked ? project.monitor_status : undefined,
+        current_phase: 'EXECUTION',
+        ...stampProjectAction(user, 'ISSUE_RESOLVED'),
+      });
+    }
+  } else if (next.status === 'IN_PROGRESS' && current.status !== 'IN_PROGRESS' && next.project_id) {
     const project = store.getProjects().find((item) => item.id === next.project_id);
     if (project) persistProject({ ...project, current_phase: 'EXECUTION', ...stampProjectAction(user, 'TASK_STARTED') });
+  } else if (
+    next.project_id &&
+    body.progress_percent !== undefined &&
+    next.status !== 'DONE' &&
+    next.review_status !== 'PENDING_TL_REVIEW'
+  ) {
+    const project = store.getProjects().find((item) => item.id === next.project_id);
+    if (project) persistProject({ ...project, ...stampProjectAction(user, 'TASK_PROGRESS_UPDATED') });
   }
   if (
     next.project_id &&
@@ -382,6 +460,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
 
   tasks[index] = next;
   store.saveTasks(tasks);
+  if (next.project_id) persistComputedProgress(next.project_id);
   if (!isTaskFullyComplete(current) && isTaskFullyComplete(next)) {
     store.appendAudit({
       user_id: user.id,

@@ -10,11 +10,15 @@ export function projectPlanTasks(projectId: string): Task[] {
 }
 
 export function ganttStatus(task: Task): GanttStatus {
-  if (task.status === 'DONE' || taskProgressValue(task) >= 100) return 'COMPLETED';
+  if (task.status === 'DONE' && task.review_status !== 'PENDING_TL_REVIEW' && task.review_status !== 'CORRECTION_REQUIRED') {
+    return 'COMPLETED';
+  }
   if (task.status === 'BLOCKED') return 'BLOCKED';
   const today = todayDate();
-  if (task.due_date && task.due_date < today && taskProgressValue(task) < 100) return 'DELAYED';
-  if (task.status === 'IN_PROGRESS' || (task.progress_percent || 0) > 0) return 'IN_PROGRESS';
+  if (task.due_date && task.due_date < today && task.status !== 'DONE') return 'DELAYED';
+  if (task.status === 'IN_PROGRESS' || task.review_status === 'PENDING_TL_REVIEW' || (task.progress_percent || 0) > 0) {
+    return 'IN_PROGRESS';
+  }
   return 'NOT_STARTED';
 }
 

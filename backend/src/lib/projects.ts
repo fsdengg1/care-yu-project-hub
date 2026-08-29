@@ -408,6 +408,17 @@ export function buildProjectDetail(user: User, projectId: string) {
     .filter((task) => (task.due_date || '') < new Date().toISOString().slice(0, 10))
     .map((task) => ({ name: task.title, date: task.due_date, owner: task.assigned_to }));
 
+  const assignable = assignableUsersFor(project).map((item) => ({
+    id: item.id,
+    name: item.name,
+    role_code: item.role_code,
+    role_name: item.role_name,
+    team_id: item.team_id,
+    team_name: item.team_name,
+    open_tasks: tasks.filter((task) => task.assigned_to_id === item.id && task.status !== 'DONE').length,
+  }));
+  const workflow = projectWorkflowView(project);
+
   return {
     project: {
       ...project,
@@ -425,7 +436,7 @@ export function buildProjectDetail(user: User, projectId: string) {
       : null,
     canManage: canManageProject(user, project),
     actions: projectActions(user, project),
-    workflow: projectWorkflowView(project),
+    workflow,
     tasks: ['EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT'].includes(user.role_code)
       ? tasks.filter((task) => task.assigned_to_id === user.id)
       : tasks,
@@ -433,15 +444,25 @@ export function buildProjectDetail(user: User, projectId: string) {
       ? updates.filter((item) => item.user_id === user.id)
       : updates
     ).slice(0, 20),
-    assignableUsers: assignableUsersFor(project).map((item) => ({
-      id: item.id,
-      name: item.name,
-      role_code: item.role_code,
-      role_name: item.role_name,
-      team_name: item.team_name,
-    })),
+    assignableUsers: assignable,
+    assignableTeams: [
+      ...store
+        .getTeams()
+        .filter((team) => team.status === 'ACTIVE')
+        .map((team) => ({
+          id: team.id,
+          name: team.name,
+          team_lead_id: team.team_lead_id,
+          team_lead_name: team.team_lead_name,
+          members: assignable.filter((item) => item.team_id === team.id),
+        })),
+      ...(() => {
+        const ungrouped = assignable.filter((item) => !item.team_id);
+        return ungrouped.length ? [{ id: 'other', name: 'Other', members: ungrouped }] : [];
+      })(),
+    ],
     currentStatus: {
-      phase: project.current_phase || 'EXECUTION',
+      phase: workflow.stage,
       current_task: currentTask?.title || latest?.task_title || 'No open task',
       current_owner: currentTask?.assigned_to || latest?.user_name || project.pm_name,
       current_blocker: project.issue,
@@ -501,7 +522,6 @@ export function applyProjectPatch(
   }
 
   if (body.target_completion) next = { ...next, target_completion: body.target_completion.slice(0, 10) };
-  if (body.current_phase) next = { ...next, current_phase: body.current_phase };
 
   if (body.issue !== undefined) {
     const issue = body.issue === null || body.issue === '' || body.issue === '—' ? undefined : body.issue;

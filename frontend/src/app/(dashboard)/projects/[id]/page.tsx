@@ -103,14 +103,13 @@ export default function ProjectDetailPage() {
   const [detail, setDetail] = useState<ProjectDetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [phase, setPhase] = useState('EXECUTION');
   const [status, setStatus] = useState<ProjectStatus>('ACTIVE');
   const [target, setTarget] = useState('');
   const [remark, setRemark] = useState('');
   const [escIssue, setEscIssue] = useState('');
   const [escImpact, setEscImpact] = useState('');
   const [user, setUser] = useState<User | null>(null);
-  const [assigneeId, setAssigneeId] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
   const [intakeComment, setIntakeComment] = useState('');
   const [tlComment, setTlComment] = useState('');
   const [monitorComment, setMonitorComment] = useState('');
@@ -119,8 +118,9 @@ export default function ProjectDetailPage() {
     title: '',
     description: '',
     priority: 'Medium',
+    start_date: '',
     due_date: '',
-    assigned_to_id: '',
+    assigned_to_ids: [] as string[],
     depends_on_id: '',
   });
 
@@ -131,7 +131,6 @@ export default function ProjectDetailPage() {
       return;
     }
     setDetail(payload);
-    setPhase(payload.project.current_phase || 'EXECUTION');
     setStatus(payload.project.status);
     setTarget(payload.project.target_completion || '');
     setEscIssue(payload.project.issue || '');
@@ -233,7 +232,7 @@ export default function ProjectDetailPage() {
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <h2 className="mb-3 text-sm font-bold text-slate-100">Current status</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Current phase" value={detail.currentStatus.phase} />
+          <Field label="Current stage" value={detail.currentStatus.phase} />
           <Field label="Current task" value={detail.currentStatus.current_task} />
           <Field label="Current owner" value={detail.currentStatus.current_owner} />
           <Field label="Current blocker" value={detail.currentStatus.current_blocker || '—'} />
@@ -326,28 +325,28 @@ export default function ProjectDetailPage() {
           )}
           {detail.actions?.canAssign && (
             <div className="space-y-2">
-              <p className="text-slate-400">Assign to a Team Lead (review required) or directly to a Team Member. You stay the Project Manager.</p>
-              <div className="flex flex-wrap gap-2">
-                <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className="min-w-64 rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                  <option value="">Select Team Lead or Team Member</option>
-                  {(detail.assignableUsers || []).map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} · {item.role_name}{item.team_name ? ` · ${item.team_name}` : ''}
-                    </option>
-                  ))}
-                </select>
+              <p className="text-slate-400">Assign to one or more teams. Pick Team Leads and Team Members across Software, Vision, Robotics, Procurement, and Execution. You stay the Project Manager.</p>
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-start">
+                <TeamPeoplePicker
+                  teams={detail.assignableTeams || []}
+                  people={detail.assignableUsers || []}
+                  selectedIds={assigneeIds}
+                  onChange={setAssigneeIds}
+                  emptyLabel="No Team Leads or Team Members available."
+                />
                 <button
                   type="button"
                   onClick={() => void run(async () => {
-                    if (!assigneeId) {
-                      setError('Select who should own execution.');
+                    if (!assigneeIds.length) {
+                      setError('Select at least one Team Lead or Team Member.');
                       return;
                     }
-                    const result = await ProjectsApi.assign(project.id, assigneeId);
+                    const result = await ProjectsApi.assign(project.id, assigneeIds);
                     if (!result.ok) {
                       setError(result.message);
                       return;
                     }
+                    setAssigneeIds([]);
                     setMessage(PROJECT_ACTION_SUCCESS.assigned);
                     await load();
                   })}
@@ -401,12 +400,21 @@ export default function ProjectDetailPage() {
               <h3 className="font-bold text-slate-100">Task breakdown & assignment</h3>
               <div className="grid gap-2 md:grid-cols-2">
                 <input value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} placeholder="Task name" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-                <select value={taskForm.assigned_to_id} onChange={(e) => setTaskForm({ ...taskForm, assigned_to_id: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                  <option value="">Assigned team member</option>
-                  {(detail.assignableUsers || []).map((item) => (
-                    <option key={item.id} value={item.id}>{item.name} · {item.role_name}</option>
-                  ))}
-                </select>
+                <div>
+                  <div className="mb-1 text-slate-400">Assigned team member *</div>
+                  <TeamPeoplePicker
+                    teams={(detail.assignableTeams || []).filter((team) =>
+                      user?.role_code === 'TEAM_LEAD' ? team.id === user.team_id : true
+                    )}
+                    people={(detail.assignableUsers || []).filter((item) =>
+                      user?.role_code === 'TEAM_LEAD' ? item.team_id === user.team_id || item.id === user.id : true
+                    )}
+                    selectedIds={taskForm.assigned_to_ids}
+                    onChange={(ids) => setTaskForm({ ...taskForm, assigned_to_ids: ids })}
+                    emptyLabel="No team members available."
+                    compact
+                  />
+                </div>
                 <input value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} placeholder="Description" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100 md:col-span-2" />
                 <select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
                   <option>Low</option>
@@ -414,6 +422,7 @@ export default function ProjectDetailPage() {
                   <option>High</option>
                   <option>Critical</option>
                 </select>
+                <input type="date" value={taskForm.start_date} onChange={(e) => setTaskForm({ ...taskForm, start_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" title="Start date" />
                 <input type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
                 <select value={taskForm.depends_on_id} onChange={(e) => setTaskForm({ ...taskForm, depends_on_id: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100 md:col-span-2">
                   <option value="">No dependency</option>
@@ -425,8 +434,8 @@ export default function ProjectDetailPage() {
               <button
                 type="button"
                 onClick={() => void run(async () => {
-                  if (!taskForm.title.trim() || !taskForm.assigned_to_id) {
-                    setError('Task name and assigned team member are required.');
+                  if (!taskForm.title.trim() || !taskForm.assigned_to_ids.length) {
+                    setError('Task name and at least one assigned team member are required.');
                     return;
                   }
                   const result = await TasksApi.create({
@@ -434,7 +443,9 @@ export default function ProjectDetailPage() {
                     description: taskForm.description,
                     task_type: 'PROJECT_TASK',
                     project_id: project.id,
-                    assigned_to_id: taskForm.assigned_to_id,
+                    assigned_to_id: taskForm.assigned_to_ids[0],
+                    assigned_to_ids: taskForm.assigned_to_ids,
+                    start_date: taskForm.start_date || undefined,
                     due_date: taskForm.due_date || undefined,
                     priority: taskForm.priority,
                     depends_on_id: taskForm.depends_on_id || undefined,
@@ -443,7 +454,7 @@ export default function ProjectDetailPage() {
                     setError(result.message);
                     return;
                   }
-                  setTaskForm({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_id: '', depends_on_id: '' });
+                  setTaskForm({ title: '', description: '', priority: 'Medium', start_date: '', due_date: '', assigned_to_ids: [], depends_on_id: '' });
                   setMessage(PROJECT_ACTION_SUCCESS.taskAssigned);
                   await load();
                 })}
@@ -555,28 +566,60 @@ export default function ProjectDetailPage() {
                     <div className="mt-1 text-slate-500">
                       {task.assigned_to} · {TASK_STATUS_LABELS[task.review_status === 'PENDING_TL_REVIEW' ? 'PENDING_TL_REVIEW' : task.status] || task.status}
                       {task.priority ? ` · ${task.priority}` : ''}
+                      {` · ${task.progress_percent || 0}%`}
+                      {task.start_date ? ` · start ${formatLongDate(task.start_date)}` : ''}
                       {task.due_date ? ` · due ${formatLongDate(task.due_date)}` : ''}
                     </div>
                     {task.blocked_reason && <div className="mt-1 text-rose-300">Issue: {task.blocked_reason}</div>}
+                    {(task.comments || []).slice(0, 2).map((comment) => (
+                      <div key={comment.id} className="mt-1 text-slate-500">{comment.user_name}: {comment.comment}</div>
+                    ))}
                   </div>
                   <div className="flex flex-wrap gap-1">
-                    {isAssignee && task.status === 'TODO' && (
-                      <button disabled={busy} onClick={() => void updateTask(task, { status: 'IN_PROGRESS' }, 'Work in progress')} className="rounded border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60">Work in Progress</button>
+                    {isAssignee && task.status === 'TODO' && task.review_status !== 'PENDING_TL_REVIEW' && (
+                      <button disabled={busy} onClick={() => void updateTask(task, { status: 'IN_PROGRESS' }, PROJECT_ACTION_SUCCESS.taskStarted)} className="rounded border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60">
+                        Start Task
+                      </button>
                     )}
-                    {isAssignee && task.status !== 'DONE' && task.review_status !== 'PENDING_TL_REVIEW' && (
+                    {isAssignee && task.status === 'IN_PROGRESS' && task.review_status !== 'PENDING_TL_REVIEW' && (
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          const raw = window.prompt('Progress % (0-100)', String(task.progress_percent || 0)) || '';
+                          const value = Math.max(0, Math.min(100, Number(raw)));
+                          if (!Number.isFinite(value)) return;
+                          void updateTask(task, { progress_percent: value, status: 'IN_PROGRESS' }, PROJECT_ACTION_SUCCESS.progressUpdated);
+                        }}
+                        className="rounded border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
+                      >
+                        Update progress
+                      </button>
+                    )}
+                    {isAssignee && task.status === 'IN_PROGRESS' && task.review_status !== 'PENDING_TL_REVIEW' && (
                       <>
                         <button
                           disabled={busy}
                           onClick={() => {
                             const reason = window.prompt('Describe the issue or doubt') || '';
                             if (!reason.trim()) return;
-                            void updateTask(task, { status: 'BLOCKED', blocked_reason: reason.trim() }, 'Issue / doubt raised');
+                            void updateTask(task, { status: 'BLOCKED', blocked_reason: reason.trim() }, PROJECT_ACTION_SUCCESS.issueRaised);
                           }}
                           className="rounded border border-amber-800 px-2.5 py-1 font-bold text-amber-100 hover:bg-amber-950 disabled:opacity-60"
                         >
-                          Issue / Doubt
+                          Raise Issue / Doubt
                         </button>
-                        <button disabled={busy} onClick={() => void updateTask(task, { status: 'DONE' }, PROJECT_ACTION_SUCCESS.taskCompleted)} className="rounded bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60">Completed</button>
+                        {(task.status === 'IN_PROGRESS' || task.review_status === 'CORRECTION_REQUIRED') && (
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              if (!window.confirm('Are you sure you want to mark this task as completed?')) return;
+                              void updateTask(task, { status: 'DONE', progress_percent: 100 }, PROJECT_ACTION_SUCCESS.taskCompleted);
+                            }}
+                            className="rounded bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                          >
+                            Mark Task Completed
+                          </button>
+                        )}
                       </>
                     )}
                     {user?.role_code === 'TEAM_LEAD' && task.review_status === 'PENDING_TL_REVIEW' && (
@@ -596,7 +639,30 @@ export default function ProjectDetailPage() {
                       </>
                     )}
                     {isAssignee && (
-                      <Link href={`/daily-updates/new?assignment=${encodeURIComponent(task.id)}`} className="rounded bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500">Daily update</Link>
+                      <>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const comment = window.prompt('Work comment') || '';
+                            if (!comment.trim()) return;
+                            void (async () => {
+                              setTaskBusy(task.id);
+                              const result = await TasksApi.comment(task.id, comment.trim());
+                              setTaskBusy(null);
+                              if (!result.ok) {
+                                setError(result.message);
+                                return;
+                              }
+                              setMessage('Comment added.');
+                              await load();
+                            })();
+                          }}
+                          className="rounded border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
+                        >
+                          Comment
+                        </button>
+                        <Link href={`/daily-updates/new?assignment=${encodeURIComponent(task.id)}`} className="rounded bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500">Daily update</Link>
+                      </>
                     )}
                   </div>
                 </div>
@@ -717,7 +783,7 @@ export default function ProjectDetailPage() {
       {detail.canManage && (
         <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">PM controls</h2>
-          <p className="text-slate-500">Overall progress is calculated from tasks. Approve handover after Team Lead final review, then close the project. Open escalations and incomplete tasks block closure.</p>
+          <p className="text-slate-500">Overall progress is calculated from completed tasks. Approve handover only after Team Lead final review. Stage changes happen through workflow actions, not this form.</p>
           <Link href={`/projects/planning?project=${project.id}`} className="inline-flex rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500">
             Open Gantt & Planning
           </Link>
@@ -760,16 +826,18 @@ export default function ProjectDetailPage() {
           <div className="grid gap-3 md:grid-cols-3">
             <label className="block">
               <span className="mb-1 block text-slate-400">Status</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                <option value="ACTIVE">In execution</option>
-                <option value="ON_HOLD">On hold</option>
-                <option value="HANDOVER">Ready for handover</option>
-                <option value="COMPLETED">Project closed</option>
-              </select>
+              {status === 'HANDOVER' || status === 'COMPLETED' ? (
+                <input readOnly value={status === 'HANDOVER' ? 'Ready for handover' : 'Project closed'} className="w-full cursor-not-allowed rounded border border-slate-800 bg-slate-950 p-2 text-slate-400" />
+              ) : (
+                <select value={status} onChange={(e) => setStatus(e.target.value as ProjectStatus)} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                  <option value="ACTIVE">In execution</option>
+                  <option value="ON_HOLD">On hold</option>
+                </select>
+              )}
             </label>
             <label className="block">
-              <span className="mb-1 block text-slate-400">Current phase</span>
-              <input value={phase} onChange={(e) => setPhase(e.target.value)} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <span className="mb-1 block text-slate-400">Current stage</span>
+              <input readOnly value={workflow?.stage || 'Project Assignment'} className="w-full cursor-not-allowed rounded border border-slate-800 bg-slate-950 p-2 text-slate-400" />
             </label>
             <label className="block">
               <span className="mb-1 block text-slate-400">Target completion</span>
@@ -786,7 +854,6 @@ export default function ProjectDetailPage() {
               onClick={() => void run(async () => {
                 const result = await ProjectsApi.patch(project.id, {
                   status,
-                  current_phase: phase,
                   target_completion: target,
                   remarks: remark,
                 });
@@ -872,6 +939,96 @@ function Field({ label, value, href }: { label: string; value: string; href?: st
         <Link href={href} className="mt-1 block font-semibold text-cyan-300 hover:underline">{value}</Link>
       ) : (
         <div className="mt-1 font-semibold text-slate-100">{value}</div>
+      )}
+    </div>
+  );
+}
+
+type PickerPerson = { id: string; name: string; role_code?: string; role_name: string; team_id?: string; team_name?: string; open_tasks?: number };
+type PickerTeam = { id: string; name: string; team_lead_id?: string; team_lead_name?: string; members: PickerPerson[] };
+
+function TeamPeoplePicker({
+  teams,
+  people,
+  selectedIds,
+  onChange,
+  emptyLabel,
+  compact,
+}: {
+  teams: PickerTeam[];
+  people: PickerPerson[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  emptyLabel: string;
+  compact?: boolean;
+}) {
+  const grouped = teams.length
+    ? teams
+    : Object.entries(
+        people.reduce<Record<string, PickerPerson[]>>((map, person) => {
+          const key = person.team_name || 'Other';
+          map[key] = [...(map[key] || []), person];
+          return map;
+        }, {})
+      ).map(([name, members]) => ({ id: name, name, members }));
+
+  const togglePerson = (id: string) => {
+    onChange(selectedIds.includes(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id]);
+  };
+
+  const toggleTeam = (members: PickerPerson[]) => {
+    const ids = members.map((member) => member.id);
+    if (!ids.length) return;
+    const allSelected = ids.every((id) => selectedIds.includes(id));
+    onChange(allSelected ? selectedIds.filter((id) => !ids.includes(id)) : [...new Set([...selectedIds, ...ids])]);
+  };
+
+  return (
+    <div className={`min-w-64 flex-1 rounded border border-slate-800 bg-slate-950 p-2 ${compact ? 'max-h-44' : 'max-h-64'} overflow-y-auto`}>
+      {grouped.length === 0 && <p className="p-2 text-slate-500">{emptyLabel}</p>}
+      {grouped.map((team) => {
+        const memberIds = team.members.map((member) => member.id);
+        const selectedCount = memberIds.filter((id) => selectedIds.includes(id)).length;
+        const allSelected = memberIds.length > 0 && selectedCount === memberIds.length;
+        const open = team.members.reduce((sum, member) => sum + (member.open_tasks || 0), 0);
+        return (
+          <div key={team.id} className="mb-2 rounded border border-slate-800/80 p-2 last:mb-0">
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                disabled={!memberIds.length}
+                onChange={() => toggleTeam(team.members)}
+                className="h-4 w-4 rounded accent-cyan-500"
+              />
+              <span className="font-semibold text-slate-100">{team.name}</span>
+              <span className="text-slate-500">
+                {team.members.length
+                  ? `${team.members.length} ${team.members.length === 1 ? 'person' : 'people'} · ${open} open`
+                  : 'No members yet'}
+              </span>
+            </label>
+            <div className="mt-1 space-y-1 pl-6">
+              {team.members.map((member) => (
+                <label key={member.id} className="flex cursor-pointer items-center gap-2 text-slate-200">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(member.id)}
+                    onChange={() => togglePerson(member.id)}
+                    className="h-4 w-4 rounded accent-cyan-500"
+                  />
+                  <span>
+                    {member.name} · {member.role_name}
+                    {typeof member.open_tasks === 'number' ? ` · ${member.open_tasks} open` : ''}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      {selectedIds.length > 0 && (
+        <div className="mt-1 px-1 text-cyan-300">{selectedIds.length} selected</div>
       )}
     </div>
   );

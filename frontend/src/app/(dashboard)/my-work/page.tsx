@@ -136,7 +136,7 @@ export default function MyAssignedWorkPage() {
 
   const updateTask = async (
     assignment: WorkAssignment,
-    body: { status?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'; blocked_reason?: string; review_action?: 'approve' | 'return' | 'resubmit'; review_comments?: string }
+    body: { status?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'; blocked_reason?: string; progress_percent?: number; review_action?: 'approve' | 'return' | 'resubmit'; review_comments?: string }
   ) => {
     const taskId = assignment.task_id || (assignment.source === 'TASK' ? assignment.id : '');
     if (!taskId) return;
@@ -289,16 +289,16 @@ export default function MyAssignedWorkPage() {
                     <td className="p-2">{formatLongDate(item.last_update_at)}</td>
                     <td className="p-2 text-right">
                       <div className="flex flex-wrap justify-end gap-1">
-                        {taskId && isAssignee && item.current_status === 'TODO' && (
+                        {taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && (
                           <button
                             disabled={busy}
                             onClick={() => void updateTask(item, { status: 'IN_PROGRESS' })}
                             className="rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
                           >
-                            Work in Progress
+                            Start Task
                           </button>
                         )}
-                        {taskId && isAssignee && item.review_status !== 'PENDING_TL_REVIEW' && item.current_status !== 'DONE' && item.current_status !== 'COMPLETED' && (
+                        {taskId && isAssignee && item.current_status === 'IN_PROGRESS' && !item.blocked && item.review_status !== 'PENDING_TL_REVIEW' && (
                           <>
                             <button
                               disabled={busy}
@@ -309,14 +309,17 @@ export default function MyAssignedWorkPage() {
                               }}
                               className="rounded-lg border border-amber-800 px-2.5 py-1 font-bold text-amber-100 hover:bg-amber-950 disabled:opacity-60"
                             >
-                              Issue / Doubt
+                              Raise Issue / Doubt
                             </button>
                             <button
                               disabled={busy}
-                              onClick={() => void updateTask(item, { status: 'DONE', review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined })}
+                              onClick={() => {
+                                if (!window.confirm('Are you sure you want to mark this task as completed?')) return;
+                                void updateTask(item, { status: 'DONE', progress_percent: 100, review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined });
+                              }}
                               className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
                             >
-                              {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Completed'}
+                              {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Mark Task Completed'}
                             </button>
                           </>
                         )}

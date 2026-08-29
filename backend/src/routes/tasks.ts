@@ -24,7 +24,7 @@ router.get('/', requireAuth, (req: AuthedRequest, res) => {
 router.post('/', requireAuth, (req: AuthedRequest, res) => {
   const result = createWorkTask(req.user!, req.body || {});
   if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
-  return res.status(201).json({ task: result.task });
+  return res.status(201).json({ task: result.task, tasks: result.tasks || [result.task] });
 });
 
 router.get('/:id', requireAuth, (req: AuthedRequest, res) => {

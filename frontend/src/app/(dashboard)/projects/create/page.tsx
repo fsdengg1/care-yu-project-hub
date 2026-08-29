@@ -521,7 +521,7 @@ function CreateProjectForm() {
 
         <FormSection title="Section C — Additional Project Information">
           <div>
-            <label className="mb-1 block font-medium text-slate-400">Project Description</label>
+            <label className="mb-1 block font-semibold text-slate-300">Project Description *</label>
             <textarea rows={3} value={formData.project_description || formData.detailed_requirement} onChange={(e) => setFormData({ ...formData, project_description: e.target.value, detailed_requirement: e.target.value })} placeholder="Describe the project scope and what the customer wants to achieve" className={fieldClass(missing.includes('project_description'))} />
           </div>
           <div>
