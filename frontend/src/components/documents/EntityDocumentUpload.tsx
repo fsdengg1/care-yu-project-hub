@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
+  LoaderCircle,
   Paperclip,
   Presentation,
   Trash2,
@@ -45,17 +46,12 @@ function FileGlyph({ name }: { name: string }) {
   return <FileText className="h-5 w-5 text-cyan-400" />;
 }
 
-function readFile(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Could not read the file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
 function isImageName(name: string) {
   return ['jpg', 'jpeg', 'png', 'webp'].includes(extensionOf(name));
+}
+
+function isPendingId(id: string) {
+  return id.startsWith('local-');
 }
 
 export default function EntityDocumentUpload({
@@ -76,11 +72,12 @@ export default function EntityDocumentUpload({
   compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const previewUrls = useRef<Record<string, string>>({});
   const [dragOver, setDragOver] = useState(false);
   const [documents, setDocuments] = useState<EntityDocument[]>([]);
   const [previews, setPreviews] = useState<Record<string, string>>({});
+  const [uploadingIds, setUploadingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const typesKey = (listEntityTypes?.length ? listEntityTypes : [entityType]).join(',');
 
   const load = useCallback(async (id: string) => {
@@ -100,25 +97,28 @@ export default function EntityDocumentUpload({
         docs.push(doc);
       }
     }
-    setDocuments(docs);
+    setDocuments((current) => {
+      const pending = current.filter((item) => isPendingId(item.id));
+      return [...pending, ...docs];
+    });
     if (docs.length === 0 && hadError) setError(hadError);
     else setError(null);
-    const images = docs.filter((doc) => isImageName(doc.file_name) || isImageName(doc.original_file_name));
-    const nextPreviews: Record<string, string> = {};
-    await Promise.all(
-      images.map(async (doc) => {
-        const file = await DocumentsApi.file(doc.id);
-        if (file.ok && file.data.document.file_url) {
-          nextPreviews[doc.id] = file.data.document.file_url;
-        }
-      })
-    );
-    setPreviews(nextPreviews);
   }, [typesKey]);
 
   useEffect(() => {
     if (entityId) void load(entityId);
   }, [entityId, load]);
+
+  useEffect(() => {
+    const urls = previewUrls.current;
+    return () => {
+      Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  const queueFiles = (files: File[]) => {
+    files.forEach((file) => void uploadFile(file));
+  };
 
   const uploadFile = async (file: File) => {
     if (!isAllowedFileType(file.name) || file.size > MAX_FILE_SIZE) {
@@ -126,32 +126,72 @@ export default function EntityDocumentUpload({
       return;
     }
     setError(null);
-    setBusy(true);
+    const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const previewUrl = isImageName(file.name) ? URL.createObjectURL(file) : '';
+    if (previewUrl) {
+      previewUrls.current[localId] = previewUrl;
+      setPreviews((current) => ({ ...current, [localId]: previewUrl }));
+    }
+    const optimistic: EntityDocument = {
+      id: localId,
+      file_name: file.name,
+      original_file_name: file.name,
+      file_type: typeLabel(file.name),
+      file_size: formatSize(file.size),
+      mime_type: file.type,
+      uploaded_by: 'You',
+      uploaded_by_id: '',
+      uploaded_at: new Date().toISOString(),
+      entity_type: entityType,
+      entity_id: entityId || '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setDocuments((current) => [optimistic, ...current]);
+    setUploadingIds((current) => [...current, localId]);
+
     try {
       const id = await ensureEntity();
       if (!id) throw new Error('Save the record before uploading documents.');
-      const dataUrl = await readFile(file);
-      const result = await DocumentsApi.upload({
-        file_name: file.name,
-        original_file_name: file.name,
-        file_type: typeLabel(file.name),
-        file_size: formatSize(file.size),
-        file_url: dataUrl,
-        mime_type: file.type,
+      const result = await DocumentsApi.uploadFile(file, {
         entity_type: entityType,
         entity_id: id,
-        size_bytes: file.size,
+        file_type: typeLabel(file.name),
       });
-      if (!result.ok) throw new Error(result.message || fileTypeError());
-      await load(id);
+      if (!result.ok) throw new Error(result.message);
+      const saved = result.document;
+      setDocuments((current) => current.map((item) => (item.id === localId ? saved : item)));
+      if (previewUrl) {
+        previewUrls.current[saved.id] = previewUrl;
+        setPreviews((current) => {
+          const next = { ...current, [saved.id]: previewUrl };
+          delete next[localId];
+          return next;
+        });
+      }
     } catch (err) {
+      setDocuments((current) => current.filter((item) => item.id !== localId));
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+        delete previewUrls.current[localId];
+        setPreviews((current) => {
+          const next = { ...current };
+          delete next[localId];
+          return next;
+        });
+      }
       setError(err instanceof Error ? err.message : fileTypeError());
     } finally {
-      setBusy(false);
+      setUploadingIds((current) => current.filter((item) => item !== localId));
     }
   };
 
   const openFile = async (doc: EntityDocument, download = false) => {
+    const localPreview = previews[doc.id];
+    if (localPreview && download === false && isImageName(doc.file_name)) {
+      window.open(localPreview, '_blank', 'noreferrer');
+      return;
+    }
     const result = await DocumentsApi.file(doc.id);
     if (!result.ok || !result.data.document.file_url) {
       setError(result.ok ? 'File is not available for preview.' : result.message);
@@ -168,12 +208,23 @@ export default function EntityDocumentUpload({
   };
 
   const remove = async (doc: EntityDocument) => {
+    if (isPendingId(doc.id) || uploadingIds.includes(doc.id)) return;
     const result = await DocumentsApi.remove(doc.id);
     if (!result.ok) {
       setError(result.message);
       return;
     }
     setDocuments((current) => current.filter((item) => item.id !== doc.id));
+    const preview = previewUrls.current[doc.id];
+    if (preview) {
+      URL.revokeObjectURL(preview);
+      delete previewUrls.current[doc.id];
+    }
+    setPreviews((current) => {
+      const next = { ...current };
+      delete next[doc.id];
+      return next;
+    });
   };
 
   return (
@@ -189,7 +240,7 @@ export default function EntityDocumentUpload({
           onDrop={(event) => {
             event.preventDefault();
             setDragOver(false);
-            Array.from(event.dataTransfer.files).forEach((file) => void uploadFile(file));
+            queueFiles(Array.from(event.dataTransfer.files));
           }}
           className={`rounded-xl border-2 border-dashed p-8 text-center ${
             dragOver ? 'border-cyan-500 bg-cyan-950/20' : 'border-slate-700 bg-slate-950/60'
@@ -200,9 +251,8 @@ export default function EntityDocumentUpload({
           <p className="mt-1 text-slate-400">or</p>
           <button
             type="button"
-            disabled={busy}
             onClick={() => inputRef.current?.click()}
-            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500"
           >
             <Upload className="h-4 w-4" /> Browse Files
           </button>
@@ -214,7 +264,7 @@ export default function EntityDocumentUpload({
             className="hidden"
             accept={ACCEPT_FILE_INPUT}
             onChange={(event) => {
-              Array.from(event.target.files || []).forEach((file) => void uploadFile(file));
+              queueFiles(Array.from(event.target.files || []));
               event.target.value = '';
             }}
           />
@@ -227,6 +277,7 @@ export default function EntityDocumentUpload({
       {documents.map((doc) => {
         const previewable = ['pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(extensionOf(doc.file_name));
         const previewSrc = previews[doc.id];
+        const uploading = isPendingId(doc.id) || uploadingIds.includes(doc.id);
         return (
           <div key={doc.id} className="rounded-lg border border-slate-800 bg-slate-950/70 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -243,20 +294,30 @@ export default function EntityDocumentUpload({
                 <div className="min-w-0">
                   <div className="truncate font-semibold text-slate-100">{doc.original_file_name || doc.file_name}</div>
                   <div className="text-[11px] text-slate-400">{doc.file_size}</div>
-                  <div className="text-[11px] text-slate-400">Uploaded by {doc.uploaded_by}</div>
-                  <div className="text-[11px] text-slate-500">{formatLongDate(doc.uploaded_at)}</div>
+                  {uploading ? (
+                    <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-300">
+                      <LoaderCircle className="h-3 w-3 animate-spin" /> Uploading…
+                    </div>
+                  ) : (
+                    <>
+                      <div className="text-[11px] text-slate-400">Uploaded by {doc.uploaded_by}</div>
+                      <div className="text-[11px] text-slate-500">{formatLongDate(doc.uploaded_at)}</div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex shrink-0 flex-wrap gap-1">
-                {previewable && (
+                {previewable && !uploading && (
                   <button type="button" onClick={() => void openFile(doc)} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:border-cyan-700">
                     <Eye className="h-3 w-3" /> Preview
                   </button>
                 )}
-                <button type="button" onClick={() => void openFile(doc, true)} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:border-cyan-700">
-                  <Download className="h-3 w-3" /> Download
-                </button>
-                {canEdit && (
+                {!uploading && (
+                  <button type="button" onClick={() => void openFile(doc, true)} className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-200 hover:border-cyan-700">
+                    <Download className="h-3 w-3" /> Download
+                  </button>
+                )}
+                {canEdit && !uploading && (
                   <button type="button" onClick={() => void remove(doc)} className="inline-flex items-center gap-1 rounded border border-rose-900 px-2 py-1 text-[11px] text-rose-300 hover:bg-rose-950">
                     <Trash2 className="h-3 w-3" /> Delete
                   </button>

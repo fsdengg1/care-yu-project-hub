@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { ALLOWED_FILE_TYPES, MAX_FILE_SIZE } from '../config/files.js';
 import {
@@ -55,6 +55,33 @@ router.get('/documents', requireAuth, (req: AuthedRequest, res) => {
   return res.json({ documents: listDocuments(entityType, entityId) });
 });
 
+function headerValue(req: AuthedRequest, name: string) {
+  const value = req.headers[name];
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(String(raw));
+  } catch {
+    return String(raw);
+  }
+}
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function typeLabel(name: string) {
+  const ext = name.split('.').pop()?.toLowerCase() || '';
+  if (ext === 'pdf') return 'PDF';
+  if (ext === 'ppt' || ext === 'pptx') return 'PowerPoint';
+  if (ext === 'xls' || ext === 'xlsx' || ext === 'csv') return 'Excel';
+  if (ext === 'doc' || ext === 'docx') return 'Word';
+  if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) return 'Image';
+  return 'Document';
+}
+
 router.post('/documents', requireAuth, (req: AuthedRequest, res) => {
   const entityType = parseEntityType(req.body?.entity_type);
   if (!entityType) return res.status(400).json({ message: 'A valid entity_type is required.' });
@@ -74,6 +101,34 @@ router.post('/documents', requireAuth, (req: AuthedRequest, res) => {
   }
   return res.status(201).json({ document: result.document });
 });
+
+router.post(
+  '/documents/binary',
+  requireAuth,
+  express.raw({ type: 'application/octet-stream', limit: '15mb' }),
+  (req: AuthedRequest, res) => {
+    const entityType = parseEntityType(headerValue(req, 'x-entity-type'));
+    if (!entityType) return res.status(400).json({ message: 'A valid entity_type is required.' });
+    const fileName = headerValue(req, 'x-file-name') || 'document';
+    const mimeType = headerValue(req, 'x-mime-type') || 'application/octet-stream';
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const result = addEntityDocument(req.user!, {
+      file_name: fileName,
+      original_file_name: fileName,
+      file_type: headerValue(req, 'x-file-type') || typeLabel(fileName),
+      file_size: formatSize(buffer.length),
+      file_url: `data:${mimeType};base64,${buffer.toString('base64')}`,
+      mime_type: mimeType,
+      entity_type: entityType,
+      entity_id: headerValue(req, 'x-entity-id'),
+      size_bytes: buffer.length,
+    });
+    if ('error' in result) {
+      return res.status(result.status || 400).json({ message: result.error });
+    }
+    return res.status(201).json({ document: result.document });
+  }
+);
 
 router.get('/documents/:id', requireAuth, (req: AuthedRequest, res) => {
   const result = getEntityDocument(req.user!, paramId(req));
