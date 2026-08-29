@@ -208,6 +208,8 @@ export const PROJECT_INTAKE_STEPS = [
   { key: 'SUBMITTED_TO_PM', stage: 'Submitted to PM' },
   { key: 'PM_REVIEW', stage: 'PM Review' },
 ];
+
+export const PROJECT_STEPS = [
   { step: 1, stage: 'Project Assignment' },
   { step: 2, stage: 'Team Lead Review' },
   { step: 3, stage: 'Task Breakdown' },
