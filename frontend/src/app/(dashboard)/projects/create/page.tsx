@@ -1,17 +1,20 @@
 'use client';
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { canCreateLead } from '@/lib/rbac';
 import { ProjectsApi } from '@/lib/projectsApi';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User } from '@/lib/types';
+import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, ProjectIntakeStatus, ProjectWorkflowSnapshot, User } from '@/lib/types';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import CreateProjectModal from '@/components/projects/CreateProjectModal';
+import ProjectWorkflowBanner from '@/components/projects/ProjectWorkflowBanner';
 import { validateLeadForm, numericAmount } from '@/lib/leadValidation';
-import { AlertCircle, ArrowLeft, FolderKanban, CheckCircle2, Plus, Save } from 'lucide-react';
+import { PROJECT_ACTION_SUCCESS } from '@/lib/format';
+import { AlertCircle, ArrowLeft, FolderKanban, Plus, Save, Send } from 'lucide-react';
 
 const SOLUTION_OPTIONS = [
   'Vision Inspection System',
@@ -99,6 +102,9 @@ function CreateProjectForm() {
   const persistLock = useRef<Promise<string | null> | null>(null);
   const projectIdRef = useRef<string | null>(editId);
   const [formData, setFormData] = useState(() => emptyForm());
+  const [intakeStatus, setIntakeStatus] = useState<ProjectIntakeStatus | ''>('');
+  const [workflow, setWorkflow] = useState<ProjectWorkflowSnapshot | null>(null);
+  const [returnComment, setReturnComment] = useState('');
 
   useEffect(() => {
     if (currentUser && !canCreateLead(currentUser)) {
@@ -117,6 +123,9 @@ function CreateProjectForm() {
         projectIdRef.current = project.id;
         setProjectId(project.id);
         setProjectCode(project.code);
+        setIntakeStatus(project.intake_status || '');
+        setWorkflow(payload.workflow || null);
+        setReturnComment(project.intake_comment || '');
         setCustomFields(Array.isArray((project.intake_form as { custom_fields?: LeadCustomField[] })?.custom_fields)
           ? ((project.intake_form as { custom_fields: LeadCustomField[] }).custom_fields)
           : []);
@@ -232,10 +241,10 @@ function CreateProjectForm() {
     custom_fields: customFields.filter((field) => field.name.trim() || field.value.trim()),
   });
 
-  const persistDraft = async (user: User, options?: { stayOnForm?: boolean }) => {
+  const persistProject = async (user: User, action: 'draft' | 'submit') => {
     if (persistLock.current) return persistLock.current;
     persistLock.current = (async () => {
-      const created = await ProjectsApi.create(payloadFromForm(user));
+      const created = await ProjectsApi.create({ ...payloadFromForm(user), action });
       if (!created.ok || !created.project) {
         throw new Error(created.ok ? 'Unable to save the project.' : created.message || 'Unable to save the project.');
       }
@@ -243,9 +252,17 @@ function CreateProjectForm() {
       projectIdRef.current = id;
       setProjectId(id);
       setProjectCode(created.project.code);
-      if (options?.stayOnForm !== false) {
-        router.replace(`/projects/create?id=${id}`);
-      }
+      setIntakeStatus(created.project.intake_status || '');
+      setWorkflow(
+        created.workflow || {
+          step: 0,
+          stage: action === 'submit' ? 'PM Review' : created.project.intake_status === 'RETURNED_TO_CREATOR' ? 'Returned to Creator' : 'Draft',
+          status: action === 'submit' ? 'Submitted to PM' : created.project.intake_status === 'RETURNED_TO_CREATOR' ? 'Returned to Creator' : 'Draft',
+          intake_status: created.project.intake_status || (action === 'submit' ? 'SUBMITTED_TO_PM' : 'DRAFT'),
+        }
+      );
+      setReturnComment(created.project.intake_comment || '');
+      router.replace(`/projects/create?id=${id}`);
       return id;
     })();
     try {
@@ -275,15 +292,17 @@ function CreateProjectForm() {
     setBusy(true);
     setValidationError(null);
     try {
-      const id = await persistDraft(currentUser);
+      const id = await persistProject(currentUser, 'draft');
       if (!id) {
         setValidationError('Unable to save the draft. Please try again.');
         return;
       }
-      setSuccessMessage('Project saved as draft successfully.');
+      setSuccessMessage(PROJECT_ACTION_SUCCESS.draftSaved);
       setMissing([]);
       setFieldErrors({});
-      window.setTimeout(() => setSuccessMessage(null), 4000);
+      window.setTimeout(() => {
+        setSuccessMessage((current) => (current === PROJECT_ACTION_SUCCESS.draftSaved ? null : current));
+      }, 4000);
     } catch (error) {
       setValidationError(error instanceof Error ? error.message : 'Unable to save the draft. Please try again.');
     } finally {
@@ -303,18 +322,21 @@ function CreateProjectForm() {
     setBusy(true);
     setValidationError(null);
     try {
-      const id = await persistDraft(currentUser, { stayOnForm: false });
-      if (!id) throw new Error('Unable to create the project.');
-      setSuccessMessage('Project created successfully.');
+      const id = await persistProject(currentUser, 'submit');
+      if (!id) throw new Error('Unable to submit the project.');
+      setSuccessMessage(PROJECT_ACTION_SUCCESS.submittedToPm);
       setConfirmCreate(false);
-      router.push(`/projects/active?created=${encodeURIComponent(id)}`);
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : 'Unable to create the project. Please try again.');
+      setValidationError(error instanceof Error ? error.message : 'Unable to submit the project. Please try again.');
       setConfirmCreate(false);
     } finally {
       setBusy(false);
     }
   };
+
+  const submitted = intakeStatus === 'SUBMITTED_TO_PM';
+  const returned = intakeStatus === 'RETURNED_TO_CREATOR';
+  const editable = !intakeStatus || intakeStatus === 'DRAFT' || returned;
 
   const fieldError = (field: string) =>
     fieldErrors[field] ? <p className="mt-1 text-[11px] text-rose-400">{fieldErrors[field]}</p> : null;
@@ -344,24 +366,36 @@ function CreateProjectForm() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void handleSaveDraft()}
-            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
-          >
-            <Save className="h-4 w-4 text-slate-400" /> Save Draft
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              if (validateForCreate()) setConfirmCreate(true);
-            }}
-            className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-cyan-500 disabled:opacity-50"
-          >
-            <FolderKanban className="h-4 w-4" /> Create Project
-          </button>
+          {editable && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleSaveDraft()}
+              className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
+            >
+              <Save className="h-4 w-4 text-slate-400" /> Save Draft
+            </button>
+          )}
+          {editable && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                if (validateForCreate()) setConfirmCreate(true);
+              }}
+              className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-cyan-500 disabled:opacity-50"
+            >
+              <Send className="h-4 w-4" /> {returned ? 'Resubmit to PM' : 'Submit to PM'}
+            </button>
+          )}
+          {(submitted || (!editable && projectId)) && projectId && (
+            <Link
+              href={`/projects/${projectId}`}
+              className="rounded-lg border border-cyan-700 px-4 py-2 text-xs font-semibold text-cyan-200 hover:bg-cyan-950"
+            >
+              Open submitted project
+            </Link>
+          )}
         </div>
       </div>
 
@@ -370,21 +404,27 @@ function CreateProjectForm() {
           <AlertCircle className="h-5 w-5 shrink-0 text-rose-400" />
           <div>
             {missing.length > 0 && (
-              <div className="font-bold">Please complete all required fields before creating the project.</div>
+              <div className="font-bold">Please complete all required fields before submitting to PM.</div>
             )}
             <div className={missing.length > 0 ? 'mt-0.5' : 'font-bold'}>{validationError}</div>
           </div>
         </div>
       )}
-      {successMessage && (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-800/80 bg-emerald-950/50 p-4 text-xs text-emerald-300">
-          <CheckCircle2 className="h-5 w-5 shrink-0" />
-          {successMessage}
+      {(workflow || successMessage) && (
+        <ProjectWorkflowBanner
+          workflow={workflow}
+          message={successMessage}
+        />
+      )}
+      {returned && returnComment && (
+        <div className="rounded-xl border border-amber-800 bg-amber-950/40 px-4 py-3 text-xs text-amber-100">
+          <div className="font-bold">Returned to Creator</div>
+          <p className="mt-1 text-amber-200">{returnComment}</p>
         </div>
       )}
 
       <form className="space-y-6 text-xs" onSubmit={(event) => event.preventDefault()}>
-        <fieldset className="space-y-6">
+        <fieldset className="space-y-6" disabled={!editable}>
         <FormSection title="Section A — Basic Lead Information" hint={`Auto ID: ${projectCode}`}>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
@@ -564,10 +604,10 @@ function CreateProjectForm() {
             title="Documents"
             entityType="PROJECT"
             entityId={projectId || undefined}
-            canEdit
+            canEdit={editable}
             ensureEntity={async () => {
               if (!currentUser) return null;
-              return persistDraft(currentUser);
+              return persistProject(currentUser, 'draft');
             }}
           />
 

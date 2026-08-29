@@ -203,7 +203,11 @@ export const TASK_STATUS_LABELS: Record<string, string> = {
   CORRECTION_REQUIRED: 'Correction Required',
 };
 
-export const PROJECT_STEPS = [
+export const PROJECT_INTAKE_STEPS = [
+  { key: 'DRAFT', stage: 'Draft' },
+  { key: 'SUBMITTED_TO_PM', stage: 'Submitted to PM' },
+  { key: 'PM_REVIEW', stage: 'PM Review' },
+];
   { step: 1, stage: 'Project Assignment' },
   { step: 2, stage: 'Team Lead Review' },
   { step: 3, stage: 'Task Breakdown' },
@@ -215,6 +219,10 @@ export const PROJECT_STEPS = [
 ];
 
 export const PROJECT_ACTION_SUCCESS: Record<string, string> = {
+  submittedToPm: 'Project Submitted to PM Successfully',
+  draftSaved: 'Project saved as draft.',
+  pmAccepted: 'Project Accepted Successfully',
+  pmReturned: 'Project Returned to Creator',
   assigned: 'Project Assigned Successfully',
   accepted: 'Project Accepted Successfully',
   returned: 'Project Returned Successfully',

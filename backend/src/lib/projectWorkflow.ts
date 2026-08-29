@@ -108,6 +108,10 @@ export function stampProjectAction(user: User, action: string): Pick<
 
 const LAST_ACTION_LABELS: Record<string, string> = {
   PROJECT_CREATED: 'Project created',
+  PROJECT_DRAFT_SAVED: 'Draft saved',
+  PROJECT_SUBMITTED_TO_PM: 'Submitted to PM',
+  PM_ACCEPTED: 'PM accepted project',
+  PM_RETURNED_TO_CREATOR: 'PM returned to creator',
   PROJECT_ASSIGNED: 'Project assigned',
   PROJECT_ACCEPTED: 'Project accepted',
   PROJECT_RETURNED: 'Project returned to PM',
@@ -148,7 +152,19 @@ export function projectWorkflowView(project: Project): ProjectWorkflowSnapshot {
   let stage = 'Project Assignment';
   let status = 'Awaiting Assignment';
 
-  if (project.status === 'COMPLETED') {
+  if (intake === 'DRAFT') {
+    step = 0;
+    stage = 'Draft';
+    status = 'Draft';
+  } else if (intake === 'SUBMITTED_TO_PM') {
+    step = 0;
+    stage = 'PM Review';
+    status = 'Submitted to PM';
+  } else if (intake === 'RETURNED_TO_CREATOR') {
+    step = 0;
+    stage = 'Returned to Creator';
+    status = 'Returned to Creator';
+  } else if (project.status === 'COMPLETED') {
     step = 8;
     stage = 'Resolution & Completion';
     status = 'Completed';
@@ -289,8 +305,18 @@ export function assignableUsersFor(project: Project): User[] {
   return inTeam.length ? inTeam : users;
 }
 
+const PRE_PM_INTAKE = new Set<ProjectIntakeStatus>(['DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR']);
+
 export function canAssignProject(user: User, project: Project) {
-  return canManageProject(user, project) && project.status === 'ACTIVE';
+  if (!canManageProject(user, project) || project.status !== 'ACTIVE') return false;
+  return !PRE_PM_INTAKE.has(intakeStatusOf(project));
+}
+
+export function canPmReviewCreateProject(user: User, project: Project) {
+  if (project.source !== 'DIRECT_CREATE') return false;
+  if (project.status !== 'ACTIVE') return false;
+  if (intakeStatusOf(project) !== 'SUBMITTED_TO_PM') return false;
+  return canManageProject(user, project);
 }
 
 export function canReviewIntake(user: User, project: Project) {
@@ -364,6 +390,7 @@ export function projectActions(user: User, project: Project) {
   const intake = intakeStatusOf(project);
   return {
     canAssign: canAssignProject(user, project),
+    canPmReview: canPmReviewCreateProject(user, project),
     canIntake: canReviewIntake(user, project),
     canTlReview: canTlFinalReview(user, project),
     canEscalate: canEscalateProject(user, project) && project.status === 'ACTIVE',
@@ -464,6 +491,57 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
       eventKey: `PROJECT_ASSIGNED_VISIBLE:${next.id}:${teamLeadId}`,
     });
   }
+  return { project: next };
+}
+
+export function reviewCreateProjectByPm(user: User, project: Project, action: 'accept' | 'return', comments?: string) {
+  if (!canPmReviewCreateProject(user, project)) {
+    return { error: 'Only the assigned Project Manager can review this project.', status: 403 as const };
+  }
+  const note = (comments || '').trim();
+  if (action === 'return' && !note) {
+    return { error: 'Comments are required when returning a project to the creator.' };
+  }
+  const accepted = action === 'accept';
+  const next: Project = {
+    ...project,
+    intake_status: accepted ? 'AWAITING_ASSIGNMENT' : 'RETURNED_TO_CREATOR',
+    intake_comment: note || undefined,
+    current_phase: accepted ? 'ASSIGNMENT' : 'RETURNED_TO_CREATOR',
+    ...stampProjectAction(user, accepted ? 'PM_ACCEPTED' : 'PM_RETURNED_TO_CREATOR'),
+  };
+  persistProject(next);
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'PROJECT',
+    entity_id: next.id,
+    entity_name: next.code,
+    action: accepted ? 'PM_ACCEPTED' : 'PM_RETURNED_TO_CREATOR',
+    description: accepted
+      ? `${user.name} accepted ${next.code} for assignment.`
+      : `${user.name} returned ${next.code} to the creator: ${note}`,
+  });
+  notify(
+    [next.created_by_id],
+    user,
+    accepted ? 'PROJECT_APPROVED' : 'PROJECT_SENT_BACK',
+    {
+      entityType: 'PROJECT',
+      entityId: next.id,
+      entityName: next.name,
+      customer: next.customer_name,
+      status: accepted ? 'Accepted — Assign Team Lead' : 'Returned to Creator',
+      comments: note,
+      message: accepted
+        ? `${user.name} accepted ${next.customer_name} – ${next.name}. Next: assign a Team Lead.`
+        : `${user.name} returned ${next.customer_name} – ${next.name}: ${note}`,
+      actionUrl: accepted ? `/projects/${next.id}` : `/projects/create?id=${next.id}`,
+      eventKey: `${accepted ? 'PM_ACCEPTED' : 'PM_RETURNED_TO_CREATOR'}:${next.id}`,
+      priority: 'HIGH',
+    }
+  );
   return { project: next };
 }
 

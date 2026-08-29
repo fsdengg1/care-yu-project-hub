@@ -47,6 +47,7 @@ export default function PMDashboard({ user }: { user: User }) {
     href: string;
   }>>([]);
   const [awaitingProjects, setAwaitingProjects] = useState<Project[]>([]);
+  const [pmReviewQueue, setPmReviewQueue] = useState<Project[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -69,13 +70,16 @@ export default function PMDashboard({ user }: { user: User }) {
       setWorkAssignments(list.assignments);
       setLoadError(nextSummary ? null : 'Unable to load daily work updates for your projects. Confirm the backend is running.');
       const listed = await ProjectsApi.list('ACTIVE');
-      setAwaitingProjects(
-        listed.projects.filter(
-          (project) =>
-            project.pm_id === user.id &&
-            (project.intake_status === 'AWAITING_ASSIGNMENT' || project.intake_status === 'RETURNED' || project.status === 'HANDOVER')
-        )
+      const submitted = listed.projects.filter(
+        (project) => project.pm_id === user.id && project.intake_status === 'SUBMITTED_TO_PM'
       );
+      const awaiting = listed.projects.filter(
+        (project) =>
+          project.pm_id === user.id &&
+          (project.intake_status === 'AWAITING_ASSIGNMENT' || project.intake_status === 'RETURNED' || project.status === 'HANDOVER')
+      );
+      setPmReviewQueue(submitted);
+      setAwaitingProjects(awaiting);
     })();
   }, []);
 
@@ -120,6 +124,23 @@ export default function PMDashboard({ user }: { user: User }) {
       <LeadWorkflowTimeline />
       <ProjectGanttPanel user={user} />
 
+      {pmReviewQueue.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-cyan-800/60 bg-cyan-950/20 p-4">
+          <div className="text-xs font-bold text-cyan-300">PM Review queue ({pmReviewQueue.length})</div>
+          {pmReviewQueue.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}`} className="flex items-center justify-between border-t border-cyan-900/30 py-2 hover:text-cyan-200">
+              <div>
+                <span className="mr-2 font-mono font-bold text-cyan-400">{project.code}</span>
+                <span className="font-bold text-slate-100">{project.customer_name} – {project.name}</span>
+                <div className="mt-0.5 text-[11px] text-slate-400">
+                  Current Stage: PM Review · Status: Submitted to PM
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-cyan-400" />
+            </Link>
+          ))}
+        </div>
+      )}
       {awaitingProjects.length > 0 && (
         <div className="space-y-3 rounded-xl border border-cyan-800/60 bg-cyan-950/20 p-4">
           <div className="text-xs font-bold text-cyan-300">Projects needing PM action ({awaitingProjects.length})</div>

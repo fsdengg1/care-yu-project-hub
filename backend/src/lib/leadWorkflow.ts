@@ -860,7 +860,16 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
       (user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id) ||
       user.role_code === 'SYSTEM_ADMIN'
     ) {
-      if (project.status === 'ACTIVE' && (intake === 'AWAITING_ASSIGNMENT' || (!project.team_lead_id && !project.assigned_member_id))) {
+      if (intake === 'SUBMITTED_TO_PM' && project.status === 'ACTIVE') {
+        addGeneric({
+          ...base,
+          status: 'SUBMITTED_TO_PM',
+          pipeline_stage: 'PM_REVIEW',
+          category: 'EXECUTION',
+          summary: 'Review the submitted project, then accept and assign a Team Lead, or return with comments.',
+        });
+      }
+      if (project.status === 'ACTIVE' && intake === 'AWAITING_ASSIGNMENT') {
         addGeneric({
           ...base,
           status: 'AWAITING_ASSIGNMENT',
@@ -890,6 +899,22 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
               : 'Team Lead completed final validation. Approve handover and close the project.',
         });
       }
+    }
+
+    if (
+      project.created_by_id === user.id &&
+      project.source === 'DIRECT_CREATE' &&
+      intake === 'RETURNED_TO_CREATOR' &&
+      project.status === 'ACTIVE'
+    ) {
+      addGeneric({
+        ...base,
+        href: `/projects/create?id=${project.id}`,
+        status: 'RETURNED_TO_CREATOR',
+        pipeline_stage: 'PM_REVIEW',
+        category: 'EXECUTION',
+        summary: project.intake_comment || 'PM returned this project. Update the details and resubmit.',
+      });
     }
 
     if (user.role_code === 'TEAM_LEAD' && project.team_lead_id === user.id && project.status === 'ACTIVE') {

@@ -1,13 +1,13 @@
 import { apiRequest } from './api';
-import { Escalation, Project, ProjectDetailPayload, ProjectStatus } from './types';
+import { Escalation, Project, ProjectDetailPayload, ProjectStatus, ProjectWorkflowSnapshot } from './types';
 
 export const ProjectsApi = {
   async create(body: Record<string, unknown>) {
-    const result = await apiRequest<{ project: Project }>('/api/projects', {
+    const result = await apiRequest<{ project: Project; workflow?: ProjectWorkflowSnapshot }>('/api/projects', {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    if (result.ok) return { ok: true as const, project: result.data.project };
+    if (result.ok) return { ok: true as const, project: result.data.project, workflow: result.data.workflow };
     return { ok: false as const, message: result.message, status: result.status };
   },
   async list(status: ProjectStatus | 'ALL' = 'ACTIVE') {
@@ -42,6 +42,13 @@ export const ProjectsApi = {
     return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/assign`, {
       method: 'POST',
       body: JSON.stringify({ assignee_id: assigneeId }),
+    });
+  },
+
+  async pmReview(id: string, action: 'accept' | 'return', comments?: string) {
+    return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/pm-review`, {
+      method: 'POST',
+      body: JSON.stringify({ action, comments }),
     });
   },
 

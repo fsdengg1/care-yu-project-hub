@@ -835,6 +835,9 @@ export interface DashboardMetrics {
 export type ProjectHealth = 'ON_TRACK' | 'AT_RISK' | 'CRITICAL';
 export type ProjectStatus = 'ACTIVE' | 'ON_HOLD' | 'HANDOVER' | 'COMPLETED' | 'CANCELLED';
 export type ProjectIntakeStatus =
+  | 'DRAFT'
+  | 'SUBMITTED_TO_PM'
+  | 'RETURNED_TO_CREATOR'
   | 'AWAITING_ASSIGNMENT'
   | 'PENDING_TL_REVIEW'
   | 'ACCEPTED'

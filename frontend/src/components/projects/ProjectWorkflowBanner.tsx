@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { AlertCircle, CheckCircle2 } from 'lucide-react';
-import { formatDateTime, PROJECT_STEPS } from '@/lib/format';
+import { formatDateTime, PROJECT_INTAKE_STEPS, PROJECT_STEPS } from '@/lib/format';
 import { ProjectWorkflowSnapshot } from '@/lib/types';
 
 export default function ProjectWorkflowBanner({
@@ -46,13 +46,24 @@ export default function ProjectWorkflowBanner({
           <Meta label="Updated By" value={workflow?.last_action_by || '—'} />
           <Meta label="Updated Date/Time" value={formatDateTime(workflow?.last_action_at)} />
         </div>
-        <div className="mt-4 grid grid-cols-4 gap-1 lg:grid-cols-8">
-          {PROJECT_STEPS.map((item) => {
-            const active = item.step === step;
-            const done = item.step < step;
+        <div className="mt-4 grid grid-cols-3 gap-1 lg:grid-cols-8">
+          {(workflow?.step === 0
+            ? PROJECT_INTAKE_STEPS.map((item, index) => ({ key: item.key, step: index + 1, stage: item.stage }))
+            : PROJECT_STEPS.map((item) => ({ key: String(item.step), step: item.step, stage: item.stage }))
+          ).map((item) => {
+            const intake = workflow?.intake_status;
+            const intakeActive =
+              (item.stage === 'Draft' && (intake === 'DRAFT' || intake === 'RETURNED_TO_CREATOR')) ||
+              (item.stage === 'Submitted to PM' && intake === 'SUBMITTED_TO_PM') ||
+              (item.stage === 'PM Review' && intake === 'SUBMITTED_TO_PM');
+            const active = workflow?.step === 0 ? intakeActive : item.step === step;
+            const done =
+              workflow?.step === 0
+                ? item.stage === 'Draft' && intake === 'SUBMITTED_TO_PM'
+                : item.step < step;
             return (
               <div
-                key={item.step}
+                key={item.key}
                 className={`rounded-lg border px-2 py-2 text-center ${
                   active
                     ? 'border-cyan-500 bg-cyan-950 text-cyan-100'

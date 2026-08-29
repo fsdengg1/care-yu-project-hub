@@ -186,9 +186,10 @@ export function canOpenProjectGantt(
 
 export function canEditProjectGantt(
   user: User | null | undefined,
-  project?: { pm_id?: string } | null
+  project?: { pm_id?: string; intake_status?: string } | null
 ): boolean {
   if (!user) return false;
+  if (project && ['DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(project.intake_status || '')) return false;
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   return user.role_code === 'PROJECT_MANAGER' && Boolean(!project || project.pm_id === user.id);
 }

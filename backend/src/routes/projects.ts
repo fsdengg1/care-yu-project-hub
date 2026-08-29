@@ -21,6 +21,8 @@ import {
   completionBlockers,
   markTlFinalReview,
   monitorProject,
+  projectWorkflowView,
+  reviewCreateProjectByPm,
   reviewProjectIntake,
 } from '../lib/projectWorkflow.js';
 
@@ -47,7 +49,7 @@ router.get(
 router.post('/', requireAuth, requirePermission('create:lead'), (req: AuthedRequest, res) => {
   const result = createDirectProject(req.user!, (req.body || {}) as Record<string, unknown>);
   if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
-  return res.status(201).json({ project: result.project });
+  return res.status(201).json({ project: result.project, workflow: projectWorkflowView(result.project) });
 });
 
 router.get(
@@ -121,6 +123,21 @@ router.patch(
     }
     const updated = applyProjectPatch(user, project, req.body || {});
     return res.json({ project: updated, detail: buildProjectDetail(user, project.id) });
+  }
+);
+
+router.post(
+  '/:id/pm-review',
+  requireAuth,
+  requirePermission('manage:project', 'view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    const action = String(req.body?.action || '').toLowerCase() === 'return' ? 'return' : 'accept';
+    const result = reviewCreateProjectByPm(user, project, action, req.body?.comments);
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
   }
 );
 

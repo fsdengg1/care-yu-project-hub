@@ -77,7 +77,7 @@ export function ensureProjectTeamTasks(): Task[] {
   for (const project of projects) {
     if (project.plan_initialized) continue;
     const intake = project.intake_status || 'AWAITING_ASSIGNMENT';
-    if (['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED', 'ACCEPTED'].includes(intake)) continue;
+    if (['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED', 'ACCEPTED', 'DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(intake)) continue;
     if (project.assignment_path !== 'DIRECT_MEMBER' || !project.assigned_member_id) continue;
     const member = users.find((user) => user.id === project.assigned_member_id);
     if (!member) continue;
@@ -305,6 +305,7 @@ export function listVisibleAssignments(user: User): WorkAssignment[] {
 
 export function canViewProject(user: User, project: Project): boolean {
   if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+  if (project.intake_status === 'DRAFT') return project.created_by_id === user.id;
   if (user.role_code === 'PROJECT_MANAGER') return project.pm_id === user.id;
   if (user.role_code === 'TEAM_LEAD' && project.team_lead_id === user.id) return true;
   if (project.assigned_member_id === user.id) return true;

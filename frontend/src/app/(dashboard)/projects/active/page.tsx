@@ -31,6 +31,7 @@ export default function ActiveProjectsPage() {
   const [sort, setSort] = useState<SortKey>('updated');
   const [summary, setSummary] = useState<{ total: number; onTrack: number; atRisk: number; critical: number } | null>(null);
   const [createdId, setCreatedId] = useState('');
+  const [drafts, setDrafts] = useState<Project[]>([]);
 
   const viewOnly = isCeoViewOnly(user) || ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'CTO'].includes(user?.role_code || '');
   const isPm = canPerformPmOperations(user);
@@ -44,8 +45,12 @@ export default function ActiveProjectsPage() {
     }
     setError(null);
     const rows = result.projects.filter((project) => nextStatus === 'ALL' ? project.status === 'ACTIVE' || project.status === 'ON_HOLD' : true);
-    setProjects(rows.filter((project) => project.status !== 'COMPLETED' && project.status !== 'CANCELLED'));
+    setProjects(rows.filter((project) => project.status !== 'COMPLETED' && project.status !== 'CANCELLED' && project.intake_status !== 'DRAFT'));
     setSummary(result.summary);
+    if (canCreateLead(user) || canCreateLead(StorageService.getCurrentUser())) {
+      const all = await ProjectsApi.list('ALL');
+      setDrafts(all.projects.filter((project) => project.intake_status === 'DRAFT'));
+    }
   };
 
   useEffect(() => {
@@ -97,7 +102,7 @@ export default function ActiveProjectsPage() {
             <h1 className="mt-1 text-xl font-bold text-slate-100">Active Projects</h1>
             <p className="mt-1 text-xs text-slate-400">
               {canCreateLead(user)
-                ? 'Projects you create appear in this list immediately. Converted orders also appear here after order conversion.'
+                ? 'Save a draft, then Submit to PM. Submitted projects appear here and in the PM Review queue. Drafts stay with you until you submit.'
                 : viewOnly
                   ? 'Management view of execution health, owners, and blockers. Operational updates are handled by PM and teams.'
                   : isPm
@@ -119,6 +124,22 @@ export default function ActiveProjectsPage() {
       {createdId && (
         <div className="rounded-xl border border-emerald-800 bg-emerald-950/40 px-4 py-3 text-emerald-200">
           Project added to Active Projects. It is listed at the top.
+        </div>
+      )}
+
+      {drafts.length > 0 && canCreateLead(user) && (
+        <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-900/90 p-4">
+          <div className="text-xs font-bold text-slate-200">Your drafts ({drafts.length})</div>
+          {drafts.map((project) => (
+            <Link key={project.id} href={`/projects/create?id=${project.id}`} className="flex items-center justify-between border-t border-slate-800 py-2 hover:text-cyan-200">
+              <div>
+                <span className="mr-2 font-mono font-bold text-slate-400">{project.code}</span>
+                <span className="font-semibold text-slate-100">{project.customer_name} – {project.name}</span>
+                <div className="text-[11px] text-slate-500">Status: Draft — not in PM review</div>
+              </div>
+              <span className="text-cyan-400">Continue</span>
+            </Link>
+          ))}
         </div>
       )}
 
@@ -229,6 +250,12 @@ export default function ActiveProjectsPage() {
                     {project.name}
                   </Link>
                   <div className="font-mono text-[10px] text-slate-500">{project.code}</div>
+                  {project.intake_status === 'SUBMITTED_TO_PM' && (
+                    <div className="mt-0.5 text-[10px] font-semibold text-cyan-300">Submitted to PM · PM Review</div>
+                  )}
+                  {project.intake_status === 'RETURNED_TO_CREATOR' && (
+                    <div className="mt-0.5 text-[10px] font-semibold text-amber-300">Returned to Creator</div>
+                  )}
                 </td>
                 <td className="p-3">{project.customer_name}</td>
                 <td className="p-3">{project.pm_name}</td>

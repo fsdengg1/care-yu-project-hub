@@ -28,6 +28,55 @@ function healthClass(health: string) {
   return 'border-emerald-800 bg-emerald-950 text-emerald-300';
 }
 
+const CREATE_INTAKE_FIELDS: Array<[string, string]> = [
+  ['title', 'Project title'],
+  ['customer_name', 'Customer'],
+  ['customer_type', 'Customer type'],
+  ['business_vertical', 'Business vertical'],
+  ['priority', 'Priority'],
+  ['customer_contact', 'Contact name'],
+  ['customer_designation', 'Designation'],
+  ['customer_email', 'Contact email'],
+  ['customer_phone', 'Contact phone'],
+  ['customer_location', 'Location'],
+  ['plant_location', 'Plant location'],
+  ['project_description', 'Project description'],
+  ['requirement_summary', 'Requirement summary'],
+  ['detailed_requirement', 'Detailed requirement'],
+  ['application', 'Application'],
+  ['industry_process', 'Industry / process'],
+  ['current_process', 'Current process'],
+  ['expected_automation', 'Expected automation'],
+  ['required_solution', 'Required solution'],
+  ['customer_objective', 'Customer objective'],
+  ['customer_challenge', 'Customer challenge'],
+  ['competitor_information', 'Competitor information'],
+  ['expected_project_timeline', 'Expected timeline'],
+  ['customer_target_date', 'Target date'],
+  ['production_quantity', 'Production quantity'],
+  ['production_rate', 'Production rate'],
+  ['cycle_time', 'Cycle time'],
+  ['shift_pattern', 'Shift pattern'],
+  ['operating_hours', 'Operating hours'],
+  ['existing_equipment', 'Existing equipment'],
+  ['existing_automation', 'Existing automation'],
+  ['integration_requirements', 'Integration requirements'],
+  ['technical_requirements', 'Technical requirements'],
+  ['machine_dimensions', 'Machine dimensions'],
+  ['payload', 'Payload'],
+  ['accuracy_requirement', 'Accuracy'],
+  ['environment_conditions', 'Environment'],
+  ['technical_specifications', 'Technical specifications'],
+  ['technical_assumptions', 'Technical assumptions'],
+  ['customer_dependencies', 'Customer dependencies'],
+  ['customer_budget', 'Customer budget'],
+  ['estimated_opportunity_value', 'Opportunity value'],
+  ['expected_po_date', 'Expected PO date'],
+  ['commercial_remarks', 'Commercial remarks'],
+  ['additional_notes', 'Additional notes'],
+  ['required_documents', 'Required documents'],
+];
+
 const INTAKE_FIELDS: Array<[string, string]> = [
   ['title', 'Project title'],
   ['customer_name', 'Customer'],
@@ -160,7 +209,11 @@ export default function ProjectDetailPage() {
 
       <ProjectWorkflowBanner workflow={workflow} message={message} error={error} />
 
-      {user && canOpenProjectGantt(user, project) && <ProjectGanttPanel user={user} projectId={project.id} />}
+      {user &&
+        canOpenProjectGantt(user, project) &&
+        !['DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(project.intake_status || '') && (
+          <ProjectGanttPanel user={user} projectId={project.id} />
+        )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Project ID" value={project.code} />
@@ -210,7 +263,7 @@ export default function ProjectDetailPage() {
         <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <h2 className="mb-3 text-sm font-bold text-slate-100">Project scope & requirements</h2>
           <div className="grid gap-3 sm:grid-cols-2">
-            {INTAKE_FIELDS.map(([key, label]) => {
+            {(project.source === 'DIRECT_CREATE' ? CREATE_INTAKE_FIELDS : INTAKE_FIELDS).map(([key, label]) => {
               const value = intake[key];
               if (value === undefined || value === null || value === '') return null;
               return <Field key={key} label={label} value={String(value)} />;
@@ -230,9 +283,47 @@ export default function ProjectDetailPage() {
         title="Documents"
       />
 
-      {(detail.actions?.canAssign || detail.actions?.canIntake || detail.actions?.canTlReview || (detail.actions?.canEscalate && !detail.canManage) || detail.actions?.canMonitor || detail.actions?.canBreakdown) && (
+      {(detail.actions?.canPmReview || detail.actions?.canAssign || detail.actions?.canIntake || detail.actions?.canTlReview || (detail.actions?.canEscalate && !detail.canManage) || detail.actions?.canMonitor || detail.actions?.canBreakdown) && (
         <section className="space-y-4 rounded-xl border border-cyan-900/50 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">Execution workflow</h2>
+          {detail.actions?.canPmReview && (
+            <div className="space-y-2">
+              <p className="text-slate-400">Review the complete project information. Accept to continue to Team Lead assignment, or return to the creator with a reason.</p>
+              <textarea rows={2} value={intakeComment} onChange={(e) => setIntakeComment(e.target.value)} placeholder="Comments (required if returning)" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void run(async () => {
+                    const result = await ProjectsApi.pmReview(project.id, 'accept', intakeComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage(PROJECT_ACTION_SUCCESS.pmAccepted);
+                    await load();
+                  })}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
+                >
+                  Accept
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void run(async () => {
+                    const result = await ProjectsApi.pmReview(project.id, 'return', intakeComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage(PROJECT_ACTION_SUCCESS.pmReturned);
+                    await load();
+                  })}
+                  className="rounded-lg border border-amber-800 bg-amber-950 px-4 py-2 font-bold text-amber-100 hover:bg-amber-900"
+                >
+                  Return to Creator
+                </button>
+              </div>
+            </div>
+          )}
           {detail.actions?.canAssign && (
             <div className="space-y-2">
               <p className="text-slate-400">Assign to a Team Lead (review required) or directly to a Team Member. You stay the Project Manager.</p>

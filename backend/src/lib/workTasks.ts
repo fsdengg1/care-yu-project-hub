@@ -196,7 +196,7 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
   }
   const project = projectId ? store.getProjects().find((item) => item.id === projectId) : undefined;
   if (taskType === 'PROJECT_TASK' && !project) return { error: 'Project not found.' };
-  if (project && ['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED'].includes(intakeStatusOf(project))) {
+  if (project && ['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED', 'DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(intakeStatusOf(project))) {
     return { error: 'Assign and accept the project before creating execution tasks.' };
   }
   if (project && user.role_code === 'PROJECT_MANAGER' && project.pm_id !== user.id) {

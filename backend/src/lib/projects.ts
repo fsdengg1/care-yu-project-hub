@@ -86,6 +86,7 @@ export function canAccessGanttModule(user: User): boolean {
 }
 
 export function canEditProjectGantt(user: User, project: Project): boolean {
+  if (['DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(project.intake_status || '')) return false;
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   return user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id;
 }
@@ -151,13 +152,19 @@ export function hydrateProject(project: Project): Project {
     current_phase: project.current_phase || (
       project.status === 'COMPLETED'
         ? 'COMPLETED'
-        : project.intake_status === 'AWAITING_ASSIGNMENT'
-          ? 'ASSIGNMENT'
-          : project.intake_status === 'PENDING_TL_REVIEW'
-            ? 'TEAM_LEAD_REVIEW'
-            : project.intake_status === 'ACCEPTED'
-              ? 'TASK_BREAKDOWN'
-              : 'EXECUTION'
+        : project.intake_status === 'DRAFT'
+          ? 'DRAFT'
+          : project.intake_status === 'SUBMITTED_TO_PM'
+            ? 'PM_REVIEW'
+            : project.intake_status === 'RETURNED_TO_CREATOR'
+              ? 'RETURNED_TO_CREATOR'
+              : project.intake_status === 'AWAITING_ASSIGNMENT'
+                ? 'ASSIGNMENT'
+                : project.intake_status === 'PENDING_TL_REVIEW'
+                  ? 'TEAM_LEAD_REVIEW'
+                  : project.intake_status === 'ACCEPTED'
+                    ? 'TASK_BREAKDOWN'
+                    : 'EXECUTION'
     ),
     last_update_at: project.last_update_at || project.updated_at,
     remarks: project.remarks || [],
@@ -318,6 +325,14 @@ export function syncConvertedLeadsToProjects() {
 export function listVisibleProjects(user: User, status: ProjectStatus | 'ALL' = 'ACTIVE') {
   syncConvertedLeadsToProjects();
   const projects = persistRefreshedProjects().filter((project) => {
+    const intake = project.intake_status;
+    if (intake === 'DRAFT') {
+      const canSeeDraft =
+        project.created_by_id === user.id ||
+        ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
+      if (!canSeeDraft) return false;
+      return status === 'ALL';
+    }
     if (status === 'ALL') return project.status !== 'CANCELLED';
     if (status === 'ACTIVE') return project.status === 'ACTIVE' || project.status === 'HANDOVER';
     return project.status === status;
@@ -672,6 +687,14 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
   if (!title) return { error: 'Project title is required.', status: 400 as const };
   if (!customerName) return { error: 'Customer name is required.', status: 400 as const };
 
+  const submitting = String(body.action || '').toLowerCase() === 'submit';
+  if (submitting) {
+    const requirement = String(body.requirement_summary || '').trim();
+    const detailed = String(body.detailed_requirement || body.project_description || '').trim();
+    if (!requirement) return { error: 'Requirement Summary is required.', status: 400 as const };
+    if (!detailed) return { error: 'Detailed Requirement is required.', status: 400 as const };
+  }
+
   const projects = store.getProjects();
   const requestedId = String(body.id || '').trim();
   const existing = requestedId
@@ -680,8 +703,14 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
   if (requestedId && !existing) {
     return { error: 'Project not found.', status: 404 as const };
   }
-  if (existing && existing.created_by_id && existing.created_by_id !== user.id && user.role_code !== 'SYSTEM_ADMIN') {
-    return { error: 'You cannot update this project.', status: 403 as const };
+  if (existing) {
+    const owner = !existing.created_by_id || existing.created_by_id === user.id || user.role_code === 'SYSTEM_ADMIN';
+    if (!owner) return { error: 'You cannot update this project.', status: 403 as const };
+    const intake = existing.intake_status || 'DRAFT';
+    const editable = intake === 'DRAFT' || intake === 'RETURNED_TO_CREATOR';
+    if (!editable && user.role_code !== 'SYSTEM_ADMIN') {
+      return { error: 'This project has been submitted and is no longer editable.', status: 403 as const };
+    }
   }
 
   const pm = findPm();
@@ -689,6 +718,15 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
   const intakeForm = { ...body };
   delete intakeForm.id;
   delete intakeForm.lead_id;
+  delete intakeForm.action;
+
+  const intakeStatus = submitting
+    ? 'SUBMITTED_TO_PM'
+    : existing?.intake_status === 'RETURNED_TO_CREATOR'
+      ? 'RETURNED_TO_CREATOR'
+      : 'DRAFT';
+  const currentPhase = submitting ? 'PM_REVIEW' : intakeStatus === 'RETURNED_TO_CREATOR' ? 'RETURNED_TO_CREATOR' : 'DRAFT';
+  const actionKey = submitting ? 'PROJECT_SUBMITTED_TO_PM' : 'PROJECT_DRAFT_SAVED';
 
   const project: Project = {
     id: existing?.id || newId('prj'),
@@ -705,17 +743,15 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
     start_date: existing?.start_date || now.slice(0, 10),
     target_completion:
       String(body.customer_target_date || existing?.target_completion || addDays(now, 90)).slice(0, 10) || addDays(now, 90),
-    current_phase: existing?.current_phase || 'ASSIGNMENT',
+    current_phase: currentPhase,
     last_update_at: now,
-    intake_status: existing?.intake_status || 'AWAITING_ASSIGNMENT',
+    intake_status: intakeStatus,
+    intake_comment: submitting ? undefined : existing?.intake_comment,
     source: 'DIRECT_CREATE',
     created_by_id: existing?.created_by_id || user.id,
     created_by_name: existing?.created_by_name || user.name,
     intake_form: intakeForm,
-    last_action: existing?.last_action || 'PROJECT_CREATED',
-    last_action_by_id: existing?.last_action_by_id || user.id,
-    last_action_by_name: existing?.last_action_by_name || user.name,
-    last_action_at: existing?.last_action_at || now,
+    ...stampProjectAction(user, actionKey),
     created_at: existing?.created_at || now,
     updated_at: now,
   };
@@ -732,9 +768,27 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
       entity_type: 'PROJECT',
       entity_id: project.id,
       entity_name: project.code,
-      action: 'PROJECT_INTAKE_UPDATED',
-      description: `${user.name} updated project ${project.code}.`,
+      action: actionKey,
+      description: submitting
+        ? `${user.name} submitted project ${project.code} to PM.`
+        : `${user.name} saved draft ${project.code}.`,
     });
+    if (submitting && project.pm_id && project.pm_id !== user.id) {
+      emitWorkflowEvent({
+        event: 'PROJECT_SUBMITTED',
+        actor: user,
+        entityType: 'PROJECT',
+        entityId: project.id,
+        entityName: project.name,
+        recipientIds: [project.pm_id],
+        customer: project.customer_name,
+        status: 'Submitted to PM',
+        message: `${user.name} submitted ${project.code} (${project.name}) for PM review.`,
+        actionUrl: `/projects/${project.id}`,
+        eventKey: `PROJECT_SUBMITTED_TO_PM:${project.id}:${now}`,
+        priority: 'HIGH',
+      });
+    }
     return { project: projects[index] };
   }
 
@@ -747,10 +801,12 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
     entity_type: 'PROJECT',
     entity_id: project.id,
     entity_name: project.code,
-    action: 'PROJECT_CREATED',
-    description: `${user.name} created project ${project.code} (${project.name}).`,
+    action: actionKey,
+    description: submitting
+      ? `${user.name} submitted project ${project.code} (${project.name}) to PM.`
+      : `${user.name} saved draft project ${project.code} (${project.name}).`,
   });
-  if (project.pm_id && project.pm_id !== user.id) {
+  if (submitting && project.pm_id && project.pm_id !== user.id) {
     emitWorkflowEvent({
       event: 'PROJECT_SUBMITTED',
       actor: user,
@@ -759,10 +815,10 @@ export function createDirectProject(user: User, body: Record<string, unknown>) {
       entityName: project.name,
       recipientIds: [project.pm_id],
       customer: project.customer_name,
-      status: 'Awaiting Assignment',
-      message: `${user.name} created ${project.code} (${project.name}). Assign it to a Team Lead or Team Member.`,
+      status: 'Submitted to PM',
+      message: `${user.name} submitted ${project.code} (${project.name}) for PM review.`,
       actionUrl: `/projects/${project.id}`,
-      eventKey: `PROJECT_CREATED:${project.id}`,
+      eventKey: `PROJECT_SUBMITTED_TO_PM:${project.id}`,
       priority: 'HIGH',
     });
   }
