@@ -14,6 +14,7 @@ import {
   patchPhase,
   patchPlanTask,
   requireAssignableProject,
+  updateProjectTimeline,
 } from '../lib/planning.js';
 
 const router = Router();
@@ -57,7 +58,7 @@ function planOrError(req: AuthedRequest, res: import('express').Response, projec
   return plan;
 }
 
-router.get('/', requireAuth, requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates'), (req: AuthedRequest, res) => {
+router.get('/', requireAuth, requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates', 'view:leads'), (req: AuthedRequest, res) => {
   if (denyModule(req, res)) return;
   res.json({
     success: true,
@@ -66,7 +67,7 @@ router.get('/', requireAuth, requirePermission('view:projects', 'view:dashboard:
   });
 });
 
-router.get('/:projectId', requireAuth, requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates'), (req: AuthedRequest, res) => {
+router.get('/:projectId', requireAuth, requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates', 'view:leads'), (req: AuthedRequest, res) => {
   if (denyModule(req, res)) return;
   const plan = planOrError(req, res, param(req, 'projectId'));
   if (!plan) return;
@@ -78,6 +79,17 @@ router.post('/:projectId/plan', requireAuth, requirePermission('manage:project')
   if ('error' in result && result.error === 'not_found') return res.status(404).json({ success: false, message: 'Project not found.' });
   if ('error' in result) return res.status(403).json(GANTT_EDIT_FORBIDDEN);
   const plan = createDefaultPlan(req.user!, result.project);
+  if (!plan) return res.status(403).json(GANTT_EDIT_FORBIDDEN);
+  return res.json({ success: true, ...plan });
+});
+
+router.patch('/:projectId/timeline', requireAuth, requirePermission('manage:project'), (req: AuthedRequest, res) => {
+  const result = requireAssignableProject(req.user!, param(req, 'projectId'));
+  if ('error' in result && result.error === 'not_found') return res.status(404).json({ success: false, message: 'Project not found.' });
+  if ('error' in result) return res.status(403).json(GANTT_EDIT_FORBIDDEN);
+  const plan = updateProjectTimeline(req.user!, result.project, req.body || {});
+  if (plan && 'error' in plan && plan.error === 'not_found') return res.status(404).json({ success: false, message: 'Project not found.' });
+  if (plan && 'error' in plan) return res.status(400).json({ success: false, message: plan.error });
   if (!plan) return res.status(403).json(GANTT_EDIT_FORBIDDEN);
   return res.json({ success: true, ...plan });
 });

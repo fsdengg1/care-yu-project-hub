@@ -437,6 +437,8 @@ export interface Lead {
 
   assigned_team_id?: string;
   assigned_team_name?: string;
+  assigned_team_ids?: string[];
+  assigned_team_names?: string[];
   assigned_team_lead_id?: string;
   assigned_team_lead_name?: string;
   assignment_path?: 'TEAM_LEAD' | 'DIRECT_MEMBER';
@@ -839,6 +841,7 @@ export type ProjectIntakeStatus =
   | 'RETURNED'
   | 'IN_EXECUTION';
 export type ProjectAssignmentPath = 'TEAM_LEAD' | 'DIRECT_MEMBER';
+export type ProjectMonitorStatus = 'ON_TRACK' | 'ISSUE_IDENTIFIED';
 
 export interface ProjectRemark {
   id: string;
@@ -876,12 +879,24 @@ export interface Project {
   assignment_path?: ProjectAssignmentPath;
   assigned_member_id?: string;
   assigned_member_name?: string;
+  assigned_by_id?: string;
+  assigned_by_name?: string;
+  assigned_at?: string;
   intake_comment?: string;
   tl_accepted_at?: string;
   tl_reviewed_at?: string;
   pm_approved_at?: string;
+  last_action?: string;
+  last_action_by_id?: string;
+  last_action_by_name?: string;
+  last_action_at?: string;
+  monitor_status?: ProjectMonitorStatus;
   created_at: string;
   updated_at: string;
+  source?: 'LEAD_CONVERSION' | 'DIRECT_CREATE';
+  created_by_id?: string;
+  created_by_name?: string;
+  intake_form?: Record<string, unknown>;
 }
 
 export type ProcurementRequestStatus = 'DELAYED' | 'IN_PROGRESS' | 'ON_HOLD' | 'COMPLETED';
@@ -904,6 +919,31 @@ export type EscalationSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type EscalationStatus = 'OPEN' | 'IN_REVIEW' | 'RESOLVED';
 export type EscalationLevel = 'TEAM_LEAD' | 'PROJECT_MANAGER' | 'BUSINESS_HEAD' | 'ENG_DIRECTOR' | 'CEO';
 
+export interface EscalationEvent {
+  id: string;
+  level: EscalationLevel;
+  action: 'RAISED' | 'PROMOTED' | 'RESOLVED';
+  actor_id: string;
+  actor_name: string;
+  comments?: string;
+  at: string;
+}
+
+export interface ProjectWorkflowSnapshot {
+  step: number;
+  stage: string;
+  status: string;
+  last_action?: string;
+  last_action_label?: string;
+  last_action_by?: string;
+  last_action_at?: string;
+  intake_status: ProjectIntakeStatus;
+  assignment_path?: ProjectAssignmentPath;
+  monitor_status?: ProjectMonitorStatus;
+  escalation_level?: EscalationLevel;
+  escalation_resolved?: boolean;
+}
+
 export interface Escalation {
   id: string;
   code: string;
@@ -922,6 +962,7 @@ export interface Escalation {
   team_name?: string;
   previous_actions: string;
   current_level: EscalationLevel;
+  history?: EscalationEvent[];
   decision_required?: string;
   ceo_decision?: string;
   resolution?: string;

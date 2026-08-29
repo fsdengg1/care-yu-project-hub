@@ -6,6 +6,7 @@ import { projectManagerEmail } from './projectManagerAccount.js';
 import { robotLeadEmail } from './robotLead.js';
 
 export const ENGINEERING_DIRECTOR_EMAIL = 'sabarigiri@careyu.ai';
+export const FSD_ENGG1_EMAIL = 'fsdengg1@careyu.ai';
 
 function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -63,6 +64,9 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   const pmEmail = projectManagerEmail();
   const robotEmail = robotLeadEmail();
 
+  if (email === FSD_ENGG1_EMAIL || local === 'fsdengg1') {
+    return role('EMPLOYEE', SOFTWARE_TEAM);
+  }
   if (email === 'ceo@careyu.ai' || name.includes('bernard')) {
     return role('CEO', { clearTeam: true });
   }
@@ -149,9 +153,20 @@ function leadForTeam(teamId: string, users: User[]): User | undefined {
   return members.find((user) => user.role_code === 'TEAM_LEAD') || members[0];
 }
 
+const FUNCTIONAL_TEAM_ROLES = new Set(['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'PROCUREMENT', 'EXECUTION']);
+
+export function inferReportingManager(roleCode: string, users: User[], hasTeam = false): User | undefined {
+  const ceo = users.find((item) => item.role_code === 'CEO' && item.status === 'ACTIVE');
+  const businessHead = users.find((item) => item.role_code === 'BUSINESS_HEAD' && item.status === 'ACTIVE');
+  const pm = users.find((item) => item.role_code === 'PROJECT_MANAGER' && item.status === 'ACTIVE');
+  if (roleCode === 'CEO') return undefined;
+  if (roleCode === 'BUSINESS_HEAD' || roleCode === 'ENG_DIRECTOR' || roleCode === 'CTO') return ceo;
+  if (roleCode === 'PROJECT_MANAGER') return businessHead || ceo;
+  if (hasTeam || FUNCTIONAL_TEAM_ROLES.has(roleCode)) return pm;
+  return pm || ceo;
+}
+
 function attachLeadershipReporting(users: User[]): User[] {
-  const ceo = users.find((user) => user.role_code === 'CEO');
-  const engineeringDirector = users.find((user) => user.role_code === 'ENG_DIRECTOR');
   return users.map((user) => {
     if (user.role_code === 'CEO') {
       const next = { ...user };
@@ -160,10 +175,11 @@ function attachLeadershipReporting(users: User[]): User[] {
       return next;
     }
     if (user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR' || user.role_code === 'CTO') {
+      const ceo = inferReportingManager(user.role_code, users);
       return { ...user, reporting_manager_id: ceo?.id, reporting_manager_name: ceo?.name };
     }
     if (user.role_code === 'PROJECT_MANAGER') {
-      const boss = engineeringDirector || ceo;
+      const boss = inferReportingManager(user.role_code, users);
       return { ...user, reporting_manager_id: boss?.id, reporting_manager_name: boss?.name };
     }
     return user;
@@ -171,31 +187,25 @@ function attachLeadershipReporting(users: User[]): User[] {
 }
 
 function attachTeamLeadFields(users: User[]): User[] {
-  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER');
+  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER' && user.status === 'ACTIVE');
 
   return users.map((user) => {
-    if (!user.team_id) return user;
-    const lead = leadForTeam(user.team_id, users);
-    if (lead && user.id !== lead.id) {
-      return {
-        ...user,
-        team_lead_id: lead.id,
-        team_lead_name: lead.name,
-        reporting_manager_id: lead.id,
-        reporting_manager_name: lead.name,
-      };
-    }
-    if (lead && user.id === lead.id && pm) {
-      const next = {
-        ...user,
-        reporting_manager_id: pm.id,
-        reporting_manager_name: pm.name,
-      };
+    if (!user.team_id && !FUNCTIONAL_TEAM_ROLES.has(user.role_code)) return user;
+    const lead = user.team_id ? leadForTeam(user.team_id, users) : undefined;
+    const next: User = {
+      ...user,
+      ...(lead && user.id !== lead.id
+        ? { team_lead_id: lead.id, team_lead_name: lead.name }
+        : {}),
+      ...(pm && user.id !== pm.id
+        ? { reporting_manager_id: pm.id, reporting_manager_name: pm.name }
+        : {}),
+    };
+    if (lead && user.id === lead.id) {
       delete next.team_lead_id;
       delete next.team_lead_name;
-      return next;
     }
-    return user;
+    return next;
   });
 }
 
@@ -211,15 +221,22 @@ function syncTeamRecords(users: User[]) {
   store.saveTeams(teams);
 }
 
-async function withWorkingPassword(user: User, password: string): Promise<User> {
-  if (user.password_hash && (await verifyPassword(password, user.password_hash))) {
-    return {
-      ...user,
-      account_status: 'ACTIVE',
-      email_verified: true,
-      status: 'ACTIVE',
-    };
+async function withWorkingPassword(user: User, passwords: string | string[]): Promise<User> {
+  const candidates = [...new Set((Array.isArray(passwords) ? passwords : [passwords]).map((item) => item.trim()).filter(Boolean))];
+  if (user.password_hash) {
+    for (const password of candidates) {
+      if (await verifyPassword(password, user.password_hash)) {
+        return {
+          ...user,
+          account_status: 'ACTIVE',
+          email_verified: true,
+          status: 'ACTIVE',
+        };
+      }
+    }
   }
+  const password = candidates[0];
+  if (!password) return user;
   const now = new Date().toISOString();
   return {
     ...user,
@@ -236,10 +253,37 @@ async function withWorkingPassword(user: User, password: string): Promise<User> 
   };
 }
 
-function passwordForEmail(email: string): string {
-  if (email === 'fsdengg1@careyu.ai' && env.fsdEngg1Password) return env.fsdEngg1Password;
-  if (email === 'businesshead@careyu.ai' && env.businessHeadPassword) return env.businessHeadPassword;
-  return env.demoPassword;
+export function knownLoginPasswords(emailRaw: string, roleCode?: string): string[] {
+  const email = normalize(emailRaw);
+  const passwords = new Set<string>();
+  const add = (value?: string) => {
+    if (value?.trim()) passwords.add(value.trim());
+  };
+  if (email === FSD_ENGG1_EMAIL) {
+    add(env.robotLeadPassword);
+    add(env.fsdEngg1Password);
+    add(env.demoPassword);
+  }
+  if (email === 'businesshead@careyu.ai') {
+    add(env.businessHeadPassword);
+    add(env.demoPassword);
+    add(env.robotLeadPassword);
+  }
+  if (
+    roleCode === 'ENG_DIRECTOR' ||
+    email === ENGINEERING_DIRECTOR_EMAIL ||
+    email === 'engg.director@careyu.ai'
+  ) {
+    add(env.demoPassword);
+    add(env.robotLeadPassword);
+  }
+  return [...passwords];
+}
+
+function passwordForEmail(email: string): string[] {
+  const known = knownLoginPasswords(email);
+  if (known.length) return known;
+  return env.demoPassword ? [env.demoPassword] : [];
 }
 
 async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
@@ -316,7 +360,7 @@ async function ensureTeamPerson(
     created_at: now,
     updated_at: now,
   });
-  const ready = await withWorkingPassword(created, env.demoPassword);
+  const ready = await withWorkingPassword(created, passwordForEmail(spec.email));
   console.info('[auth] Functional team account ready', { name: ready.name, role: ready.role_code, team: ready.team_name });
   return [...users, ready];
 }
@@ -328,6 +372,7 @@ export async function ensureLiveDirectory() {
   users = await ensureEngineeringDirector(users);
   users = await ensureTeamPerson(users, { name: 'Sanjay', email: SANJAY_EMAIL, matchName: 'sanjay' });
   users = await ensureTeamPerson(users, { name: 'Aravind', email: ARAVIND_EMAIL, matchName: 'aravind' });
+  users = await ensureTeamPerson(users, { name: 'FSD Engineer', email: FSD_ENGG1_EMAIL, matchName: 'fsdengg' });
 
   const repaired: User[] = [];
   for (const user of users) {
@@ -363,7 +408,12 @@ export async function ensureLiveDirectory() {
   if (changed) {
     store.saveUsers(users);
     console.info('[auth] Live directory roles restored', {
-      users: users.map((user) => ({ name: user.name, role: user.role_code, team: user.team_name || null })),
+      users: users.map((user) => ({
+        name: user.name,
+        role: user.role_code,
+        team: user.team_name || null,
+        manager: user.reporting_manager_name || null,
+      })),
     });
   }
 

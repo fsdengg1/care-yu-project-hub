@@ -121,7 +121,7 @@ function NewDailyUpdateInner() {
       setError(result.message);
       return;
     }
-    router.push(submit ? `/daily-updates/${result.data.update.id}` : '/daily-updates');
+    router.push(submit ? `/daily-updates/${result.data.update.id}?action=submitted` : '/daily-updates');
   };
 
   if (!user) return null;

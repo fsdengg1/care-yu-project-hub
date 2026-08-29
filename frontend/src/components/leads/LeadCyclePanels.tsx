@@ -2,10 +2,11 @@
 
 import React, { useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
-import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly } from '@/lib/rbac';
+import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
-import { formatInrCompact } from '@/lib/format';
+import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS, workflowStatusPresentation } from '@/lib/format';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
+import { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
 import {
   AlertTriangle, Check, CheckCircle2, RotateCcw, Send, Calculator, FileText, Handshake, Building2
 } from 'lucide-react';
@@ -15,7 +16,7 @@ interface Props {
   currentUser: User;
   teams: Team[];
   users: User[];
-  onUpdated: () => void;
+  onUpdated: (feedback?: WorkflowActionFeedback) => void;
 }
 
 const emptyStudy = (lead: Lead): FeasibilityStudy => ({
@@ -53,10 +54,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const isOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
     || currentUser.role_code === 'BUSINESS_HEAD'
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
-  const isAssignedWorker =
-    lead.assigned_team_lead_id === currentUser.id ||
-    lead.assigned_member_id === currentUser.id ||
-    Boolean(currentUser.team_id && currentUser.team_id === lead.assigned_team_id);
+  const isAssignedWorker = userIsOnLeadTeam(currentUser, lead);
   const isAssignedTL = isAssignedWorker && (currentUser.role_code === 'TEAM_LEAD' || lead.assigned_team_lead_id === currentUser.id);
   const canFeasibility = canPrepareFeasibility(currentUser) && (
     isAssignedWorker ||
@@ -73,8 +71,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [assignTeamId, setAssignTeamId] = useState(lead.assigned_team_id || '');
-  const [assignLeadId, setAssignLeadId] = useState(lead.assigned_team_lead_id || '');
+  const [assignTeamIds, setAssignTeamIds] = useState<string[]>([]);
+  const [assigneesByTeam, setAssigneesByTeam] = useState<Record<string, string>>({});
   const [pmNotes, setPmNotes] = useState(lead.pm_review_notes || '');
   const [returnReason, setReturnReason] = useState('');
 
@@ -99,9 +97,31 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     document_name: '',
   });
 
-  const selectedTeam = teams.find((team) => team.id === assignTeamId);
+  const alreadyAssignedTeamIds = lead.assigned_team_ids?.length
+    ? lead.assigned_team_ids
+    : lead.assigned_team_id
+      ? [lead.assigned_team_id]
+      : [];
+  const availableTeams = teams.filter((team) => team.status === 'ACTIVE' && !alreadyAssignedTeamIds.includes(team.id));
 
-  const run = async (fn: () => Promise<unknown>, fail = 'Unable to update this lead.') => {
+  const toggleTeam = (teamId: string, teamLeadId?: string) => {
+    setAssignTeamIds((current) => {
+      if (current.includes(teamId)) {
+        setAssigneesByTeam((map) => {
+          const next = { ...map };
+          delete next[teamId];
+          return next;
+        });
+        return current.filter((id) => id !== teamId);
+      }
+      setAssigneesByTeam((map) => ({ ...map, [teamId]: teamLeadId || map[teamId] || '' }));
+      return [...current, teamId];
+    });
+  };
+
+  const stage = workflowStatusPresentation(lead.status);
+
+  const run = async (fn: () => Promise<unknown>, fail = 'Unable to update this lead.', action?: WorkflowActionKind) => {
     setBusy(true);
     setError(null);
     try {
@@ -111,7 +131,11 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       } else if (!result) {
         setError(fail);
       } else {
-        onUpdated();
+        onUpdated(
+          action
+            ? { kind: action, message: WORKFLOW_ACTION_SUCCESS[action], previousStatus: lead.status }
+            : undefined
+        );
       }
     } catch {
       setError(fail);
@@ -120,12 +144,12 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     }
   };
 
-  const requireReason = (fn: () => Promise<unknown>, fail?: string) => {
+  const requireReason = (fn: () => Promise<unknown>, fail?: string, action?: WorkflowActionKind) => {
     if (!returnReason.trim()) {
       setError('Enter a reason before sending back or rejecting this lead.');
       return;
     }
-    void run(fn, fail);
+    void run(fn, fail, action);
   };
 
   const costingTotal =
@@ -151,7 +175,11 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-500">Current stage</div>
+          <div className={`mt-1 inline-flex rounded-full border px-2.5 py-0.5 font-bold ${stage.badgeClass}`}>{stage.label}</div>
+        </div>
         <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Current owner</div><div className="font-semibold text-slate-100">{lead.current_owner_name || lead.responsible_user_name || '—'}</div></div>
         <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Assigned by</div><div className="font-semibold text-slate-100">{lead.assigned_by_name || '—'}</div></div>
         <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Action required</div><div className="font-semibold text-cyan-300">{lead.action_required || '—'}</div></div>
@@ -188,7 +216,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             <button
               type="button"
               disabled={busy}
-              onClick={() => void run(() => LeadApi.pmReview(lead.id, { action: 'approve', notes: pmNotes }))}
+              onClick={() => void run(() => LeadApi.pmReview(lead.id, { action: 'approve', notes: pmNotes }), 'Unable to approve this lead.', 'approve')}
               className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
             >
               <Check className="h-4 w-4" /> Approve
@@ -204,7 +232,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             <button
               type="button"
               disabled={busy}
-              onClick={() => requireReason(() => LeadApi.cancel(lead.id, returnReason.trim()), 'Unable to reject this lead.')}
+              onClick={() => requireReason(() => LeadApi.cancel(lead.id, returnReason.trim()), 'Unable to reject this lead.', 'reject')}
               className="flex items-center gap-2 rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600 disabled:opacity-50"
             >
               Cancel / Reject
@@ -213,63 +241,87 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {isPM && lead.status === 'ACCEPTED_FOR_FEASIBILITY' && (
+      {isPM && (lead.status === 'ACCEPTED_FOR_FEASIBILITY' || lead.status === 'FEASIBILITY_IN_PROGRESS') && (
         <div className="space-y-4 rounded-xl border border-blue-800/80 bg-blue-950/40 p-5">
           <div className="flex items-center gap-2 border-b border-blue-800/60 pb-2 text-sm font-bold text-blue-300">
             <CheckCircle2 className="h-4 w-4 text-cyan-400" /> Team Assignment
           </div>
-          <p className="text-slate-300">Assign to a Team Lead (they must accept) or directly to a Team Member. You retain PM ownership.</p>
-          {field('Instructions', pmNotes, setPmNotes, 2)}
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block font-semibold text-slate-300">Functional Team *</label>
-              <select
-                value={assignTeamId}
-                onChange={(e) => {
-                  setAssignTeamId(e.target.value);
-                  const team = teams.find((item) => item.id === e.target.value);
-                  setAssignLeadId(team?.team_lead_id || '');
-                }}
-                className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
-              >
-                <option value="">Choose team…</option>
-                {teams.filter((team) => team.status === 'ACTIVE').map((team) => (
-                  <option key={team.id} value={team.id}>{team.name}</option>
-                ))}
-              </select>
+          <p className="text-slate-300">Select one or more teams. Each team’s Team Lead is assigned automatically, or pick a specific Team Lead / Team Member per team. You retain PM ownership.</p>
+          {alreadyAssignedTeamIds.length > 0 && (
+            <div className="rounded border border-slate-800 bg-slate-950/60 p-3 text-slate-300">
+              Currently assigned: {(lead.assigned_team_names || [lead.assigned_team_name]).filter(Boolean).join(', ') || alreadyAssignedTeamIds.length + ' team(s)'}
             </div>
-            <div>
-              <label className="mb-1 block font-semibold text-slate-300">Team Lead or Team Member *</label>
-              <select
-                value={assignLeadId}
-                onChange={(e) => setAssignLeadId(e.target.value)}
-                className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
-              >
-                <option value="">Use team default — {selectedTeam?.team_lead_name || 'Not assigned'}</option>
-                {users.filter((member) => member.team_id === assignTeamId && !['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(member.role_code)).map((member) => (
-                  <option key={member.id} value={member.id}>{member.name} — {member.role_name}</option>
-                ))}
-              </select>
+          )}
+          {field('Instructions', pmNotes, setPmNotes, 2)}
+          <div>
+            <label className="mb-1 block font-semibold text-slate-300">Functional Teams *</label>
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-2">
+              {availableTeams.length === 0 && (
+                <p className="p-2 text-slate-500">All active teams are already assigned. Use Feasibility Teams to review them.</p>
+              )}
+              {availableTeams.map((team) => {
+                const checked = assignTeamIds.includes(team.id);
+                return (
+                  <div key={team.id} className="rounded border border-slate-800/80 p-2">
+                    <label className="flex cursor-pointer items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleTeam(team.id, team.team_lead_id)}
+                        className="h-4 w-4 rounded accent-cyan-500"
+                      />
+                      <span className="font-medium text-slate-100">{team.name}</span>
+                      <span className="text-slate-500">· TL {team.team_lead_name || 'Not assigned'}</span>
+                    </label>
+                    {checked && (
+                      <select
+                        value={assigneesByTeam[team.id] || team.team_lead_id || ''}
+                        onChange={(e) => setAssigneesByTeam((map) => ({ ...map, [team.id]: e.target.value }))}
+                        className="mt-2 w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
+                      >
+                        <option value={team.team_lead_id || ''}>Team Lead — {team.team_lead_name || 'Not assigned'}</option>
+                        {users
+                          .filter(
+                            (member) =>
+                              member.team_id === team.id &&
+                              member.id !== team.team_lead_id &&
+                              !['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(member.role_code)
+                          )
+                          .map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.name} — {member.role_name}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
           <button
             disabled={busy}
             data-demo="accept-assign-team"
             onClick={() => {
-              if (!assignTeamId) {
-                setError('Select a functional team.');
+              if (!assignTeamIds.length) {
+                setError('Select at least one functional team.');
                 return;
               }
-              void run(() => LeadApi.pmReview(lead.id, { action: 'approve_assign', team_id: assignTeamId, team_lead_id: assignLeadId || undefined, notes: pmNotes }));
+              void run(() => LeadApi.pmReview(lead.id, {
+                action: 'approve_assign',
+                team_ids: assignTeamIds,
+                assignees: assigneesByTeam,
+                notes: pmNotes,
+              }));
             }}
             className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500 disabled:opacity-50"
           >
-            <Check className="h-4 w-4" /> Assign project
+            <Check className="h-4 w-4" /> Assign {assignTeamIds.length > 1 ? `${assignTeamIds.length} teams` : 'project'}
           </button>
         </div>
       )}
 
-      {isAssignedTL && lead.status === 'ACCEPTED_FOR_FEASIBILITY' && Boolean(lead.assigned_team_id) && (
+      {isAssignedTL && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS'].includes(lead.status) && Boolean(lead.assigned_team_id || (lead.assigned_team_ids || []).length) && (
         <div className="space-y-3 rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-5">
           <div className="font-bold text-cyan-300">Team Lead Review</div>
           <p className="text-slate-300">Review requirements, scope, documents, timeline, and PM instructions. Accept to start feasibility, or return to the PM.</p>
@@ -285,7 +337,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center justify-between border-b border-slate-800 pb-2">
             <h3 className="flex items-center gap-2 text-sm font-bold text-slate-100"><FileText className="h-4 w-4 text-cyan-400" /> Feasibility Study</h3>
-            <span className="text-[11px] text-slate-400">{lead.assigned_team_name || 'Unassigned team'}{lead.assigned_team_lead_name ? ` · ${lead.assigned_team_lead_name}` : ''}</span>
+            <span className="text-[11px] text-slate-400">{(lead.assigned_team_names || [lead.assigned_team_name]).filter(Boolean).join(', ') || 'Unassigned team'}{lead.assigned_team_lead_name ? ` · ${lead.assigned_team_lead_name}` : ''}</span>
           </div>
           {lead.status === 'FEASIBILITY_RETURNED' && (
             <div className="rounded border border-amber-800 bg-amber-950/40 p-3 text-amber-200">
@@ -328,7 +380,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               </button>
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, true), 'Unable to submit feasibility.')}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, true), 'Unable to submit feasibility.', 'submit')}
                 className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
                 <Send className="h-4 w-4" /> Submit Feasibility
@@ -343,9 +395,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="font-bold text-emerald-300">PM Approval — Feasibility</div>
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
-            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewFeasibility(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
+            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewFeasibility(lead.id, 'approve'), 'Unable to approve feasibility.', 'approve')} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
-            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'reject', returnReason.trim()))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'reject', returnReason.trim()), 'Unable to reject feasibility.', 'reject')} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}
@@ -389,7 +441,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           {canCost && !approvedCosting && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED'].includes(lead.status) && (
             <div className="flex gap-2">
               <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, false))} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Draft</button>
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, true))} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Submit Costing</button>
+              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, true), 'Unable to submit costing.', 'submit')} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Submit Costing</button>
             </div>
           )}
         </div>
@@ -400,9 +452,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="font-bold text-emerald-300">PM Approval — Costing</div>
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if revision is required" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
-            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewCosting(lead.id, 'approve'))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
+            <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewCosting(lead.id, 'approve'), 'Unable to approve procurement.', 'approve')} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
-            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason.trim()))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
+            <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason.trim()), 'Unable to reject procurement.', 'reject')} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
         </div>
       )}

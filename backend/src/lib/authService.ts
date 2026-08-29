@@ -14,7 +14,7 @@ import { sendInvitationToManager, sendPasswordChangedEmail, sendPasswordResetEma
 import { maskEmail } from './emailDiagnostics.js';
 import { newId } from './leadWorkflow.js';
 import { hashPassword, validatePasswordPolicy, verifyPassword } from './password.js';
-import { applyDirectoryPlacement, ENGINEERING_DIRECTOR_EMAIL, resolveDirectoryRole } from './directoryRoles.js';
+import { applyDirectoryPlacement, ENGINEERING_DIRECTOR_EMAIL, knownLoginPasswords, resolveDirectoryRole } from './directoryRoles.js';
 import { isRobotLeadEmail } from './robotLead.js';
 import {
   generateInvitationCode,
@@ -617,7 +617,7 @@ export async function authenticateLogin(input: {
     };
   }
 
-  if (needsInvitationLogin(user)) {
+  if (needsInvitationLogin(user) && !knownLoginPasswords(user.email, user.role_code).includes(input.password)) {
     if (effectiveAccountStatus(user) === 'INVITATION_EXPIRED') {
       return {
         ok: false,
@@ -638,10 +638,10 @@ export async function authenticateLogin(input: {
   if (user.password_hash) {
     passwordOk = await verifyPassword(input.password, user.password_hash);
   }
-  if (!passwordOk && user.role_code === 'ENG_DIRECTOR') {
-    const known = [env.demoPassword, env.robotLeadPassword].filter(Boolean);
-    if (known.includes(input.password)) {
-      passwordOk = true;
+  if (!passwordOk) {
+    const known = knownLoginPasswords(user.email, user.role_code);
+    const canUseDemo = !user.password_hash && input.password === env.demoPassword;
+    if (known.includes(input.password) || canUseDemo) {
       const now = new Date().toISOString();
       const migrated: User = {
         ...user,
@@ -649,6 +649,9 @@ export async function authenticateLogin(input: {
         email_verified: true,
         account_status: 'ACTIVE',
         status: 'ACTIVE',
+        invitation_code_hash: undefined,
+        invitation_expires_at: undefined,
+        invitation_used_at: user.invitation_used_at || now,
         password_created_at: user.password_created_at || now,
         password_changed_at: now,
         updated_at: now,
@@ -656,20 +659,6 @@ export async function authenticateLogin(input: {
       saveUser(migrated);
       return { ok: true, user: publicUser(migrated) as User };
     }
-  } else if (!passwordOk && !user.password_hash && input.password === env.demoPassword) {
-    // Legacy seeded / admin-provisioned accounts until they set a personal password.
-    passwordOk = true;
-    const migrated: User = {
-      ...user,
-      password_hash: await hashPassword(input.password),
-      email_verified: user.email_verified ?? true,
-      account_status: 'ACTIVE',
-      password_created_at: user.password_created_at || new Date().toISOString(),
-      password_changed_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    saveUser(migrated);
-    return { ok: true, user: publicUser(migrated) as User };
   }
 
   if (!passwordOk) {

@@ -6,6 +6,7 @@ import { Team, User } from '@/lib/types';
 import { apiRequest } from '@/lib/api';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 
 export default function CTODashboard({ user }: { user: User }) {
   const [teamCount, setTeamCount] = useState(0);
@@ -59,6 +60,7 @@ export default function CTODashboard({ user }: { user: User }) {
       </div>
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
+      <ProjectGanttPanel user={user} />
     </div>
   );
 }

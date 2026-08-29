@@ -14,7 +14,8 @@ import {
   addDocument,
   appendNegotiation,
   assignSubmittedLeadToPm,
-  assignTeamToLead,
+  assignTeamsToLead,
+  assignedTeamRecipientIds,
   audit,
   buildMyWork,
   canEditProjectInput,
@@ -247,6 +248,7 @@ function comment(
 
 router.get('/', requireAuth, requirePermission('view:leads', 'create:lead'), (req: AuthedRequest, res) => {
   const user = req.user!;
+  const allAssignments = store.getFeasibilityTeamAssignments();
   const leads = store.getLeads().map(hydrateLead).filter((lead) => {
     if (['CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
     return canOwnLead(user, lead);
@@ -254,7 +256,12 @@ router.get('/', requireAuth, requirePermission('view:leads', 'create:lead'), (re
   const leadIds = new Set(leads.map((lead) => lead.id));
   res.json({
     leads,
-    assignments: store.getFeasibilityTeamAssignments().filter((item) => leadIds.has(item.lead_id)),
+    assignments: allAssignments.filter(
+      (item) =>
+        leadIds.has(item.lead_id) ||
+        item.team_lead_id === user.id ||
+        Boolean(user.team_id && item.team_id === user.team_id)
+    ),
   });
 });
 
@@ -271,12 +278,9 @@ router.get('/:id', requireAuth, requirePermission('view:leads', 'create:lead', '
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
   const user = req.user!;
-  if (!canOwnLead(user, lead) && user.role_code !== 'CEO' && user.role_code !== 'CTO') {
-    const assigned =
-      lead.assigned_team_lead_id === user.id ||
-      user.team_id === lead.assigned_team_id ||
-      isProcurementUser(user);
-    if (!assigned) return forbidden(res);
+  const hydrated = hydrateLead(lead);
+  if (!canOwnLead(user, hydrated) && user.role_code !== 'CEO' && user.role_code !== 'CTO') {
+    if (!isProcurementUser(user)) return forbidden(res);
   }
   return res.json(payloadFor(lead));
 });
@@ -458,14 +462,21 @@ router.post('/:id/accept', requireAuth, async (req: AuthedRequest, res) => {
   if (!PM_REVIEW_STATUSES.includes(lead.status) && lead.status !== 'ACCEPTED_FOR_FEASIBILITY') {
     return res.status(400).json({ message: 'This lead is not awaiting acceptance.' });
   }
-  const teamId = String(req.body?.team_id || '').trim();
-  if (!teamId) {
+  const teamIds = [
+    ...((Array.isArray(req.body?.team_ids) ? req.body.team_ids : []) as unknown[]).map((id) => String(id || '').trim()),
+    String(req.body?.team_id || '').trim(),
+  ].filter(Boolean);
+  if (!teamIds.length) {
     return res.status(400).json({
-      message: 'Select a functional team to accept this lead and start feasibility.',
+      message: 'Select at least one functional team to accept this lead and start feasibility.',
     });
   }
+  const assignees = (req.body?.assignees && typeof req.body.assignees === 'object' ? req.body.assignees : {}) as Record<string, string>;
+  if (req.body?.team_lead_id && req.body?.team_id) {
+    assignees[String(req.body.team_id)] = String(req.body.team_lead_id);
+  }
   try {
-    const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
+    const result = assignTeamsToLead(lead, user, teamIds, assignees, req.body?.notes);
     comment(result.lead, user, req.body?.notes || 'Accepted and assigned to team.', 'PM Review');
     audit(
       user,
@@ -478,9 +489,10 @@ router.post('/:id/accept', requireAuth, async (req: AuthedRequest, res) => {
       lead: result.lead,
       actor: user,
       comments: req.body?.notes,
+      extraRecipientIds: assignedTeamRecipientIds(result.lead),
       message: `${user.name} accepted "${lead.title}" and assigned ${result.lead.assigned_team_name}.`,
     });
-    return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
+    return res.json({ ...payloadFor(result.lead), assignments: result.assignments, assignment: result.assignments[0] });
   } catch (error) {
     return workflowError(res, error);
   }
@@ -637,25 +649,33 @@ router.post('/:id/pm-review', requireAuth, requirePermission('review:lead', 'ass
   if (action !== 'approve_assign') {
     return res.status(400).json({ message: 'Action must be approve, approve_assign, or return.' });
   }
-  const teamId = String(req.body?.team_id || '').trim();
-  if (!teamId) return res.status(400).json({ message: 'Select a functional team from Organization Management.' });
+  const teamIds = [
+    ...((Array.isArray(req.body?.team_ids) ? req.body.team_ids : []) as unknown[]).map((id) => String(id || '').trim()),
+    String(req.body?.team_id || '').trim(),
+  ].filter(Boolean);
+  if (!teamIds.length) return res.status(400).json({ message: 'Select at least one functional team from Organization Management.' });
+  const assignees = (req.body?.assignees && typeof req.body.assignees === 'object' ? req.body.assignees : {}) as Record<string, string>;
+  if (req.body?.team_lead_id && req.body?.team_id) {
+    assignees[String(req.body.team_id)] = String(req.body.team_lead_id);
+  }
   try {
-    const result = assignTeamToLead(lead, user, teamId, req.body?.team_lead_id, req.body?.notes);
+    const result = assignTeamsToLead(lead, user, teamIds, assignees, req.body?.notes);
     comment(result.lead, user, req.body?.notes || 'Approved and assigned to team.', 'PM Review');
     audit(
       user,
       result.lead,
       'LEAD_ASSIGNED_TO_TEAM',
-      `${user.name} assigned ${lead.lead_number} to ${result.lead.assigned_team_name}.`
+      `${user.name} assigned ${lead.lead_number} to ${(result.lead.assigned_team_names || [result.lead.assigned_team_name]).filter(Boolean).join(', ')}.`
     );
     emitLeadWorkflow({
       event: 'PROJECT_ASSIGNED',
       lead: result.lead,
       actor: user,
       comments: req.body?.notes,
-      message: `${user.name} assigned "${lead.title}" to ${result.lead.assigned_team_name}.`,
+      extraRecipientIds: assignedTeamRecipientIds(result.lead),
+      message: `${user.name} assigned "${lead.title}" to ${(result.lead.assigned_team_names || [result.lead.assigned_team_name]).filter(Boolean).join(', ')}.`,
     });
-    return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
+    return res.json({ ...payloadFor(result.lead), assignments: result.assignments, assignment: result.assignments[0] });
   } catch (error) {
     const err = error as Error & { status?: number };
     return res.status(err.status || 400).json({ message: err.message });
@@ -667,14 +687,21 @@ router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), async 
   if (!isPm(user)) return forbidden(res);
   const lead = findLead(paramId(req));
   if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-  const teamId = String(req.body?.team_id || req.body?.assigned_to || '').trim();
-  if (!teamId) return res.status(400).json({ message: 'Select a functional team from Organization Management.' });
+  const teamIds = [
+    ...((Array.isArray(req.body?.team_ids) ? req.body.team_ids : []) as unknown[]).map((id) => String(id || '').trim()),
+    String(req.body?.team_id || req.body?.assigned_to || '').trim(),
+  ].filter(Boolean);
+  if (!teamIds.length) return res.status(400).json({ message: 'Select at least one functional team from Organization Management.' });
+  const assignees = (req.body?.assignees && typeof req.body.assignees === 'object' ? req.body.assignees : {}) as Record<string, string>;
+  if (req.body?.team_lead_id && (req.body?.team_id || req.body?.assigned_to)) {
+    assignees[String(req.body.team_id || req.body.assigned_to)] = String(req.body.team_lead_id);
+  }
   try {
-    const result = assignTeamToLead(
+    const result = assignTeamsToLead(
       lead,
       user,
-      teamId,
-      req.body?.team_lead_id,
+      teamIds,
+      assignees,
       req.body?.notes || req.body?.pm_instructions
     );
     emitLeadWorkflow({
@@ -682,9 +709,10 @@ router.post('/:id/assign', requireAuth, requirePermission('assign:lead'), async 
       lead: result.lead,
       actor: user,
       comments: req.body?.notes || req.body?.pm_instructions,
-      message: `${user.name} assigned "${lead.title}" to ${result.lead.assigned_member_name || result.lead.assigned_team_name}.`,
+      extraRecipientIds: assignedTeamRecipientIds(result.lead),
+      message: `${user.name} assigned "${lead.title}" to ${(result.lead.assigned_team_names || [result.lead.assigned_team_name]).filter(Boolean).join(', ')}.`,
     });
-    return res.json({ ...payloadFor(result.lead), assignment: result.assignment });
+    return res.json({ ...payloadFor(result.lead), assignments: result.assignments, assignment: result.assignments[0] });
   } catch (error) {
     const err = error as Error & { status?: number };
     return res.status(err.status || 400).json({ message: err.message });

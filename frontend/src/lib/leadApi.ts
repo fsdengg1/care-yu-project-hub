@@ -109,7 +109,15 @@ export const LeadApi = {
     return result;
   },
 
-  async pmReview(id: string, body: { action: 'approve' | 'approve_assign' | 'return'; team_id?: string; team_lead_id?: string; notes?: string; reason?: string }) {
+  async pmReview(id: string, body: {
+    action: 'approve' | 'approve_assign' | 'return';
+    team_id?: string;
+    team_ids?: string[];
+    team_lead_id?: string;
+    assignees?: Record<string, string>;
+    notes?: string;
+    reason?: string;
+  }) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/pm-review`, {
       method: 'POST',
       body: JSON.stringify(body),

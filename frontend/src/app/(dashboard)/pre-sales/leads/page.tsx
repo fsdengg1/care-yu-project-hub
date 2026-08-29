@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { StorageService } from '@/lib/storage';
 import { Lead, LeadStatus, User } from '@/lib/types';
-import { canCreateLead, isCeoViewOnly } from '@/lib/rbac';
+import { canCreateLead, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
 import { formatInrCompact, PIPELINE_STAGE_LABELS } from '@/lib/format';
 import { 
@@ -23,28 +23,28 @@ import {
 } from 'lucide-react';
 
 const STATUS_BADGES: Record<LeadStatus, { label: string; style: string }> = {
-  DRAFT: { label: 'DRAFT', style: 'bg-slate-800 text-slate-300 border-slate-700' },
-  SUBMITTED_TO_PM: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
-  UNDER_PM_REVIEW: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
-  RETURNED_TO_SALES: { label: 'RETURNED TO SALES', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  ADDITIONAL_INFORMATION_REQUIRED: { label: 'RETURNED TO SALES', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  RESUBMITTED_TO_PM: { label: 'PM REVIEW', style: 'bg-blue-950 text-blue-300 border-blue-800' },
-  ACCEPTED_FOR_FEASIBILITY: { label: 'READY FOR ASSIGNMENT', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
-  FEASIBILITY_IN_PROGRESS: { label: 'FEASIBILITY', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
-  FEASIBILITY_SUBMITTED: { label: 'PM APPROVAL — FEASIBILITY', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
-  FEASIBILITY_RETURNED: { label: 'FEASIBILITY CORRECTION', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  FEASIBILITY_REJECTED: { label: 'FEASIBILITY REJECTED', style: 'bg-rose-950 text-rose-300 border-rose-800' },
-  COSTING_IN_PROGRESS: { label: 'PROCUREMENT', style: 'bg-violet-950 text-violet-300 border-violet-800' },
-  COSTING_SUBMITTED: { label: 'PM APPROVAL — PROCUREMENT', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
-  COSTING_RETURNED: { label: 'PROCUREMENT REVISION', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  COSTING_REJECTED: { label: 'PROCUREMENT REJECTED', style: 'bg-rose-950 text-rose-300 border-rose-800' },
-  QUOTATION: { label: 'QUOTATION', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-  NEGOTIATION: { label: 'NEGOTIATION', style: 'bg-orange-950 text-orange-300 border-orange-800' },
-  ORDER_CONVERTED: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-  WON: { label: 'ORDER CONVERTED', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-  LOST: { label: 'LOST', style: 'bg-rose-950 text-rose-300 border-rose-800' },
-  ON_HOLD: { label: 'ON HOLD', style: 'bg-slate-800 text-slate-400 border-slate-700' },
-  CANCELLED: { label: 'CANCELLED', style: 'bg-rose-950 text-rose-300 border-rose-800' }
+  DRAFT: { label: 'Draft', style: 'bg-slate-800 text-slate-300 border-slate-700' },
+  SUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  UNDER_PM_REVIEW: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  RETURNED_TO_SALES: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  ADDITIONAL_INFORMATION_REQUIRED: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  RESUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  ACCEPTED_FOR_FEASIBILITY: { label: 'Approved', style: 'bg-emerald-950 text-emerald-200 border-emerald-700' },
+  FEASIBILITY_IN_PROGRESS: { label: 'Feasibility', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
+  FEASIBILITY_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  FEASIBILITY_RETURNED: { label: 'Feasibility Correction', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  FEASIBILITY_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' },
+  COSTING_IN_PROGRESS: { label: 'Procurement', style: 'bg-violet-950 text-violet-300 border-violet-800' },
+  COSTING_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  COSTING_RETURNED: { label: 'Procurement Revision', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  COSTING_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' },
+  QUOTATION: { label: 'Quotation', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  NEGOTIATION: { label: 'Negotiation', style: 'bg-orange-950 text-orange-300 border-orange-800' },
+  ORDER_CONVERTED: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  WON: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  LOST: { label: 'Lost', style: 'bg-rose-950 text-rose-300 border-rose-800' },
+  ON_HOLD: { label: 'On Hold', style: 'bg-slate-800 text-slate-400 border-slate-700' },
+  CANCELLED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' }
 };
 
 export default function LeadsListPage() {
@@ -87,12 +87,7 @@ export default function LeadsListPage() {
     } else if (isED) {
       if (lead.business_vertical !== 'Engineering Director' && lead.created_by_id !== currentUser.id) return false;
     } else if (isTL) {
-      if (
-        lead.assigned_team_id !== currentUser.team_id &&
-        lead.assigned_team_lead_id !== currentUser.id &&
-        lead.created_by_id !== currentUser.id &&
-        lead.sales_owner_id !== currentUser.id
-      ) {
+      if (!userIsOnLeadTeam(currentUser, lead) && lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) {
         return false;
       }
     } else if (isProcurement) {
@@ -100,11 +95,7 @@ export default function LeadsListPage() {
         return false;
       }
     } else if (isEmployee) {
-      if (
-        lead.assigned_team_id !== currentUser.team_id &&
-        lead.created_by_id !== currentUser.id &&
-        lead.sales_owner_id !== currentUser.id
-      ) {
+      if (!userIsOnLeadTeam(currentUser, lead) && lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) {
         return false;
       }
     } else if (lead.created_by_id !== currentUser.id && lead.sales_owner_id !== currentUser.id) {
@@ -120,7 +111,13 @@ export default function LeadsListPage() {
       lead.sales_owner.toLowerCase().includes(query);
 
     // Filters
-    const matchesStatus = statusFilter === 'ALL' || lead.status === statusFilter;
+    const submittedStatuses = ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM', 'FEASIBILITY_SUBMITTED', 'COSTING_SUBMITTED'];
+    const rejectedStatuses = ['CANCELLED', 'FEASIBILITY_REJECTED', 'COSTING_REJECTED'];
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      lead.status === statusFilter ||
+      (statusFilter === 'SUBMITTED_TO_PM' && submittedStatuses.includes(lead.status)) ||
+      (statusFilter === 'CANCELLED' && rejectedStatuses.includes(lead.status));
     const matchesVertical = verticalFilter === 'ALL' || lead.business_vertical === verticalFilter;
     const matchesPriority = priorityFilter === 'ALL' || lead.priority === priorityFilter;
     const matchesStage = stageFilter === 'ALL' || lead.pipeline_stage === stageFilter;
@@ -312,11 +309,10 @@ export default function LeadsListPage() {
           >
             <option value="ALL">All Statuses</option>
             <option value="DRAFT">Draft</option>
-            <option value="SUBMITTED_TO_PM">Submitted to PM</option>
-            <option value="UNDER_PM_REVIEW">Under PM Review</option>
+            <option value="SUBMITTED_TO_PM">Submitted</option>
             <option value="RETURNED_TO_SALES">Returned to Sales</option>
-            <option value="RESUBMITTED_TO_PM">Resubmitted to PM</option>
-            <option value="ACCEPTED_FOR_FEASIBILITY">Accepted for Feasibility</option>
+            <option value="ACCEPTED_FOR_FEASIBILITY">Approved</option>
+            <option value="CANCELLED">Rejected</option>
           </select>
 
           <select

@@ -170,6 +170,23 @@ export async function ensureSchema(): Promise<void> {
       console.info('[store] Migrated store_collections JSON into relational tables');
     }
 
+    await client.query(`
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS source TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by_id TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by_name TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS intake_form JSONB;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_by_id TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_by_name TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMPTZ;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_action TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_action_by_id TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_action_by_name TEXT;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS last_action_at TIMESTAMPTZ;
+      ALTER TABLE projects ADD COLUMN IF NOT EXISTS monitor_status TEXT;
+      ALTER TABLE escalations ADD COLUMN IF NOT EXISTS history JSONB;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_team_ids TEXT[];
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_team_names TEXT[];
+    `);
     const tables = await client.query<{ table_name: string }>(`
       SELECT table_name
       FROM information_schema.tables

@@ -1,16 +1,18 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { User, DailyUpdate, DailyUpdateSummary, FeasibilitySuggestion, FeasibilityTeamAssignment, WorkAssignment } from '@/lib/types';
+import { User, DailyUpdate, DailyUpdateSummary, FeasibilitySuggestion, FeasibilityTeamAssignment, Project, WorkAssignment } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { LeadApi } from '@/lib/leadApi';
+import { ProjectsApi } from '@/lib/projectsApi';
 import { formatLongDate, LEAD_STATUS_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
 import { GanttChartSquare, Scan, ShieldAlert, MessageSquare, Inbox, ArrowRight, FileText, Clock } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 
 function statusClass(status: string) {
   if (status === 'BLOCKED') return 'border-rose-800 bg-rose-950 text-rose-300';
@@ -44,6 +46,7 @@ export default function PMDashboard({ user }: { user: User }) {
     status: string;
     href: string;
   }>>([]);
+  const [awaitingProjects, setAwaitingProjects] = useState<Project[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -65,6 +68,14 @@ export default function PMDashboard({ user }: { user: User }) {
       setUpdates(list.updates.filter((item) => item.submission_status === 'SUBMITTED'));
       setWorkAssignments(list.assignments);
       setLoadError(nextSummary ? null : 'Unable to load daily work updates for your projects. Confirm the backend is running.');
+      const listed = await ProjectsApi.list('ACTIVE');
+      setAwaitingProjects(
+        listed.projects.filter(
+          (project) =>
+            project.pm_id === user.id &&
+            (project.intake_status === 'AWAITING_ASSIGNMENT' || project.intake_status === 'RETURNED' || project.status === 'HANDOVER')
+        )
+      );
     })();
   }, []);
 
@@ -107,6 +118,29 @@ export default function PMDashboard({ user }: { user: User }) {
       <PendingActionsCard />
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
+      <ProjectGanttPanel user={user} />
+
+      {awaitingProjects.length > 0 && (
+        <div className="space-y-3 rounded-xl border border-cyan-800/60 bg-cyan-950/20 p-4">
+          <div className="text-xs font-bold text-cyan-300">Projects needing PM action ({awaitingProjects.length})</div>
+          {awaitingProjects.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}`} className="flex items-center justify-between border-t border-cyan-900/30 py-2 hover:text-cyan-200">
+              <div>
+                <span className="mr-2 font-mono font-bold text-cyan-400">{project.code}</span>
+                <span className="font-bold text-slate-100">{project.customer_name} – {project.name}</span>
+                <div className="mt-0.5 text-[11px] text-slate-400">
+                  {project.status === 'HANDOVER'
+                    ? 'Step 8 — Approve completion / handover'
+                    : project.intake_status === 'RETURNED'
+                      ? 'Returned by Team Lead — reassign'
+                      : 'Step 1 — Assign to Team Lead or Team Member'}
+                </div>
+              </div>
+              <ArrowRight className="h-4 w-4 text-cyan-400" />
+            </Link>
+          ))}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[

@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { ArrowLeft, ShieldAlert } from 'lucide-react';
 import { apiRequest } from '@/lib/api';
 import { Escalation } from '@/lib/types';
+import { ESCALATION_LEVEL_LABELS, formatDateTime } from '@/lib/format';
 
 export default function CeoEscalationDetailPage() {
   const params = useParams();
@@ -96,8 +97,21 @@ export default function CeoEscalationDetailPage() {
           <Row label="Team" value={escalation.team_name || '—'} />
           <Row label="Impact" value={escalation.impact} />
           <Row label="Previous Actions" value={escalation.previous_actions} />
-          <Row label="Current Level" value={escalation.current_level.replace(/_/g, ' ')} />
-          <Row label="Status" value={escalation.status} />
+          <Row label="Current Level" value={ESCALATION_LEVEL_LABELS[escalation.current_level] || escalation.current_level.replace(/_/g, ' ')} />
+          <Row label="Status" value={escalation.status === 'RESOLVED' ? 'Resolved' : 'Open'} />
+          {(escalation.history || []).length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">Escalation history</div>
+              <div className="mt-1 space-y-1">
+                {escalation.history!.map((event) => (
+                  <div key={event.id} className="font-medium text-slate-200">
+                    {event.action} · {ESCALATION_LEVEL_LABELS[event.level] || event.level} · {event.actor_name} · {formatDateTime(event.at)}
+                    {event.comments ? ` · ${event.comments}` : ''}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">

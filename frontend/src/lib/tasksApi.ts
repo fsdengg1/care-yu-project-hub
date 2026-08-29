@@ -10,6 +10,7 @@ export interface CreateTaskPayload {
   start_date?: string;
   due_date?: string;
   priority?: string;
+  depends_on_id?: string;
 }
 
 export const TasksApi = {

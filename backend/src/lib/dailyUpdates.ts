@@ -12,7 +12,7 @@ import {
 } from '../types.js';
 import { canOwnLead } from './leadWorkflow.js';
 import { persistComputedProgress } from './projectProgress.js';
-import { buildEscalation, notifyEscalationOwner, saveEscalation } from './projectWorkflow.js';
+import { buildEscalation, notifyEscalationOwner, persistProject, saveEscalation, stampProjectAction } from './projectWorkflow.js';
 import { emitWorkflowEvent } from './workflowEngine.js';
 
 export const STALE_HOURS = 48; // working-period window for "No Recent Update"
@@ -71,53 +71,46 @@ export function canEscalateUpdates(user: User): boolean {
 export function ensureProjectTeamTasks(): Task[] {
   const projects = store.getProjects().filter((project) => project.status === 'ACTIVE');
   const users = store.getUsers().filter((user) => user.status === 'ACTIVE');
-  const teams = store.getTeams();
   const tasks = store.getTasks();
-  const knownIds = new Set(tasks.map((task) => task.id));
   let added = false;
 
   for (const project of projects) {
     if (project.plan_initialized) continue;
-    const teamIds = project.team_ids || [];
-    const members = users.filter(
-      (user) => user.team_id && teamIds.includes(user.team_id) && EXECUTION_ROLES.has(user.role_code)
+    const intake = project.intake_status || 'AWAITING_ASSIGNMENT';
+    if (['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED', 'ACCEPTED'].includes(intake)) continue;
+    if (project.assignment_path !== 'DIRECT_MEMBER' || !project.assigned_member_id) continue;
+    const member = users.find((user) => user.id === project.assigned_member_id);
+    if (!member) continue;
+    const alreadyAssigned = tasks.some(
+      (task) => task.project_id === project.id && task.assigned_to_id === member.id
     );
-    for (const member of members) {
-      const id = `task-${project.id}-${member.id}`;
-      const alreadyAssigned = tasks.some(
-        (task) => task.project_id === project.id && task.assigned_to_id === member.id
-      );
-      if (knownIds.has(id) || alreadyAssigned) continue;
-      const team = teams.find((item) => item.id === member.team_id);
-      const due = new Date();
-      due.setDate(due.getDate() + 7);
-      tasks.unshift({
-        id,
-        lead_id: project.lead_id || '',
-        project_id: project.id,
-        title: `${project.name} — ${team?.name || 'Team'} work`,
-        description: `Assigned execution work on ${project.customer_name} / ${project.name}.`,
-        status: 'TODO',
-        priority: project.health === 'CRITICAL' ? 'Critical' : project.health === 'AT_RISK' ? 'High' : 'Medium',
-        due_date: due.toISOString().slice(0, 10),
-        assigned_to: member.name,
-        assigned_to_id: member.id,
-        created_by: project.pm_name,
-        created_by_id: project.pm_id,
-        progress_percent: 0,
-        team_id: member.team_id,
-        team_name: team?.name || member.team_name,
-        start_date: project.start_date || project.created_at.slice(0, 10),
-        duration_days: 7,
-        task_type: 'PROJECT_TASK',
-        assigned_by: project.pm_name,
-        assigned_by_id: project.pm_id,
-        created_at: project.created_at,
-        updated_at: project.updated_at,
-      });
-      knownIds.add(id);
-      added = true;
-    }
+    if (alreadyAssigned) continue;
+    const due = project.target_completion || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    tasks.unshift({
+      id: `task-${project.id}-${member.id}`,
+      lead_id: project.lead_id || '',
+      project_id: project.id,
+      title: `${project.name} — execution`,
+      description: `Assigned execution work on ${project.customer_name} / ${project.name}.`,
+      status: 'TODO',
+      priority: project.health === 'CRITICAL' ? 'Critical' : project.health === 'AT_RISK' ? 'High' : 'Medium',
+      due_date: due,
+      assigned_to: member.name,
+      assigned_to_id: member.id,
+      created_by: project.pm_name,
+      created_by_id: project.pm_id,
+      progress_percent: 0,
+      team_id: member.team_id,
+      team_name: member.team_name,
+      start_date: project.start_date || project.created_at.slice(0, 10),
+      duration_days: 7,
+      task_type: 'PROJECT_TASK',
+      assigned_by: project.assigned_by_name || project.pm_name,
+      assigned_by_id: project.assigned_by_id || project.pm_id,
+      created_at: project.created_at,
+      updated_at: project.updated_at,
+    });
+    added = true;
   }
 
   if (added) store.saveTasks(tasks);
@@ -455,6 +448,14 @@ export function notifyForSubmittedUpdate(update: DailyUpdate) {
     actionUrl: `/daily-updates/${update.id}`,
     eventKey: `${isBlocked ? 'ISSUE_RAISED' : 'DAILY_UPDATE'}:${update.id}`,
   });
+  if (project) {
+    persistProject({
+      ...project,
+      monitor_status: isBlocked ? 'ISSUE_IDENTIFIED' : project.monitor_status,
+      issue: isBlocked ? update.blocker || project.issue : project.issue,
+      ...stampProjectAction(assignee || ({ id: update.user_id, name: update.user_name } as User), isBlocked ? 'ISSUE_IDENTIFIED' : 'DAILY_UPDATE_SUBMITTED'),
+    });
+  }
 }
 
 export function listVisibleUpdates(user: User): DailyUpdate[] {

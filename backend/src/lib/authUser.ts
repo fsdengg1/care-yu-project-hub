@@ -105,8 +105,8 @@ export function resolveSignupReportingManager(): { ok: true; manager: User } | {
   const configured = users.find((user) => user.email.toLowerCase() === configuredEmail);
   const fallback =
     configured ||
+    users.find((user) => user.role_code === 'PROJECT_MANAGER') ||
     users.find((user) => user.role_code === 'CEO') ||
-    users.find((user) => user.role_code === 'ENG_DIRECTOR') ||
     users.find((user) => user.role_code === 'BUSINESS_HEAD') ||
     users[0];
 

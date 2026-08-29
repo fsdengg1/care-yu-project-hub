@@ -16,7 +16,9 @@ import {
   buildEscalation,
   notifyEscalationOwner,
   projectActions,
+  projectWorkflowView,
   saveEscalation,
+  stampProjectAction,
 } from './projectWorkflow.js';
 import { withComputedProgress } from './projectProgress.js';
 import { usersWithRole } from './lifecycleNotify.js';
@@ -53,36 +55,49 @@ export function resolveProjectTeamLead(project: Project): { team_lead_id?: strin
   return {};
 }
 
-export type GanttProjectRole = 'PROJECT_MANAGER' | 'TEAM_LEAD' | 'BUSINESS_HEAD' | 'CEO' | 'CTO' | 'SYSTEM_ADMIN' | 'NONE';
+export type GanttProjectRole =
+  | 'PROJECT_MANAGER'
+  | 'TEAM_LEAD'
+  | 'TEAM_MEMBER'
+  | 'BUSINESS_HEAD'
+  | 'ENG_DIRECTOR'
+  | 'CEO'
+  | 'CTO'
+  | 'SYSTEM_ADMIN'
+  | 'NONE';
+
+const GANTT_VIEW_ROLES = new Set([
+  'PROJECT_MANAGER',
+  'TEAM_LEAD',
+  'BUSINESS_HEAD',
+  'ENG_DIRECTOR',
+  'CEO',
+  'CTO',
+  'SYSTEM_ADMIN',
+  'EMPLOYEE',
+  'PROJECT_ENGINEER',
+  'EXECUTION',
+  'SALES',
+  'PROCUREMENT',
+]);
 
 export function canAccessGanttModule(user: User): boolean {
-  if (user.role_code === 'ENG_DIRECTOR') return false;
-  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'BUSINESS_HEAD', 'CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return GANTT_VIEW_ROLES.has(user.role_code);
 }
 
 export function canEditProjectGantt(user: User, project: Project): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
-  if (user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id) return true;
-  if (user.role_code === 'TEAM_LEAD') {
-    const lead = resolveProjectTeamLead(project);
-    const intake = project.intake_status || (project.tl_accepted_at ? 'IN_EXECUTION' : project.team_lead_id ? 'PENDING_TL_REVIEW' : 'AWAITING_ASSIGNMENT');
-    return lead.team_lead_id === user.id && ['ACCEPTED', 'IN_EXECUTION'].includes(intake);
-  }
-  return false;
+  return user.role_code === 'PROJECT_MANAGER' && project.pm_id === user.id;
 }
 
 export function canViewProjectGantt(user: User, project: Project): boolean {
   if (!canAccessGanttModule(user)) return false;
-  if (user.role_code === 'SYSTEM_ADMIN') return true;
-  if (user.role_code === 'PROJECT_MANAGER') return project.pm_id === user.id;
+  if (['SALES', 'PROCUREMENT'].includes(user.role_code)) return true;
   if (user.role_code === 'TEAM_LEAD') {
     const lead = resolveProjectTeamLead(project);
-    return lead.team_lead_id === user.id;
+    if (lead.team_lead_id === user.id) return true;
   }
-  if (['BUSINESS_HEAD', 'CEO', 'CTO'].includes(user.role_code)) {
-    return canViewProject(user, project);
-  }
-  return false;
+  return canViewProject(user, project);
 }
 
 export function ganttAccessFor(user: User, project: Project) {
@@ -92,9 +107,12 @@ export function ganttAccessFor(user: User, project: Project) {
   if (user.role_code === 'SYSTEM_ADMIN') projectRole = 'SYSTEM_ADMIN';
   else if (canEditGantt) projectRole = 'PROJECT_MANAGER';
   else if (user.role_code === 'TEAM_LEAD' && canViewGantt) projectRole = 'TEAM_LEAD';
+  else if (['EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION'].includes(user.role_code) && canViewGantt) projectRole = 'TEAM_MEMBER';
   else if (user.role_code === 'BUSINESS_HEAD' && canViewGantt) projectRole = 'BUSINESS_HEAD';
+  else if (user.role_code === 'ENG_DIRECTOR' && canViewGantt) projectRole = 'ENG_DIRECTOR';
   else if (user.role_code === 'CEO' && canViewGantt) projectRole = 'CEO';
   else if (user.role_code === 'CTO' && canViewGantt) projectRole = 'CTO';
+  else if (['SALES', 'PROCUREMENT'].includes(user.role_code) && canViewGantt) projectRole = 'TEAM_MEMBER';
   return {
     canViewGantt,
     canEditGantt,
@@ -130,7 +148,17 @@ export function hydrateProject(project: Project): Project {
     value,
     start_date: start,
     target_completion: project.target_completion || addDays(project.created_at, 90),
-    current_phase: project.current_phase || (project.status === 'COMPLETED' ? 'COMPLETED' : 'EXECUTION'),
+    current_phase: project.current_phase || (
+      project.status === 'COMPLETED'
+        ? 'COMPLETED'
+        : project.intake_status === 'AWAITING_ASSIGNMENT'
+          ? 'ASSIGNMENT'
+          : project.intake_status === 'PENDING_TL_REVIEW'
+            ? 'TEAM_LEAD_REVIEW'
+            : project.intake_status === 'ACCEPTED'
+              ? 'TASK_BREAKDOWN'
+              : 'EXECUTION'
+    ),
     last_update_at: project.last_update_at || project.updated_at,
     remarks: project.remarks || [],
     team_lead_id: teamLead.team_lead_id,
@@ -382,6 +410,14 @@ export function buildProjectDetail(user: User, projectId: string) {
       : null,
     canManage: canManageProject(user, project),
     actions: projectActions(user, project),
+    workflow: projectWorkflowView(project),
+    tasks: ['EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT'].includes(user.role_code)
+      ? tasks.filter((task) => task.assigned_to_id === user.id)
+      : tasks,
+    dailyUpdates: (['EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'PROCUREMENT'].includes(user.role_code)
+      ? updates.filter((item) => item.user_id === user.id)
+      : updates
+    ).slice(0, 20),
     assignableUsers: assignableUsersFor(project).map((item) => ({
       id: item.id,
       name: item.name,
@@ -528,7 +564,12 @@ export function applyProjectPatch(
       ];
     };
     if (body.status === 'HANDOVER') {
-      next = { ...next, pm_approved_at: now, current_phase: 'HANDOVER' };
+      next = {
+        ...next,
+        pm_approved_at: now,
+        current_phase: 'HANDOVER',
+        ...stampProjectAction(user, 'PROJECT_APPROVED'),
+      };
       emitWorkflowEvent({
         event: 'PROJECT_APPROVED_FOR_CLOSURE',
         actor: user,
@@ -544,7 +585,12 @@ export function applyProjectPatch(
       });
     }
     if (body.status === 'COMPLETED') {
-      next = { ...next, pm_approved_at: now, current_phase: 'COMPLETED' };
+      next = {
+        ...next,
+        pm_approved_at: next.pm_approved_at || now,
+        current_phase: 'COMPLETED',
+        ...stampProjectAction(user, 'PROJECT_COMPLETED'),
+      };
       emitWorkflowEvent({
         event: 'PROJECT_CLOSED',
         actor: user,
@@ -593,14 +639,132 @@ export function escalateProject(
     description: `${user.name} escalated ${project.code}: ${escalation.issue}`,
   });
   notifyEscalationOwner(escalation, user.name);
-  persistProjectIssue(project, issue);
+  persistProjectIssue(user, project, issue);
   return escalation;
 }
 
-function persistProjectIssue(project: Project, issue: string) {
+function persistProjectIssue(user: User, project: Project, issue: string) {
   const projects = store.getProjects();
   const index = projects.findIndex((item) => item.id === project.id);
   if (index === -1) return;
-  projects[index] = { ...projects[index], issue, last_update_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+  projects[index] = {
+    ...projects[index],
+    issue,
+    monitor_status: 'ISSUE_IDENTIFIED',
+    current_phase: 'ESCALATION',
+    ...stampProjectAction(user, 'ISSUE_ESCALATED'),
+    updated_at: new Date().toISOString(),
+  };
   store.saveProjects(projects);
+}
+
+function nextProjectCode(projects: Project[]) {
+  const numbers = projects
+    .map((item) => Number(String(item.code || '').replace(/\D/g, '')))
+    .filter((value) => Number.isFinite(value));
+  const next = (numbers.length ? Math.max(...numbers) : 0) + 1;
+  return `PRJ-${String(next).padStart(3, '0')}`;
+}
+
+export function createDirectProject(user: User, body: Record<string, unknown>) {
+  const title = String(body.title || '').trim();
+  const customerName = String(body.customer_name || '').trim();
+  if (!title) return { error: 'Project title is required.', status: 400 as const };
+  if (!customerName) return { error: 'Customer name is required.', status: 400 as const };
+
+  const projects = store.getProjects();
+  const requestedId = String(body.id || '').trim();
+  const existing = requestedId
+    ? projects.find((item) => item.id === requestedId && item.source === 'DIRECT_CREATE')
+    : undefined;
+  if (requestedId && !existing) {
+    return { error: 'Project not found.', status: 404 as const };
+  }
+  if (existing && existing.created_by_id && existing.created_by_id !== user.id && user.role_code !== 'SYSTEM_ADMIN') {
+    return { error: 'You cannot update this project.', status: 403 as const };
+  }
+
+  const pm = findPm();
+  const now = new Date().toISOString();
+  const intakeForm = { ...body };
+  delete intakeForm.id;
+  delete intakeForm.lead_id;
+
+  const project: Project = {
+    id: existing?.id || newId('prj'),
+    code: existing?.code || nextProjectCode(projects),
+    name: title,
+    customer_name: customerName,
+    pm_id: existing?.pm_id || pm?.id || user.id,
+    pm_name: existing?.pm_name || pm?.name || user.name,
+    progress: existing?.progress ?? 0,
+    health: existing?.health || 'ON_TRACK',
+    status: existing?.status || 'ACTIVE',
+    team_ids: existing?.team_ids || [],
+    value: parseMoney(body.estimated_opportunity_value ?? body.expected_value ?? existing?.value),
+    start_date: existing?.start_date || now.slice(0, 10),
+    target_completion:
+      String(body.customer_target_date || existing?.target_completion || addDays(now, 90)).slice(0, 10) || addDays(now, 90),
+    current_phase: existing?.current_phase || 'ASSIGNMENT',
+    last_update_at: now,
+    intake_status: existing?.intake_status || 'AWAITING_ASSIGNMENT',
+    source: 'DIRECT_CREATE',
+    created_by_id: existing?.created_by_id || user.id,
+    created_by_name: existing?.created_by_name || user.name,
+    intake_form: intakeForm,
+    last_action: existing?.last_action || 'PROJECT_CREATED',
+    last_action_by_id: existing?.last_action_by_id || user.id,
+    last_action_by_name: existing?.last_action_by_name || user.name,
+    last_action_at: existing?.last_action_at || now,
+    created_at: existing?.created_at || now,
+    updated_at: now,
+  };
+
+  if (existing) {
+    const index = projects.findIndex((item) => item.id === existing.id);
+    projects[index] = { ...existing, ...project, lead_id: existing.lead_id };
+    if (!existing.lead_id) delete projects[index].lead_id;
+    store.saveProjects(projects);
+    store.appendAudit({
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role_name,
+      entity_type: 'PROJECT',
+      entity_id: project.id,
+      entity_name: project.code,
+      action: 'PROJECT_INTAKE_UPDATED',
+      description: `${user.name} updated project ${project.code}.`,
+    });
+    return { project: projects[index] };
+  }
+
+  projects.unshift(project);
+  store.saveProjects(projects);
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'PROJECT',
+    entity_id: project.id,
+    entity_name: project.code,
+    action: 'PROJECT_CREATED',
+    description: `${user.name} created project ${project.code} (${project.name}).`,
+  });
+  if (project.pm_id && project.pm_id !== user.id) {
+    emitWorkflowEvent({
+      event: 'PROJECT_SUBMITTED',
+      actor: user,
+      entityType: 'PROJECT',
+      entityId: project.id,
+      entityName: project.name,
+      recipientIds: [project.pm_id],
+      customer: project.customer_name,
+      status: 'Awaiting Assignment',
+      message: `${user.name} created ${project.code} (${project.name}). Assign it to a Team Lead or Team Member.`,
+      actionUrl: `/projects/${project.id}`,
+      eventKey: `PROJECT_CREATED:${project.id}`,
+      priority: 'HIGH',
+    });
+  }
+  return { project };
 }

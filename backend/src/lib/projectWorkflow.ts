@@ -1,12 +1,15 @@
 import { store } from '../store/db.js';
 import {
   Escalation,
+  EscalationEvent,
   EscalationLevel,
   EscalationSeverity,
   NotificationItem,
   Project,
   ProjectAssignmentPath,
   ProjectIntakeStatus,
+  ProjectWorkflowSnapshot,
+  Task,
   User,
 } from '../types.js';
 import { newId } from './leadWorkflow.js';
@@ -89,6 +92,195 @@ export function persistProject(project: Project): Project {
   return next;
 }
 
+export function stampProjectAction(user: User, action: string): Pick<
+  Project,
+  'last_action' | 'last_action_by_id' | 'last_action_by_name' | 'last_action_at' | 'last_update_at'
+> {
+  const now = new Date().toISOString();
+  return {
+    last_action: action,
+    last_action_by_id: user.id,
+    last_action_by_name: user.name,
+    last_action_at: now,
+    last_update_at: now,
+  };
+}
+
+const LAST_ACTION_LABELS: Record<string, string> = {
+  PROJECT_CREATED: 'Project created',
+  PROJECT_ASSIGNED: 'Project assigned',
+  PROJECT_ACCEPTED: 'Project accepted',
+  PROJECT_RETURNED: 'Project returned to PM',
+  TASK_ASSIGNED: 'Task assigned',
+  TASK_STARTED: 'Task started',
+  TASK_COMPLETED: 'Task completed',
+  DAILY_UPDATE_SUBMITTED: 'Daily update submitted',
+  MONITOR_ON_TRACK: 'Marked on track',
+  ISSUE_IDENTIFIED: 'Issue / blocker identified',
+  ISSUE_ESCALATED: 'Issue escalated',
+  ISSUE_RESOLVED: 'Issue resolved',
+  TL_FINAL_REVIEW: 'Team Lead final review completed',
+  PROJECT_APPROVED: 'Project approved for handover',
+  PROJECT_COMPLETED: 'Project completed',
+};
+
+function escalationLevelNumber(level?: EscalationLevel) {
+  if (level === 'TEAM_LEAD') return 1;
+  if (level === 'PROJECT_MANAGER') return 2;
+  if (level === 'BUSINESS_HEAD' || level === 'ENG_DIRECTOR') return 3;
+  if (level === 'CEO') return 4;
+  return 0;
+}
+
+export function projectWorkflowView(project: Project): ProjectWorkflowSnapshot {
+  const intake = intakeStatusOf(project);
+  const openEscalations = store
+    .getEscalations()
+    .filter((item) => item.project_id === project.id && item.status !== 'RESOLVED')
+    .sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at));
+  const latestEsc = openEscalations[0];
+  const tasks = store.getTasks().filter((task) => task.project_id === project.id);
+  const hasUpdates = store
+    .getDailyUpdates()
+    .some((item) => item.project_id === project.id && item.submission_status === 'SUBMITTED');
+
+  let step = 1;
+  let stage = 'Project Assignment';
+  let status = 'Awaiting Assignment';
+
+  if (project.status === 'COMPLETED') {
+    step = 8;
+    stage = 'Resolution & Completion';
+    status = 'Completed';
+  } else if (project.status === 'HANDOVER') {
+    step = 8;
+    stage = 'Resolution & Completion';
+    status = 'PM Approved — Handover';
+  } else if (project.tl_reviewed_at) {
+    step = 8;
+    stage = 'Resolution & Completion';
+    status = 'Pending PM Approval';
+  } else if (latestEsc) {
+    step = 7;
+    stage = 'Escalation';
+    status = `Level ${escalationLevelNumber(latestEsc.current_level)} — ${latestEsc.current_level.replace(/_/g, ' ')}`;
+  } else if (project.monitor_status === 'ISSUE_IDENTIFIED' || Boolean(project.issue)) {
+    step = 6;
+    stage = 'Team Lead Review & Monitor';
+    status = 'Issue / Blocker Identified';
+  } else if (intake === 'RETURNED') {
+    step = 1;
+    stage = 'Project Assignment';
+    status = 'Returned to PM';
+  } else if (intake === 'AWAITING_ASSIGNMENT') {
+    step = 1;
+    stage = 'Project Assignment';
+    status = 'Awaiting Assignment';
+  } else if (intake === 'PENDING_TL_REVIEW') {
+    step = 2;
+    stage = 'Team Lead Review';
+    status = 'Pending Review';
+  } else if (intake === 'ACCEPTED' || project.current_phase === 'TASK_BREAKDOWN') {
+    step = 3;
+    stage = 'Task Breakdown';
+    status = 'Accepted';
+  } else if (intake === 'IN_EXECUTION') {
+    if (project.monitor_status === 'ON_TRACK') {
+      step = 6;
+      stage = 'Team Lead Review & Monitor';
+      status = 'On Track';
+    } else if (hasUpdates) {
+      step = 5;
+      stage = 'Daily Work Update';
+      status = 'Updates in Progress';
+    } else if (tasks.some((task) => task.status === 'IN_PROGRESS' || task.status === 'BLOCKED' || task.status === 'DONE')) {
+      step = 4;
+      stage = 'Team Member Execution';
+      status = 'In Progress';
+    } else if (tasks.length) {
+      step = 4;
+      stage = 'Team Member Execution';
+      status = 'Assigned';
+    } else {
+      step = 3;
+      stage = 'Task Breakdown';
+      status = 'Accepted';
+    }
+  }
+
+  return {
+    step,
+    stage,
+    status,
+    last_action: project.last_action,
+    last_action_label: project.last_action ? LAST_ACTION_LABELS[project.last_action] || project.last_action.replace(/_/g, ' ') : undefined,
+    last_action_by: project.last_action_by_name,
+    last_action_at: project.last_action_at,
+    intake_status: intake,
+    assignment_path: project.assignment_path,
+    monitor_status: project.monitor_status,
+    escalation_level: latestEsc?.current_level,
+    escalation_resolved: Boolean(project.status !== 'COMPLETED' && !latestEsc && store.getEscalations().some((item) => item.project_id === project.id && item.status === 'RESOLVED')),
+  };
+}
+
+function appendEscalationEvent(
+  escalation: Escalation,
+  event: Omit<EscalationEvent, 'id'>
+): Escalation {
+  const entry: EscalationEvent = { id: newId('esev'), ...event };
+  return { ...escalation, history: [...(escalation.history || []), entry] };
+}
+
+function ensureDirectMemberTask(project: Project, assignee: User, actor: User) {
+  const tasks = store.getTasks();
+  if (tasks.some((task) => task.project_id === project.id && task.assigned_to_id === assignee.id)) return;
+  const now = new Date().toISOString();
+  const task: Task = {
+    id: newId('task'),
+    lead_id: project.lead_id || '',
+    project_id: project.id,
+    title: `${project.name} — execution`,
+    description: `Assigned execution work on ${project.customer_name} / ${project.name}. Review requirements and begin work.`,
+    status: 'TODO',
+    priority: 'Medium',
+    due_date: project.target_completion,
+    assigned_to: assignee.name,
+    assigned_to_id: assignee.id,
+    assigned_by: actor.name,
+    assigned_by_id: actor.id,
+    created_by: actor.name,
+    created_by_id: actor.id,
+    responsible_user_id: assignee.id,
+    responsible_user_name: assignee.name,
+    progress_percent: 0,
+    team_id: assignee.team_id,
+    team_name: assignee.team_name,
+    task_type: 'PROJECT_TASK',
+    review_status: 'NONE',
+    comments: [],
+    created_at: now,
+    updated_at: now,
+  };
+  tasks.unshift(task);
+  store.saveTasks(tasks);
+  emitWorkflowEvent({
+    event: 'TASK_ASSIGNED',
+    actor,
+    entityType: 'TASK',
+    entityId: task.id,
+    entityName: task.title,
+    recipientIds: [assignee.id],
+    customer: project.customer_name,
+    status: 'Task Assigned',
+    dueDate: task.due_date,
+    assignedBy: actor.name,
+    message: `${actor.name} assigned "${task.title}" to you.`,
+    actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
+    eventKey: `TASK_ASSIGNED:${task.id}:${assignee.id}:${now}`,
+  });
+}
+
 export function assignableUsersFor(project: Project): User[] {
   const users = store.getUsers().filter((user) => user.status === 'ACTIVE' && EXECUTION_ASSIGNABLE.has(user.role_code));
   const teamIds = project.team_ids || [];
@@ -148,6 +340,26 @@ export function canCloseProject(user: User, project: Project) {
   return canManageProject(user, project) && project.status === 'HANDOVER';
 }
 
+export function canBreakdownTasks(user: User, project: Project) {
+  const intake = intakeStatusOf(project);
+  if (!['ACCEPTED', 'IN_EXECUTION'].includes(intake) || project.status !== 'ACTIVE' || project.tl_reviewed_at) {
+    return false;
+  }
+  if (user.role_code === 'TEAM_LEAD' && resolveProjectTeamLead(project).team_lead_id === user.id) return true;
+  if (canManageProject(user, project) && project.assignment_path === 'DIRECT_MEMBER') return true;
+  return false;
+}
+
+export function canMonitorProject(user: User, project: Project) {
+  const intake = intakeStatusOf(project);
+  return (
+    user.role_code === 'TEAM_LEAD' &&
+    resolveProjectTeamLead(project).team_lead_id === user.id &&
+    ['ACCEPTED', 'IN_EXECUTION'].includes(intake) &&
+    project.status === 'ACTIVE'
+  );
+}
+
 export function projectActions(user: User, project: Project) {
   const intake = intakeStatusOf(project);
   return {
@@ -157,6 +369,8 @@ export function projectActions(user: User, project: Project) {
     canEscalate: canEscalateProject(user, project) && project.status === 'ACTIVE',
     canHandover: canHandoverProject(user, project),
     canComplete: canCloseProject(user, project),
+    canBreakdown: canBreakdownTasks(user, project),
+    canMonitor: canMonitorProject(user, project),
     intake_status: intake,
   };
 }
@@ -194,6 +408,9 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
     assignment_path: path,
     assigned_member_id: path === 'DIRECT_MEMBER' ? assignee.id : undefined,
     assigned_member_name: path === 'DIRECT_MEMBER' ? assignee.name : undefined,
+    assigned_by_id: user.id,
+    assigned_by_name: user.name,
+    assigned_at: now,
     team_ids: [...teamIds],
     team_lead_id: teamLeadId,
     team_lead_name: teamLeadName,
@@ -201,9 +418,12 @@ export function assignProject(user: User, project: Project, assigneeId: string) 
     intake_comment: undefined,
     tl_accepted_at: path === 'DIRECT_MEMBER' ? now : undefined,
     current_phase: path === 'TEAM_LEAD' ? 'TEAM_LEAD_REVIEW' : 'EXECUTION',
-    last_update_at: now,
+    ...stampProjectAction(user, 'PROJECT_ASSIGNED'),
   };
   persistProject(next);
+  if (path === 'DIRECT_MEMBER') {
+    ensureDirectMemberTask(next, assignee, user);
+  }
   store.appendAudit({
     user_id: user.id,
     user_name: user.name,
@@ -259,11 +479,12 @@ export function reviewProjectIntake(user: User, project: Project, action: 'accep
   const accepted = action === 'accept';
   const next: Project = {
     ...project,
-    intake_status: accepted ? 'IN_EXECUTION' : 'RETURNED',
+    intake_status: accepted ? 'ACCEPTED' : 'RETURNED',
     intake_comment: note || undefined,
     tl_accepted_at: accepted ? now : undefined,
     current_phase: accepted ? 'TASK_BREAKDOWN' : 'RETURNED_TO_PM',
-    last_update_at: now,
+    monitor_status: accepted ? 'ON_TRACK' : undefined,
+    ...stampProjectAction(user, accepted ? 'PROJECT_ACCEPTED' : 'PROJECT_RETURNED'),
   };
   persistProject(next);
   store.appendAudit({
@@ -295,9 +516,14 @@ export function reviewProjectIntake(user: User, project: Project, action: 'accep
   return { project: next };
 }
 
-export function markAcceptedInExecution(project: Project) {
+export function markAcceptedInExecution(project: Project, user?: User) {
   if (project.intake_status !== 'ACCEPTED') return project;
-  return persistProject({ ...project, intake_status: 'IN_EXECUTION', current_phase: project.current_phase || 'EXECUTION' });
+  return persistProject({
+    ...project,
+    intake_status: 'IN_EXECUTION',
+    current_phase: project.current_phase === 'TASK_BREAKDOWN' ? 'EXECUTION' : project.current_phase || 'EXECUTION',
+    ...(user ? stampProjectAction(user, 'TASK_ASSIGNED') : {}),
+  });
 }
 
 export function markTlFinalReview(user: User, project: Project, comments?: string) {
@@ -312,7 +538,7 @@ export function markTlFinalReview(user: User, project: Project, comments?: strin
     intake_status: 'IN_EXECUTION',
     intake_comment: note || project.intake_comment,
     current_phase: 'PM_FINAL_REVIEW',
-    last_update_at: now,
+    ...stampProjectAction(user, 'TL_FINAL_REVIEW'),
   };
   persistProject(next);
   store.appendAudit({
@@ -347,16 +573,69 @@ export function completionBlockers(project: Project): string | null {
   if (openEscalations.length) {
     return 'Resolve open escalations before completing the project.';
   }
-  const busy = store
-    .getTasks()
-    .filter((task) => task.project_id === project.id && (task.status === 'IN_PROGRESS' || task.status === 'BLOCKED'));
-  if (busy.length) {
-    return 'Complete or unblock in-progress tasks before project completion.';
+  const tasks = store.getTasks().filter((task) => task.project_id === project.id);
+  if (!tasks.length) {
+    return 'At least one completed task is required before project completion.';
+  }
+  const incomplete = tasks.filter((task) => {
+    if (task.review_status === 'PENDING_TL_REVIEW' || task.review_status === 'CORRECTION_REQUIRED') return true;
+    return task.status !== 'DONE';
+  });
+  if (incomplete.length) {
+    return 'All tasks must be completed and approved before project completion.';
   }
   if (project.assignment_path !== 'DIRECT_MEMBER' && project.team_lead_id && !project.tl_reviewed_at) {
     return 'Team Lead final review is required before PM approval.';
   }
   return null;
+}
+
+export function monitorProject(user: User, project: Project, status: 'ON_TRACK' | 'ISSUE_IDENTIFIED', comments?: string) {
+  if (!canMonitorProject(user, project)) {
+    return { error: 'Only the assigned Team Lead can update project monitoring.', status: 403 as const };
+  }
+  const note = (comments || '').trim();
+  if (status === 'ISSUE_IDENTIFIED' && !note) {
+    return { error: 'Describe the issue or blocker before marking the project off track.' };
+  }
+  const now = new Date().toISOString();
+  const next: Project = {
+    ...project,
+    monitor_status: status,
+    issue: status === 'ISSUE_IDENTIFIED' ? note : undefined,
+    current_phase: status === 'ISSUE_IDENTIFIED' ? 'TL_MONITOR' : project.current_phase === 'TL_MONITOR' ? 'EXECUTION' : project.current_phase,
+    health: status === 'ISSUE_IDENTIFIED' ? 'AT_RISK' : project.health === 'CRITICAL' ? project.health : 'ON_TRACK',
+    ...stampProjectAction(user, status === 'ON_TRACK' ? 'MONITOR_ON_TRACK' : 'ISSUE_IDENTIFIED'),
+  };
+  persistProject(next);
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'PROJECT',
+    entity_id: next.id,
+    entity_name: next.code,
+    action: status === 'ON_TRACK' ? 'PROJECT_ON_TRACK' : 'PROJECT_ISSUE_IDENTIFIED',
+    description:
+      status === 'ON_TRACK'
+        ? `${user.name} marked ${next.code} on track.`
+        : `${user.name} identified an issue on ${next.code}: ${note}`,
+  });
+  if (status === 'ISSUE_IDENTIFIED') {
+    notify([next.pm_id], user, 'ISSUE_RAISED', {
+      entityType: 'PROJECT',
+      entityId: next.id,
+      entityName: next.name,
+      customer: next.customer_name,
+      status: 'Issue / Blocker Identified',
+      comments: note,
+      message: `${user.name} identified an issue on ${next.customer_name} – ${next.name}: ${note}`,
+      actionUrl: `/projects/${next.id}`,
+      eventKey: `ISSUE_IDENTIFIED:${next.id}:${now}`,
+      priority: 'HIGH',
+    });
+  }
+  return { project: next };
 }
 
 export function startingEscalationLevel(user: User, severity?: EscalationSeverity): EscalationLevel {
@@ -465,7 +744,7 @@ export function buildEscalation(
 ): Escalation {
   const now = new Date().toISOString();
   const level = startingEscalationLevel(user, body.severity);
-  return {
+  const base: Escalation = {
     id: newId('esc'),
     code: `ESC-${String(store.getEscalations().length + 1).padStart(3, '0')}`,
     project_id: project?.id,
@@ -486,6 +765,14 @@ export function buildEscalation(
     created_at: now,
     updated_at: now,
   };
+  return appendEscalationEvent(base, {
+    level,
+    action: 'RAISED',
+    actor_id: user.id,
+    actor_name: user.name,
+    comments: body.issue,
+    at: now,
+  });
 }
 
 export function saveEscalation(escalation: Escalation) {
@@ -503,14 +790,24 @@ export function resolveEscalation(user: User, escalation: Escalation, decision: 
   const note = decision.trim();
   if (!note) return { error: 'A decision / resolution is required.' };
   const now = new Date().toISOString();
-  const next: Escalation = {
-    ...escalation,
-    status: 'RESOLVED',
-    resolution: note,
-    ceo_decision: note,
-    resolved_at: now,
-    updated_at: now,
-  };
+  const next: Escalation = appendEscalationEvent(
+    {
+      ...escalation,
+      status: 'RESOLVED',
+      resolution: note,
+      ceo_decision: note,
+      resolved_at: now,
+      updated_at: now,
+    },
+    {
+      level: escalation.current_level,
+      action: 'RESOLVED',
+      actor_id: user.id,
+      actor_name: user.name,
+      comments: note,
+      at: now,
+    }
+  );
   saveEscalation(next);
   store.appendAudit({
     user_id: user.id,
@@ -534,7 +831,13 @@ export function resolveEscalation(user: User, escalation: Escalation, decision: 
   if (next.project_id) {
     const project = store.getProjects().find((item) => item.id === next.project_id);
     if (project) {
-      persistProject({ ...project, issue: undefined, last_update_at: now });
+      persistProject({
+        ...project,
+        issue: undefined,
+        monitor_status: 'ON_TRACK',
+        current_phase: project.tl_reviewed_at ? 'PM_FINAL_REVIEW' : 'EXECUTION',
+        ...stampProjectAction(user, 'ISSUE_RESOLVED'),
+      });
       if (project.pm_id !== next.raised_by_id) {
         notify([project.pm_id], user, 'ISSUE_RESOLVED', {
           entityType: 'PROJECT',
@@ -562,15 +865,25 @@ export function promoteEscalation(user: User, escalation: Escalation, comments?:
   }
   const note = (comments || '').trim();
   const now = new Date().toISOString();
-  const next: Escalation = {
-    ...escalation,
-    current_level: nextLevel,
-    previous_actions: [escalation.previous_actions, note ? `${user.name}: ${note}` : `${user.name} promoted to ${nextLevel}`]
-      .filter(Boolean)
-      .join(' | '),
-    status: 'IN_REVIEW',
-    updated_at: now,
-  };
+  const next: Escalation = appendEscalationEvent(
+    {
+      ...escalation,
+      current_level: nextLevel,
+      previous_actions: [escalation.previous_actions, note ? `${user.name}: ${note}` : `${user.name} promoted to ${nextLevel}`]
+        .filter(Boolean)
+        .join(' | '),
+      status: 'IN_REVIEW',
+      updated_at: now,
+    },
+    {
+      level: nextLevel,
+      action: 'PROMOTED',
+      actor_id: user.id,
+      actor_name: user.name,
+      comments: note || `Promoted to ${nextLevel}`,
+      at: now,
+    }
+  );
   saveEscalation(next);
   store.appendAudit({
     user_id: user.id,

@@ -13,6 +13,7 @@ import {
 import { StorageService } from '@/lib/storage';
 import { directoryStatus, UsersApi } from '@/lib/usersApi';
 import { Role, Team, User } from '@/lib/types';
+import { resolveReportingManagerId } from '@/components/org/orgHierarchy';
 
 const emptyForm = {
   name: '',
@@ -61,7 +62,10 @@ export default function UserManagementPage() {
 
   const openAdd = () => {
     setEditing(null);
-    setForm({ ...emptyForm, reporting_manager_id: currentUser?.id || '' });
+    setForm({
+      ...emptyForm,
+      reporting_manager_id: resolveReportingManagerId('EMPLOYEE', users, false) || currentUser?.id || '',
+    });
     setModal('add');
     setError(null);
   };
@@ -90,6 +94,7 @@ export default function UserManagementPage() {
     }
     setBusy(true);
     setError(null);
+    const selectedRole = roles.find((item) => item.id === form.role_id);
     const payload = {
       name: form.name.trim(),
       email: form.email.trim(),
@@ -97,7 +102,10 @@ export default function UserManagementPage() {
       employee_id: form.employee_id.trim() || undefined,
       role_id: form.role_id,
       team_id: form.team_id || null,
-      reporting_manager_id: form.reporting_manager_id || null,
+      reporting_manager_id:
+        resolveReportingManagerId(selectedRole?.code || 'EMPLOYEE', users, Boolean(form.team_id)) ||
+        form.reporting_manager_id ||
+        null,
       status: form.status,
     };
     const result = editing
@@ -346,7 +354,14 @@ export default function UserManagementPage() {
               <div className="grid grid-cols-2 gap-3">
                 <label className="block">
                   <span className="mb-1 block font-medium text-slate-400">Assigned Role *</span>
-                  <select required value={form.role_id} onChange={(e) => setForm({ ...form, role_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500">
+                  <select required value={form.role_id} onChange={(e) => {
+                    const role = roles.find((item) => item.id === e.target.value);
+                    setForm({
+                      ...form,
+                      role_id: e.target.value,
+                      reporting_manager_id: resolveReportingManagerId(role?.code || 'EMPLOYEE', users, Boolean(form.team_id)) || form.reporting_manager_id,
+                    });
+                  }} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500">
                     <option value="">Select Role...</option>
                     {roles.map((role) => (
                       <option key={role.id} value={role.id}>{role.name}</option>
@@ -355,7 +370,14 @@ export default function UserManagementPage() {
                 </label>
                 <label className="block">
                   <span className="mb-1 block font-medium text-slate-400">Functional Team</span>
-                  <select value={form.team_id} onChange={(e) => setForm({ ...form, team_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500">
+                  <select value={form.team_id} onChange={(e) => {
+                    const role = roles.find((item) => item.id === form.role_id);
+                    setForm({
+                      ...form,
+                      team_id: e.target.value,
+                      reporting_manager_id: resolveReportingManagerId(role?.code || 'EMPLOYEE', users, Boolean(e.target.value)) || form.reporting_manager_id,
+                    });
+                  }} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-200 focus:border-cyan-500">
                     <option value="">Unassigned</option>
                     {teams.map((team) => (
                       <option key={team.id} value={team.id}>{team.name}</option>

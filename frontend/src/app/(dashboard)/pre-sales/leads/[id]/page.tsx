@@ -7,7 +7,8 @@ import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
-import { LEAD_STATUS_LABELS, formatRelativeTime, formatInrCompact } from '@/lib/format';
+import WorkflowStatusBanner, { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
+import { formatRelativeTime, formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
 import { canCreateLead } from '@/lib/rbac';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
@@ -39,6 +40,7 @@ export default function LeadDetailPage() {
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
+  const [workflowFeedback, setWorkflowFeedback] = useState<WorkflowActionFeedback | null>(null);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [forwardUserId, setForwardUserId] = useState('');
   const [forwardReason, setForwardReason] = useState('');
@@ -54,7 +56,7 @@ export default function LeadDetailPage() {
   // +ADD TEAM Modal state
   const [showAddTeamModal, setShowAddTeamModal] = useState(false);
   const [addTeamForm, setAddTeamForm] = useState({
-    teamId: '',
+    teamIds: [] as string[],
     assignmentType: 'NORMAL' as AssignmentType,
     priority: 'High' as PriorityLevel,
     dueDate: '',
@@ -113,6 +115,11 @@ export default function LeadDetailPage() {
     setCurrentUser(u);
     loadData();
     const tab = new URLSearchParams(window.location.search).get('tab');
+    const action = workflowActionFromQuery(new URLSearchParams(window.location.search).get('action'));
+    if (action) {
+      setWorkflowFeedback({ kind: action, message: WORKFLOW_ACTION_SUCCESS[action] });
+      window.history.replaceState({}, '', `/pre-sales/leads/${leadId}`);
+    }
     if (
       tab === 'overview' ||
       tab === 'customer' ||
@@ -163,6 +170,14 @@ export default function LeadDetailPage() {
   const canPmDecide = isResponsible && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status);
   const canForward = isResponsible && !['DRAFT', 'ORDER_CONVERTED', 'LOST', 'CANCELLED'].includes(lead.status);
 
+  const handleWorkflowUpdated = async (feedback?: WorkflowActionFeedback) => {
+    if (feedback) {
+      setActionError(null);
+      setWorkflowFeedback(feedback);
+    }
+    await loadData();
+  };
+
   const handleForwardLead = async () => {
     if (!forwardUserId) return;
     setActionError(null);
@@ -194,10 +209,12 @@ export default function LeadDetailPage() {
     }
     setShowReturnModal(false);
     setPmReturnReason('');
+    setWorkflowFeedback(null);
     await loadData();
   };
 
   const handleSalesResubmit = async () => {
+    const previousStatus = lead.status;
     const updated = await LeadApi.update(lead.id, { technical_specifications: resubmitTechInput });
     if (!updated.ok) {
       setActionError(updated.message || 'Unable to update this lead.');
@@ -208,6 +225,8 @@ export default function LeadDetailPage() {
       setActionError(submitted.message);
       return;
     }
+    setActionError(null);
+    setWorkflowFeedback({ kind: 'submit', message: WORKFLOW_ACTION_SUCCESS.submit, previousStatus });
     loadData();
   };
 
@@ -215,11 +234,13 @@ export default function LeadDetailPage() {
     if (!cancelReason.trim()) return;
     setActionError(null);
     setActionBusy(true);
+    const previousStatus = lead.status;
     const result = await LeadApi.cancel(lead.id, cancelReason.trim());
     setActionBusy(false);
     if (result && 'lead' in result) {
       setShowCancelModal(false);
       setCancelReason('');
+      setWorkflowFeedback({ kind: 'reject', message: WORKFLOW_ACTION_SUCCESS.reject, previousStatus });
       await loadData();
       return;
     }
@@ -227,30 +248,55 @@ export default function LeadDetailPage() {
   };
 
   // ---- +ADD TEAM ----
-  const selectedAddTeam = allTeams.find(t => t.id === addTeamForm.teamId);
+  const selectedAddTeams = allTeams.filter((t) => addTeamForm.teamIds.includes(t.id));
+  const selectedAddTeam = selectedAddTeams[0];
   const tlForSelectedTeam = allUsers.find(u => u.id === selectedAddTeam?.team_lead_id);
-  const employeesForSelectedTeam = allUsers.filter(u => u.team_id === addTeamForm.teamId);
-  const alreadyAssignedTeam = addTeamForm.teamId
-    ? StorageService.isTeamAlreadyAssignedToLead(lead.id, addTeamForm.teamId)
-    : false;
+  const employeesForSelectedTeam = allUsers.filter(u => selectedAddTeam && u.team_id === selectedAddTeam.id);
+  const alreadyAssignedSelected = addTeamForm.teamIds.filter((id) =>
+    teamAssignments.some((a) => a.team_id === id && a.status !== 'CANCELLED') ||
+    StorageService.isTeamAlreadyAssignedToLead(lead.id, id)
+  );
 
-  const handleAddTeam = (e: React.FormEvent) => {
+  const handleAddTeam = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddTeamError(null);
-    if (!addTeamForm.teamId) { setAddTeamError('Please select a team.'); return; }
-    if (alreadyAssignedTeam) { setAddTeamError(`${selectedAddTeam?.name} is already assigned to this Lead.`); return; }
+    if (!addTeamForm.teamIds.length) { setAddTeamError('Please select at least one team.'); return; }
+    if (alreadyAssignedSelected.length) {
+      setAddTeamError('One or more selected teams are already assigned to this Lead.');
+      return;
+    }
     if (!addTeamForm.dueDate) { setAddTeamError('Due date is required.'); return; }
     if (!addTeamForm.pmInstructions.trim()) { setAddTeamError('PM Instructions are required.'); return; }
-    if (addTeamForm.assignmentType === 'CRITICAL_DIRECT') {
+    const isCritical = addTeamForm.assignmentType === 'CRITICAL_DIRECT';
+    if (isCritical && addTeamForm.teamIds.length > 1) {
+      setAddTeamError('Critical Direct can only be used with one team. Select a single team, or use Normal assignment for multiple teams.');
+      return;
+    }
+    if (isCritical) {
       if (!addTeamForm.employeeId) { setAddTeamError('Select employee for Critical Direct.'); return; }
       if (!addTeamForm.criticalReason.trim()) { setAddTeamError('Critical Reason is mandatory.'); return; }
       if (!addTeamForm.bypassConfirmed) { setAddTeamError('Confirm bypass of Team Lead allocation.'); return; }
     }
 
-    const isCritical = addTeamForm.assignmentType === 'CRITICAL_DIRECT';
+    if (!isCritical) {
+      const result = await LeadApi.pmReview(lead.id, {
+        action: 'approve_assign',
+        team_ids: addTeamForm.teamIds,
+        notes: addTeamForm.pmInstructions,
+      });
+      if (!result.ok) {
+        setAddTeamError(result.message || 'Unable to assign teams.');
+        return;
+      }
+      setShowAddTeamModal(false);
+      setAddTeamForm({ teamIds: [], assignmentType: 'NORMAL', priority: 'High', dueDate: '', pmInstructions: '', expectedOutput: '', criticalReason: '', employeeId: '', bypassConfirmed: false });
+      await loadData();
+      return;
+    }
+
     const newAssignment = StorageService.createFeasibilityTeamAssignment({
       lead_id: lead.id,
-      team_id: addTeamForm.teamId,
+      team_id: selectedAddTeam!.id,
       team_name: selectedAddTeam!.name,
       team_lead_id: selectedAddTeam!.team_lead_id,
       team_lead_name: selectedAddTeam!.team_lead_name || tlForSelectedTeam?.name,
@@ -259,47 +305,39 @@ export default function LeadDetailPage() {
       due_date: addTeamForm.dueDate,
       pm_instructions: addTeamForm.pmInstructions,
       expected_output: addTeamForm.expectedOutput || undefined,
-      critical_reason: isCritical ? addTeamForm.criticalReason : undefined,
-      status: isCritical ? 'CRITICAL_DIRECT_ASSIGNED' : 'PENDING_TEAM_LEAD_REVIEW',
+      critical_reason: addTeamForm.criticalReason,
+      status: 'CRITICAL_DIRECT_ASSIGNED',
       created_by: currentUser.name,
       created_by_id: currentUser.id,
     });
 
-    if (isCritical) {
-      const emp = allUsers.find(u => u.id === addTeamForm.employeeId);
-      if (emp) {
-        StorageService.addFeasibilityEmployeeAllocation({
-          feasibility_team_assignment_id: newAssignment.id,
-          lead_id: lead.id,
-          team_id: addTeamForm.teamId,
-          team_lead_id: selectedAddTeam?.team_lead_id,
-          employee_id: emp.id,
-          employee_name: emp.name,
-          responsibility: `[CRITICAL DIRECT] ${addTeamForm.pmInstructions}`,
-          approval_status: 'BYPASSED_CRITICAL',
-          allocated_by: currentUser.name,
-          allocated_at: new Date().toISOString(),
-        });
-        StorageService.sendNotification({ recipient_id: emp.id, type: 'CRITICAL_DIRECT_ASSIGNMENT_TO_EMPLOYEE', title: `🔴 CRITICAL DIRECT: ${lead.lead_number}`, message: `PM ${currentUser.name} assigned feasibility work on "${lead.title}" (${lead.customer_name}) directly to you. Reason: ${addTeamForm.criticalReason}. Start immediately.`, entity_type: 'FEASIBILITY', entity_id: newAssignment.id });
-      }
-      if (selectedAddTeam?.team_lead_id) {
-        StorageService.sendNotification({ recipient_id: selectedAddTeam.team_lead_id, type: 'CRITICAL_ASSIGNMENT_TEAM_LEAD_NOTICE', title: `🔴 Critical Notice: ${lead.lead_number} → ${selectedAddTeam.name}`, message: `PM ${currentUser.name} directly assigned feasibility for "${lead.title}" to ${emp?.name}. No approval required from you.`, entity_type: 'FEASIBILITY', entity_id: newAssignment.id });
-      }
-      StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'FEASIBILITY', entity_id: newAssignment.id, action: 'CRITICAL_DIRECT_ASSIGNMENT_CREATED', description: `[CRITICAL DIRECT] PM ${currentUser.name} assigned ${lead.lead_number} (${selectedAddTeam?.name}) directly to ${allUsers.find(u => u.id === addTeamForm.employeeId)?.name}. Reason: "${addTeamForm.criticalReason}".` });
-    } else {
-      if (selectedAddTeam?.team_lead_id) {
-        StorageService.sendNotification({ recipient_id: selectedAddTeam.team_lead_id, type: 'FEASIBILITY_ASSIGNED_TO_TEAM_LEAD', title: `New Feasibility: ${lead.lead_number} → ${selectedAddTeam.name}`, message: `PM ${currentUser.name} assigned Lead "${lead.title}" (${lead.customer_name}) to ${selectedAddTeam.name} for feasibility. Due: ${addTeamForm.dueDate}.`, entity_type: 'FEASIBILITY', entity_id: newAssignment.id });
-      }
-      StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'FEASIBILITY', entity_id: newAssignment.id, action: 'FEASIBILITY_TEAM_ASSIGNED', description: `PM ${currentUser.name} assigned ${lead.lead_number} → ${selectedAddTeam?.name} (TL: ${selectedAddTeam?.team_lead_name || tlForSelectedTeam?.name}).` });
+    const emp = allUsers.find(u => u.id === addTeamForm.employeeId);
+    if (emp) {
+      StorageService.addFeasibilityEmployeeAllocation({
+        feasibility_team_assignment_id: newAssignment.id,
+        lead_id: lead.id,
+        team_id: selectedAddTeam!.id,
+        team_lead_id: selectedAddTeam?.team_lead_id,
+        employee_id: emp.id,
+        employee_name: emp.name,
+        responsibility: `[CRITICAL DIRECT] ${addTeamForm.pmInstructions}`,
+        approval_status: 'BYPASSED_CRITICAL',
+        allocated_by: currentUser.name,
+        allocated_at: new Date().toISOString(),
+      });
+      StorageService.sendNotification({ recipient_id: emp.id, type: 'CRITICAL_DIRECT_ASSIGNMENT_TO_EMPLOYEE', title: `🔴 CRITICAL DIRECT: ${lead.lead_number}`, message: `PM ${currentUser.name} assigned feasibility work on "${lead.title}" (${lead.customer_name}) directly to you. Reason: ${addTeamForm.criticalReason}. Start immediately.`, entity_type: 'FEASIBILITY', entity_id: newAssignment.id });
     }
+    if (selectedAddTeam?.team_lead_id) {
+      StorageService.sendNotification({ recipient_id: selectedAddTeam.team_lead_id, type: 'CRITICAL_ASSIGNMENT_TEAM_LEAD_NOTICE', title: `🔴 Critical Notice: ${lead.lead_number} → ${selectedAddTeam.name}`, message: `PM ${currentUser.name} directly assigned feasibility for "${lead.title}" to ${emp?.name}. No approval required from you.`, entity_type: 'FEASIBILITY', entity_id: newAssignment.id });
+    }
+    StorageService.logAudit({ user_id: currentUser.id, user_name: currentUser.name, user_role: currentUser.role_name, entity_type: 'FEASIBILITY', entity_id: newAssignment.id, action: 'CRITICAL_DIRECT_ASSIGNMENT_CREATED', description: `[CRITICAL DIRECT] PM ${currentUser.name} assigned ${lead.lead_number} (${selectedAddTeam?.name}) directly to ${allUsers.find(u => u.id === addTeamForm.employeeId)?.name}. Reason: "${addTeamForm.criticalReason}".` });
 
-    // Update lead status
     if (lead.status === 'ACCEPTED_FOR_FEASIBILITY') {
       StorageService.updateLead(lead.id, { status: 'FEASIBILITY_IN_PROGRESS' }, currentUser.id, currentUser.name);
     }
 
     setShowAddTeamModal(false);
-    setAddTeamForm({ teamId: '', assignmentType: 'NORMAL', priority: 'High', dueDate: '', pmInstructions: '', expectedOutput: '', criticalReason: '', employeeId: '', bypassConfirmed: false });
+    setAddTeamForm({ teamIds: [], assignmentType: 'NORMAL', priority: 'High', dueDate: '', pmInstructions: '', expectedOutput: '', criticalReason: '', employeeId: '', bypassConfirmed: false });
     loadData();
   };
 
@@ -402,6 +440,7 @@ export default function LeadDetailPage() {
     { key: 'timeline', label: 'Activity Timeline' },
     { key: 'review', label: 'PM Review' },
   ];
+  const leadStage = workflowStatusPresentation(lead.status);
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto pb-16 text-xs">
@@ -427,7 +466,7 @@ export default function LeadDetailPage() {
                 View only
               </span>
             )}
-            <span className={`px-3 py-1 rounded text-xs font-bold border ${statusColor(lead.status)}`}>{LEAD_STATUS_LABELS[lead.status] || lead.status}</span>
+            <span className={`px-3 py-1 rounded text-xs font-bold border ${leadStage.badgeClass}${workflowFeedback ? ' ring-2 ring-cyan-400' : ''}`}>{leadStage.label}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400">
@@ -446,9 +485,7 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      {actionError && (
-        <div className="rounded-xl border border-rose-800 bg-rose-950/40 px-4 py-3 text-xs text-rose-200">{actionError}</div>
-      )}
+      <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-cyan-800/70 bg-cyan-950/20 p-4 lg:col-span-2">
@@ -468,8 +505,8 @@ export default function LeadDetailPage() {
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
           <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Created By</div>
           <div className="mt-1 font-semibold text-slate-100">{lead.created_by}</div>
-          <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Stage</div>
-          <div className="mt-1 font-semibold text-slate-100">{LEAD_STATUS_LABELS[lead.status] || lead.status}</div>
+          <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Current stage</div>
+          <div className={`mt-1 inline-flex rounded-full border px-2.5 py-1 font-bold ${leadStage.badgeClass}`}>{leadStage.label}</div>
           {canForward && (
             <button
               type="button"
@@ -533,7 +570,7 @@ export default function LeadDetailPage() {
         </div>
       )}
 
-      <LeadCyclePanels lead={lead} currentUser={currentUser} teams={allTeams} users={allUsers} onUpdated={loadData} />
+      <LeadCyclePanels lead={lead} currentUser={currentUser} teams={allTeams} users={allUsers} onUpdated={handleWorkflowUpdated} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-800 overflow-x-auto pb-0.5">
@@ -863,7 +900,7 @@ export default function LeadDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-slate-300">
                 <div>Status: <span className="font-bold text-slate-100">{lead.costing.status}</span></div>
                 <div>Total: <span className="font-bold text-emerald-400">{formatInrCompact(lead.costing.total_estimated_cost)}</span></div>
-                <div>Stage: <span className="font-medium text-slate-200">{LEAD_STATUS_LABELS[lead.status] || lead.status}</span></div>
+                <div>Stage: <span className={`rounded border px-2 py-0.5 font-bold ${workflowStatusPresentation(lead.status).badgeClass}`}>{workflowStatusPresentation(lead.status).label}</span></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
                 <div>BOM / components: <span className="text-slate-100">{lead.costing.bom_components || '—'}</span></div>
@@ -1131,16 +1168,44 @@ export default function LeadDetailPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-slate-300 font-semibold mb-1">Select Team *</label>
-                  <select id="demo-team-select" value={addTeamForm.teamId} onChange={e => setAddTeamForm(f => ({ ...f, teamId: e.target.value, employeeId: '' }))} className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-slate-100">
-                    <option value="">Choose team…</option>
-                    {allTeams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                  {alreadyAssignedTeam && <p className="text-amber-400 text-[11px] mt-1">⚠ {selectedAddTeam?.name} is already assigned to this Lead.</p>}
+                  <label className="block text-slate-300 font-semibold mb-1">Select Team(s) *</label>
+                  <div id="demo-team-select" className="max-h-40 space-y-1 overflow-y-auto rounded border border-slate-800 bg-slate-950 p-2">
+                    {allTeams.map((t) => {
+                      const assigned = teamAssignments.some((a) => a.team_id === t.id && a.status !== 'CANCELLED');
+                      const checked = addTeamForm.teamIds.includes(t.id);
+                      return (
+                        <label key={t.id} className={`flex cursor-pointer items-center gap-2 rounded p-1.5 ${assigned ? 'opacity-50' : 'hover:bg-slate-900'}`}>
+                          <input
+                            type="checkbox"
+                            disabled={assigned}
+                            checked={checked}
+                            onChange={() =>
+                              setAddTeamForm((f) => ({
+                                ...f,
+                                employeeId: '',
+                                teamIds: checked ? f.teamIds.filter((id) => id !== t.id) : [...f.teamIds, t.id],
+                              }))
+                            }
+                            className="h-4 w-4 rounded accent-cyan-500"
+                          />
+                          <span className="text-slate-100">{t.name}</span>
+                          <span className="text-slate-500">· {t.team_lead_name || 'No TL'}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {alreadyAssignedSelected.length > 0 && <p className="text-amber-400 text-[11px] mt-1">⚠ One or more selected teams are already assigned.</p>}
+                  {addTeamForm.teamIds.length > 1 && addTeamForm.assignmentType === 'CRITICAL_DIRECT' && (
+                    <p className="text-amber-400 text-[11px] mt-1">Critical Direct requires a single team. Switch to Normal to assign multiple teams.</p>
+                  )}
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-medium mb-1">Designated Team Lead (Auto)</label>
-                  <input disabled value={selectedAddTeam?.team_lead_name || tlForSelectedTeam?.name || 'Not Assigned'} className="w-full p-2 bg-slate-950 border border-slate-800 rounded text-cyan-300 font-bold cursor-not-allowed" />
+                  <label className="block text-slate-400 font-medium mb-1">Designated Team Lead(s) (Auto)</label>
+                  <div className="min-h-[42px] w-full rounded border border-slate-800 bg-slate-950 p-2 text-cyan-300 font-bold">
+                    {selectedAddTeams.length
+                      ? selectedAddTeams.map((t) => `${t.name}: ${t.team_lead_name || allUsers.find((u) => u.id === t.team_lead_id)?.name || 'Not Assigned'}`).join(' · ')
+                      : 'Select teams to see Team Leads'}
+                  </div>
                 </div>
               </div>
 

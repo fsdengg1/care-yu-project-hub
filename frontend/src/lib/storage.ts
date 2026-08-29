@@ -493,9 +493,11 @@ export class StorageService {
     );
   }
 
-  /** Get all assignments where this TL is the team lead */
-  static getFeasibilityTeamAssignmentsForTeamLead(teamLeadId: string): FeasibilityTeamAssignment[] {
-    return this.getFeasibilityTeamAssignments().filter(fa => fa.team_lead_id === teamLeadId);
+  /** Get all assignments where this TL is the team lead, or that belong to their team */
+  static getFeasibilityTeamAssignmentsForTeamLead(teamLeadId: string, teamId?: string): FeasibilityTeamAssignment[] {
+    return this.getFeasibilityTeamAssignments().filter(
+      (fa) => fa.team_lead_id === teamLeadId || Boolean(teamId && fa.team_id === teamId)
+    );
   }
 
   /** Get all assignments for a team */

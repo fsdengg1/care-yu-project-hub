@@ -69,26 +69,171 @@ export const PIPELINE_STAGE_LABELS: Record<string, string> = {
 };
 
 export const LEAD_STATUS_LABELS: Record<string, string> = {
-  DRAFT: 'DRAFT',
-  SUBMITTED_TO_PM: 'PM REVIEW',
-  UNDER_PM_REVIEW: 'PM REVIEW',
-  RETURNED_TO_SALES: 'RETURNED TO SALES',
-  ADDITIONAL_INFORMATION_REQUIRED: 'RETURNED TO SALES',
-  RESUBMITTED_TO_PM: 'PM REVIEW',
-  ACCEPTED_FOR_FEASIBILITY: 'READY FOR ASSIGNMENT',
-  FEASIBILITY_IN_PROGRESS: 'FEASIBILITY',
-  FEASIBILITY_SUBMITTED: 'PM APPROVAL — FEASIBILITY',
-  FEASIBILITY_RETURNED: 'FEASIBILITY CORRECTION',
-  FEASIBILITY_REJECTED: 'FEASIBILITY REJECTED',
-  COSTING_IN_PROGRESS: 'PROCUREMENT',
-  COSTING_SUBMITTED: 'PM APPROVAL — PROCUREMENT',
-  COSTING_RETURNED: 'PROCUREMENT REVISION',
-  COSTING_REJECTED: 'PROCUREMENT REJECTED',
-  QUOTATION: 'QUOTATION',
-  NEGOTIATION: 'NEGOTIATION',
-  ORDER_CONVERTED: 'ORDER CONVERTED',
-  WON: 'ORDER CONVERTED',
-  LOST: 'LOST',
-  ON_HOLD: 'ON HOLD',
-  CANCELLED: 'CANCELLED',
+  DRAFT: 'Draft',
+  SUBMITTED_TO_PM: 'Submitted',
+  UNDER_PM_REVIEW: 'Submitted',
+  RETURNED_TO_SALES: 'Returned to Sales',
+  ADDITIONAL_INFORMATION_REQUIRED: 'Returned to Sales',
+  RESUBMITTED_TO_PM: 'Submitted',
+  ACCEPTED_FOR_FEASIBILITY: 'Approved',
+  FEASIBILITY_IN_PROGRESS: 'Feasibility',
+  FEASIBILITY_SUBMITTED: 'Submitted',
+  FEASIBILITY_RETURNED: 'Feasibility Correction',
+  FEASIBILITY_REJECTED: 'Rejected',
+  COSTING_IN_PROGRESS: 'Procurement',
+  COSTING_SUBMITTED: 'Submitted',
+  COSTING_RETURNED: 'Procurement Revision',
+  COSTING_REJECTED: 'Rejected',
+  QUOTATION: 'Quotation',
+  NEGOTIATION: 'Negotiation',
+  ORDER_CONVERTED: 'Order Converted',
+  WON: 'Order Converted',
+  LOST: 'Lost',
+  ON_HOLD: 'On Hold',
+  CANCELLED: 'Rejected',
+};
+
+export type WorkflowActionKind = 'submit' | 'approve' | 'reject';
+
+export const WORKFLOW_ACTION_SUCCESS: Record<WorkflowActionKind, string> = {
+  submit: 'Submitted Successfully',
+  approve: 'Approved Successfully',
+  reject: 'Rejected Successfully',
+};
+
+export const WORKFLOW_STAGE_FOR_ACTION: Record<WorkflowActionKind, string> = {
+  submit: 'Submitted',
+  approve: 'Approved',
+  reject: 'Rejected',
+};
+
+const SUBMITTED_STATUSES = new Set([
+  'SUBMITTED_TO_PM',
+  'UNDER_PM_REVIEW',
+  'RESUBMITTED_TO_PM',
+  'FEASIBILITY_SUBMITTED',
+  'COSTING_SUBMITTED',
+]);
+const APPROVED_STATUSES = new Set(['ACCEPTED_FOR_FEASIBILITY']);
+const REJECTED_STATUSES = new Set(['CANCELLED', 'FEASIBILITY_REJECTED', 'COSTING_REJECTED']);
+
+export type WorkflowStatusTone = 'draft' | 'submitted' | 'approved' | 'rejected' | 'returned' | 'progress';
+
+export function workflowStatusPresentation(status: string): {
+  label: string;
+  tone: WorkflowStatusTone;
+  badgeClass: string;
+  bannerClass: string;
+} {
+  const label = LEAD_STATUS_LABELS[status] || status.replace(/_/g, ' ');
+  if (SUBMITTED_STATUSES.has(status) || status === 'SUBMITTED') {
+    return {
+      label: 'Submitted',
+      tone: 'submitted',
+      badgeClass: 'border-cyan-600 bg-cyan-950 text-cyan-200',
+      bannerClass: 'border-cyan-700 bg-cyan-950/50 text-cyan-100',
+    };
+  }
+  if (APPROVED_STATUSES.has(status) || status === 'APPROVED') {
+    return {
+      label: 'Approved',
+      tone: 'approved',
+      badgeClass: 'border-emerald-600 bg-emerald-950 text-emerald-200',
+      bannerClass: 'border-emerald-700 bg-emerald-950/50 text-emerald-100',
+    };
+  }
+  if (REJECTED_STATUSES.has(status) || status === 'REJECTED' || status === 'LOST') {
+    return {
+      label: status === 'LOST' ? 'Lost' : 'Rejected',
+      tone: 'rejected',
+      badgeClass: 'border-rose-600 bg-rose-950 text-rose-200',
+      bannerClass: 'border-rose-700 bg-rose-950/50 text-rose-100',
+    };
+  }
+  if (status === 'DRAFT') {
+    return {
+      label,
+      tone: 'draft',
+      badgeClass: 'border-slate-600 bg-slate-800 text-slate-300',
+      bannerClass: 'border-slate-700 bg-slate-900 text-slate-100',
+    };
+  }
+  if (status === 'RETURNED_TO_SALES' || status === 'ADDITIONAL_INFORMATION_REQUIRED' || status === 'FEASIBILITY_RETURNED' || status === 'COSTING_RETURNED') {
+    return {
+      label,
+      tone: 'returned',
+      badgeClass: 'border-amber-600 bg-amber-950 text-amber-200',
+      bannerClass: 'border-amber-700 bg-amber-950/50 text-amber-100',
+    };
+  }
+  return {
+    label,
+    tone: 'progress',
+    badgeClass: 'border-indigo-700 bg-indigo-950 text-indigo-200',
+    bannerClass: 'border-indigo-800 bg-indigo-950/40 text-indigo-100',
+  };
+}
+
+export function workflowActionFromQuery(value: string | null): WorkflowActionKind | null {
+  if (value === 'submitted' || value === 'submit') return 'submit';
+  if (value === 'approved' || value === 'approve') return 'approve';
+  if (value === 'rejected' || value === 'reject') return 'reject';
+  return null;
+}
+
+export function formatDateTime(value?: string): string {
+  if (!value) return '—';
+  const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
+  if (Number.isNaN(+date)) return value;
+  return date.toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+export const TASK_STATUS_LABELS: Record<string, string> = {
+  TODO: 'Not Started',
+  IN_PROGRESS: 'Work in Progress',
+  BLOCKED: 'Issue / Doubt',
+  DONE: 'Completed',
+  PENDING_TL_REVIEW: 'Pending Team Lead Review',
+  CORRECTION_REQUIRED: 'Correction Required',
+};
+
+export const PROJECT_STEPS = [
+  { step: 1, stage: 'Project Assignment' },
+  { step: 2, stage: 'Team Lead Review' },
+  { step: 3, stage: 'Task Breakdown' },
+  { step: 4, stage: 'Team Member Execution' },
+  { step: 5, stage: 'Daily Work Update' },
+  { step: 6, stage: 'Team Lead Review & Monitor' },
+  { step: 7, stage: 'Escalation' },
+  { step: 8, stage: 'Resolution & Completion' },
+];
+
+export const PROJECT_ACTION_SUCCESS: Record<string, string> = {
+  assigned: 'Project Assigned Successfully',
+  accepted: 'Project Accepted Successfully',
+  returned: 'Project Returned Successfully',
+  taskAssigned: 'Task Assigned Successfully',
+  dailyUpdate: 'Daily Update Submitted Successfully',
+  escalated: 'Issue Escalated Successfully',
+  onTrack: 'Project marked On Track',
+  issueIdentified: 'Issue / Blocker Identified',
+  taskCompleted: 'Task Completed Successfully',
+  tlReview: 'Team Lead Review Completed Successfully',
+  approved: 'Project Approved Successfully',
+  completed: 'Project Completed Successfully',
+  resolved: 'Issue Resolved Successfully',
+};
+
+export const ESCALATION_LEVEL_LABELS: Record<string, string> = {
+  TEAM_LEAD: 'Level 1 — Team Lead',
+  PROJECT_MANAGER: 'Level 2 — Project Manager',
+  BUSINESS_HEAD: 'Level 3 — Business Head',
+  ENG_DIRECTOR: 'Level 3 — Engineering Director',
+  CEO: 'Level 4 — CEO',
 };

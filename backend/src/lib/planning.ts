@@ -578,6 +578,37 @@ export function requireViewableProject(user: User, projectId: string) {
   return { project };
 }
 
+export function updateProjectTimeline(user: User, project: Project, body: { start_date?: string; target_completion?: string }) {
+  const start = String(body.start_date || '').trim().slice(0, 10);
+  const due = String(body.target_completion || '').trim().slice(0, 10);
+  if (!start && !due) return { error: 'Provide a project start date or target completion date.' } as const;
+  const projects = store.getProjects();
+  const index = projects.findIndex((item) => item.id === project.id);
+  if (index === -1) return { error: 'not_found' as const };
+  const previous = projects[index];
+  const now = new Date().toISOString();
+  const nextStart = start || previous.start_date;
+  const nextDue = due || previous.target_completion;
+  if (nextStart && nextDue && nextDue < nextStart) {
+    return { error: 'Target completion cannot be earlier than the project start date.' } as const;
+  }
+  projects[index] = {
+    ...previous,
+    start_date: nextStart,
+    target_completion: nextDue,
+    updated_at: now,
+  };
+  store.saveProjects(projects);
+  audit(
+    user,
+    'GANTT_TIMELINE_UPDATED',
+    `${user.name} updated the Gantt timeline for ${project.code}.`,
+    { id: project.id, name: project.code, type: 'PROJECT' },
+    { old_value: `${previous.start_date || '—'} → ${previous.target_completion || '—'}`, new_value: `${nextStart || '—'} → ${nextDue || '—'}` }
+  );
+  return loadedPlan(user, project.id);
+}
+
 export function deletePhase(user: User, project: Project, phaseId: string) {
   const phases = store.getProjectPhases();
   const index = phases.findIndex((phase) => phase.id === phaseId && phase.project_id === project.id);

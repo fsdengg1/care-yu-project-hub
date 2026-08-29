@@ -9,7 +9,7 @@ import { UsersApi } from '@/lib/usersApi';
 import { ProjectsApi } from '@/lib/projectsApi';
 import { StorageService } from '@/lib/storage';
 import { MyWorkItem, Project, User, WorkAssignment } from '@/lib/types';
-import { formatLongDate, LEAD_STATUS_LABELS, PIPELINE_STAGE_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
+import { formatLongDate, LEAD_STATUS_LABELS, PIPELINE_STAGE_LABELS, TASK_STATUS_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
 import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
 import {
   CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
@@ -136,7 +136,7 @@ export default function MyAssignedWorkPage() {
 
   const updateTask = async (
     assignment: WorkAssignment,
-    body: { status?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'; review_action?: 'approve' | 'return' | 'resubmit'; review_comments?: string }
+    body: { status?: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED'; blocked_reason?: string; review_action?: 'approve' | 'return' | 'resubmit'; review_comments?: string }
   ) => {
     const taskId = assignment.task_id || (assignment.source === 'TASK' ? assignment.id : '');
     if (!taskId) return;
@@ -279,7 +279,7 @@ export default function MyAssignedWorkPage() {
                     </td>
                     <td className="p-2">{item.priority}</td>
                     <td className="p-2">
-                      {WORK_STATUS_LABELS[item.current_status] || item.current_status}
+                      {WORK_STATUS_LABELS[item.current_status] || TASK_STATUS_LABELS[item.current_status] || item.current_status}
                       {item.blocked && item.blocker && (
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-rose-300">
                           <AlertTriangle className="h-3 w-3" /> {item.blocker}
@@ -295,17 +295,30 @@ export default function MyAssignedWorkPage() {
                             onClick={() => void updateTask(item, { status: 'IN_PROGRESS' })}
                             className="rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
                           >
-                            Start
+                            Work in Progress
                           </button>
                         )}
                         {taskId && isAssignee && item.review_status !== 'PENDING_TL_REVIEW' && item.current_status !== 'DONE' && item.current_status !== 'COMPLETED' && (
-                          <button
-                            disabled={busy}
-                            onClick={() => void updateTask(item, { status: 'DONE', review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined })}
-                            className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
-                          >
-                            {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Complete Task'}
-                          </button>
+                          <>
+                            <button
+                              disabled={busy}
+                              onClick={() => {
+                                const reason = window.prompt('Describe the issue or doubt') || '';
+                                if (!reason.trim()) return;
+                                void updateTask(item, { status: 'BLOCKED', blocked_reason: reason.trim() });
+                              }}
+                              className="rounded-lg border border-amber-800 px-2.5 py-1 font-bold text-amber-100 hover:bg-amber-950 disabled:opacity-60"
+                            >
+                              Issue / Doubt
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => void updateTask(item, { status: 'DONE', review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined })}
+                              className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                            >
+                              {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Completed'}
+                            </button>
+                          </>
                         )}
                         {taskId && isReviewer && (
                           <>

@@ -73,4 +73,11 @@ export const PlanningApi = {
       method: 'DELETE',
     });
   },
+
+  async updateTimeline(projectId: string, body: { start_date?: string; target_completion?: string }) {
+    return call<PlanningPlanPayload>(`/api/planning/${projectId}/timeline`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
 };

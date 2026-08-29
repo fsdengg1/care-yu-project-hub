@@ -11,6 +11,7 @@ import { Building2, Plus, Inbox, ArrowRight } from 'lucide-react';
 import { DailyUpdateSummary } from '@/lib/types';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 
 export default function SalesDashboard({ user }: { user: User }) {
   const isBH = user.role_code === 'BUSINESS_HEAD';
@@ -52,6 +53,7 @@ export default function SalesDashboard({ user }: { user: User }) {
 
       <PendingActionsCard />
       <LeadWorkflowTimeline />
+      <ProjectGanttPanel user={user} />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">

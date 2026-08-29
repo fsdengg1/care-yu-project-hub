@@ -2,18 +2,16 @@
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
-import { LeadApi } from '@/lib/leadApi';
+import { ProjectsApi } from '@/lib/projectsApi';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User } from '@/lib/types';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
-import SubmitLeadModal from '@/components/leads/SubmitLeadModal';
+import CreateProjectModal from '@/components/projects/CreateProjectModal';
 import { validateLeadForm, numericAmount } from '@/lib/leadValidation';
-import { workflowStatusPresentation } from '@/lib/format';
-import { AlertCircle, ArrowLeft, Building2, CheckCircle2, Plus, Save, Send } from 'lucide-react';
+import { AlertCircle, ArrowLeft, FolderKanban, CheckCircle2, Plus, Save } from 'lucide-react';
 
 const SOLUTION_OPTIONS = [
   'Vision Inspection System',
@@ -31,29 +29,12 @@ function fieldClass(invalid?: boolean) {
   }`;
 }
 
-function CreateLeadForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const { user: currentUser } = useAuth();
-  const editId = searchParams.get('id');
-  const [leadId, setLeadId] = useState<string | null>(editId);
-  const [leadNumber, setLeadNumber] = useState('');
-  const [leadStatus, setLeadStatus] = useState('DRAFT');
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [missing, setMissing] = useState<string[]>([]);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
-  const [confirmSubmit, setConfirmSubmit] = useState(false);
-  const [customFields, setCustomFields] = useState<LeadCustomField[]>([]);
-  const persistLock = useRef<Promise<string | null> | null>(null);
-  const leadIdRef = useRef<string | null>(editId);
-
-  const [formData, setFormData] = useState({
+function emptyForm(vertical: BusinessVertical = 'Business Head') {
+  return {
     title: '',
     customer_name: '',
     customer_type: 'Automotive' as CustomerType,
-    business_vertical: 'Business Head' as BusinessVertical,
+    business_vertical: vertical,
     expected_decision_date: '',
     priority: 'Medium' as PriorityLevel,
     customer_contact: '',
@@ -98,182 +79,173 @@ function CreateLeadForm() {
     commercial_remarks: '',
     additional_notes: '',
     required_documents: '',
-  });
+  };
+}
 
-  const isEdit = Boolean(leadId);
-  const canEdit = ['DRAFT', 'RETURNED_TO_SALES', 'ADDITIONAL_INFORMATION_REQUIRED'].includes(leadStatus);
+function CreateProjectForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { user: currentUser } = useAuth();
+  const editId = searchParams.get('id');
+  const [projectId, setProjectId] = useState<string | null>(editId);
+  const [projectCode, setProjectCode] = useState('PRJ-AUTO');
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [confirmCreate, setConfirmCreate] = useState(false);
+  const [customFields, setCustomFields] = useState<LeadCustomField[]>([]);
+  const persistLock = useRef<Promise<string | null> | null>(null);
+  const projectIdRef = useRef<string | null>(editId);
+  const [formData, setFormData] = useState(() => emptyForm());
 
   useEffect(() => {
     if (currentUser && !canCreateLead(currentUser)) {
-      router.replace('/pre-sales/leads');
+      router.replace('/projects/active');
       return;
     }
-    setLeadNumber(StorageService.generateLeadNumber());
     if (currentUser?.role_code === 'ENG_DIRECTOR') {
       setFormData((prev) => ({ ...prev, business_vertical: 'Engineering Director' }));
     }
     if (editId) {
       void (async () => {
-        const payload = await LeadApi.get(editId);
-        const lead = payload?.lead;
-        if (!lead) return;
-        leadIdRef.current = lead.id;
-        setLeadId(lead.id);
-        setLeadNumber(lead.lead_number);
-        setLeadStatus(lead.status);
-        setCustomFields(lead.custom_fields || []);
+        const payload = await ProjectsApi.get(editId);
+        const project = payload?.project;
+        if (!project || project.source !== 'DIRECT_CREATE') return;
+        const intake = (project.intake_form || {}) as Record<string, string>;
+        projectIdRef.current = project.id;
+        setProjectId(project.id);
+        setProjectCode(project.code);
+        setCustomFields(Array.isArray((project.intake_form as { custom_fields?: LeadCustomField[] })?.custom_fields)
+          ? ((project.intake_form as { custom_fields: LeadCustomField[] }).custom_fields)
+          : []);
         setFormData((prev) => ({
           ...prev,
-          title: lead.title || '',
-          customer_name: lead.customer_name || '',
-          customer_type: lead.customer_type,
-          business_vertical: lead.business_vertical,
-          expected_decision_date: lead.expected_decision_date || '',
-          priority: lead.priority,
-          customer_contact: lead.customer_contact || '',
-          customer_designation: lead.customer_designation || '',
-          customer_email: lead.customer_email || '',
-          customer_phone: lead.customer_phone || '',
-          customer_location: lead.customer_location || '',
-          plant_location: lead.plant_location || '',
-          project_description: lead.project_description || '',
-          requirement_summary: lead.requirement_summary || '',
-          detailed_requirement: lead.detailed_requirement || '',
-          application: lead.application || '',
-          industry_process: lead.industry_process || '',
-          current_process: lead.current_process || '',
-          expected_automation: lead.expected_automation || '',
-          required_solution: lead.required_solution || lead.expected_automation || '',
-          customer_objective: lead.customer_objective || '',
-          customer_challenge: lead.customer_challenge || '',
-          competitor_information: lead.competitor_information || '',
-          expected_project_timeline: lead.expected_project_timeline || '',
-          customer_target_date: lead.customer_target_date || '',
-          production_quantity: lead.production_quantity || '',
-          production_rate: lead.production_rate || '',
-          cycle_time: lead.cycle_time || '',
-          shift_pattern: lead.shift_pattern || '',
-          operating_hours: lead.operating_hours || '',
-          existing_equipment: lead.existing_equipment || '',
-          existing_automation: lead.existing_automation || '',
-          integration_requirements: lead.integration_requirements || '',
-          technical_requirements: lead.technical_requirements || '',
-          machine_dimensions: lead.machine_dimensions || '',
-          payload: lead.payload || '',
-          accuracy_requirement: lead.accuracy_requirement || '',
-          environment_conditions: lead.environment_conditions || '',
-          technical_specifications: lead.technical_specifications || '',
-          technical_assumptions: lead.technical_assumptions || '',
-          customer_dependencies: lead.customer_dependencies || '',
-          customer_budget: lead.customer_budget || '',
-          estimated_opportunity_value: lead.estimated_opportunity_value || '',
-          currency: lead.currency || 'INR',
-          expected_po_date: lead.expected_po_date || '',
-          commercial_remarks: lead.commercial_remarks || '',
-          additional_notes: lead.additional_notes || '',
-          required_documents: lead.required_documents || '',
+          ...emptyForm(currentUser?.role_code === 'ENG_DIRECTOR' ? 'Engineering Director' : 'Business Head'),
+          title: intake.title || project.name || '',
+          customer_name: intake.customer_name || project.customer_name || '',
+          customer_type: (intake.customer_type as CustomerType) || prev.customer_type,
+          business_vertical: (intake.business_vertical as BusinessVertical) || prev.business_vertical,
+          expected_decision_date: intake.expected_decision_date || '',
+          priority: (intake.priority as PriorityLevel) || prev.priority,
+          customer_contact: intake.customer_contact || '',
+          customer_designation: intake.customer_designation || '',
+          customer_email: intake.customer_email || '',
+          customer_phone: intake.customer_phone || '',
+          customer_location: intake.customer_location || '',
+          plant_location: intake.plant_location || '',
+          project_description: intake.project_description || '',
+          requirement_summary: intake.requirement_summary || '',
+          detailed_requirement: intake.detailed_requirement || intake.project_description || '',
+          application: intake.application || '',
+          industry_process: intake.industry_process || '',
+          current_process: intake.current_process || '',
+          expected_automation: intake.expected_automation || '',
+          required_solution: intake.required_solution || '',
+          customer_objective: intake.customer_objective || '',
+          customer_challenge: intake.customer_challenge || '',
+          competitor_information: intake.competitor_information || '',
+          expected_project_timeline: intake.expected_project_timeline || '',
+          customer_target_date: intake.customer_target_date || project.target_completion || '',
+          production_quantity: intake.production_quantity || '',
+          production_rate: intake.production_rate || '',
+          cycle_time: intake.cycle_time || '',
+          shift_pattern: intake.shift_pattern || '',
+          operating_hours: intake.operating_hours || '',
+          existing_equipment: intake.existing_equipment || '',
+          existing_automation: intake.existing_automation || '',
+          integration_requirements: intake.integration_requirements || '',
+          technical_requirements: intake.technical_requirements || '',
+          machine_dimensions: intake.machine_dimensions || '',
+          payload: intake.payload || '',
+          accuracy_requirement: intake.accuracy_requirement || '',
+          environment_conditions: intake.environment_conditions || '',
+          technical_specifications: intake.technical_specifications || '',
+          technical_assumptions: intake.technical_assumptions || '',
+          customer_dependencies: intake.customer_dependencies || '',
+          customer_budget: intake.customer_budget || '',
+          estimated_opportunity_value: intake.estimated_opportunity_value || '',
+          currency: intake.currency || 'INR',
+          expected_po_date: intake.expected_po_date || '',
+          commercial_remarks: intake.commercial_remarks || '',
+          additional_notes: intake.additional_notes || '',
+          required_documents: intake.required_documents || '',
         }));
       })();
     }
   }, [currentUser, editId, router]);
 
-  const payloadFromForm = (user: User, status: 'DRAFT' | 'SUBMITTED_TO_PM') => {
-    return {
-      title: formData.title,
-      customer_name: formData.customer_name,
-      customer_type: formData.customer_type,
-      business_vertical: formData.business_vertical,
-      created_by: user.name,
-      created_by_id: user.id,
-      created_by_role: user.role_name,
-      sales_owner: user.name,
-      sales_owner_id: user.id,
-      lead_date: new Date().toISOString(),
-      expected_decision_date: formData.expected_decision_date,
-      priority: formData.priority,
-      status,
-      customer_contact: formData.customer_contact,
-      customer_designation: formData.customer_designation,
-      customer_email: formData.customer_email,
-      customer_phone: formData.customer_phone,
-      customer_location: formData.customer_location,
-      plant_location: formData.plant_location,
-      project_description: formData.project_description,
-      requirement_summary: formData.requirement_summary,
-      detailed_requirement: formData.detailed_requirement,
-      application: formData.application,
-      industry_process: formData.industry_process,
-      current_process: formData.current_process,
-      expected_automation: formData.expected_automation || formData.required_solution,
-      required_solution: formData.required_solution,
-      customer_objective: formData.customer_objective,
-      customer_challenge: formData.customer_challenge,
-      competitor_information: formData.competitor_information,
-      expected_project_timeline: formData.expected_project_timeline,
-      customer_target_date: formData.customer_target_date,
-      production_quantity: formData.production_quantity,
-      production_rate: formData.production_rate,
-      cycle_time: formData.cycle_time,
-      shift_pattern: formData.shift_pattern,
-      operating_hours: formData.operating_hours,
-      existing_equipment: formData.existing_equipment,
-      existing_automation: formData.existing_automation,
-      integration_requirements: formData.integration_requirements,
-      technical_requirements: formData.technical_requirements,
-      machine_dimensions: formData.machine_dimensions,
-      payload: formData.payload,
-      accuracy_requirement: formData.accuracy_requirement,
-      environment_conditions: formData.environment_conditions,
-      technical_specifications: formData.technical_specifications,
-      technical_assumptions: formData.technical_assumptions,
-      customer_dependencies: formData.customer_dependencies,
-      customer_budget: formData.customer_budget,
-      estimated_opportunity_value: formData.estimated_opportunity_value,
-      expected_value: numericAmount(formData.estimated_opportunity_value) ?? 0,
-      pipeline_stage: status === 'SUBMITTED_TO_PM' ? ('PM_REVIEW' as const) : ('PROJECT_INPUT' as const),
-      currency: formData.currency,
-      expected_po_date: formData.expected_po_date,
-      commercial_remarks: formData.commercial_remarks,
-      additional_notes: formData.additional_notes,
-      required_documents: formData.required_documents,
-      custom_fields: customFields.filter((field) => field.name.trim() || field.value.trim()),
-    };
-  };
+  const payloadFromForm = (user: User) => ({
+    id: projectIdRef.current || undefined,
+    title: formData.title,
+    customer_name: formData.customer_name,
+    customer_type: formData.customer_type,
+    business_vertical: formData.business_vertical,
+    created_by: user.name,
+    created_by_id: user.id,
+    expected_decision_date: formData.expected_decision_date,
+    priority: formData.priority,
+    customer_contact: formData.customer_contact,
+    customer_designation: formData.customer_designation,
+    customer_email: formData.customer_email,
+    customer_phone: formData.customer_phone,
+    customer_location: formData.customer_location,
+    plant_location: formData.plant_location,
+    project_description: formData.project_description,
+    requirement_summary: formData.requirement_summary,
+    detailed_requirement: formData.detailed_requirement,
+    application: formData.application,
+    industry_process: formData.industry_process,
+    current_process: formData.current_process,
+    expected_automation: formData.expected_automation || formData.required_solution,
+    required_solution: formData.required_solution,
+    customer_objective: formData.customer_objective,
+    customer_challenge: formData.customer_challenge,
+    competitor_information: formData.competitor_information,
+    expected_project_timeline: formData.expected_project_timeline,
+    customer_target_date: formData.customer_target_date,
+    production_quantity: formData.production_quantity,
+    production_rate: formData.production_rate,
+    cycle_time: formData.cycle_time,
+    shift_pattern: formData.shift_pattern,
+    operating_hours: formData.operating_hours,
+    existing_equipment: formData.existing_equipment,
+    existing_automation: formData.existing_automation,
+    integration_requirements: formData.integration_requirements,
+    technical_requirements: formData.technical_requirements,
+    machine_dimensions: formData.machine_dimensions,
+    payload: formData.payload,
+    accuracy_requirement: formData.accuracy_requirement,
+    environment_conditions: formData.environment_conditions,
+    technical_specifications: formData.technical_specifications,
+    technical_assumptions: formData.technical_assumptions,
+    customer_dependencies: formData.customer_dependencies,
+    customer_budget: formData.customer_budget,
+    estimated_opportunity_value: formData.estimated_opportunity_value,
+    expected_value: numericAmount(formData.estimated_opportunity_value) ?? 0,
+    currency: formData.currency,
+    expected_po_date: formData.expected_po_date,
+    commercial_remarks: formData.commercial_remarks,
+    additional_notes: formData.additional_notes,
+    required_documents: formData.required_documents,
+    custom_fields: customFields.filter((field) => field.name.trim() || field.value.trim()),
+  });
 
-  const persistDraft = async (user: User) => {
+  const persistDraft = async (user: User, options?: { stayOnForm?: boolean }) => {
     if (persistLock.current) return persistLock.current;
     persistLock.current = (async () => {
-      const payload = payloadFromForm(user, 'DRAFT');
-      const existingId = leadIdRef.current;
-      if (existingId) {
-        const updated = await LeadApi.update(existingId, payload);
-        if (!updated.ok) {
-          const nextErrors: Record<string, string> = {};
-          for (const item of updated.errors || []) nextErrors[item.field] = item.message;
-          if (Object.keys(nextErrors).length) {
-            setFieldErrors(nextErrors);
-            setMissing(Object.keys(nextErrors));
-          }
-          throw new Error(updated.message || 'Unable to save the draft.');
-        }
-        return updated.payload.lead.id || existingId;
+      const created = await ProjectsApi.create(payloadFromForm(user));
+      if (!created.ok || !created.project) {
+        throw new Error(created.ok ? 'Unable to save the project.' : created.message || 'Unable to save the project.');
       }
-      const created = await LeadApi.create(payload);
-      if (!created.ok || !created.payload?.lead) {
-        const nextErrors: Record<string, string> = {};
-        for (const item of created.ok ? [] : created.errors || []) nextErrors[item.field] = item.message;
-        if (Object.keys(nextErrors).length) {
-          setFieldErrors(nextErrors);
-          setMissing(Object.keys(nextErrors));
-        }
-        throw new Error((created.ok ? undefined : created.message) || 'Unable to save the draft.');
+      const id = created.project.id;
+      projectIdRef.current = id;
+      setProjectId(id);
+      setProjectCode(created.project.code);
+      if (options?.stayOnForm !== false) {
+        router.replace(`/projects/create?id=${id}`);
       }
-      const id = created.payload.lead.id;
-      leadIdRef.current = id;
-      setLeadId(id);
-      setLeadNumber(created.payload.lead.lead_number);
-      setLeadStatus(created.payload.lead.status);
-      router.replace(`/pre-sales/leads/create?id=${id}`);
       return id;
     })();
     try {
@@ -283,7 +255,7 @@ function CreateLeadForm() {
     }
   };
 
-  const validateForSubmit = () => {
+  const validateForCreate = () => {
     const result = validateLeadForm(formData, { submit: true });
     setFieldErrors(result.errors);
     setMissing(Object.keys(result.errors));
@@ -308,16 +280,7 @@ function CreateLeadForm() {
         setValidationError('Unable to save the draft. Please try again.');
         return;
       }
-      StorageService.logAudit({
-        user_id: currentUser.id,
-        user_name: currentUser.name,
-        user_role: currentUser.role_name,
-        entity_type: 'LEAD',
-        entity_id: id,
-        action: 'LEAD_DRAFT_CREATED',
-        description: `Saved draft for Lead ${leadNumber} (${formData.title}).`,
-      });
-      setSuccessMessage('Lead saved as draft successfully.');
+      setSuccessMessage('Project saved as draft successfully.');
       setMissing([]);
       setFieldErrors({});
       window.setTimeout(() => setSuccessMessage(null), 4000);
@@ -328,50 +291,26 @@ function CreateLeadForm() {
     }
   };
 
-  const handleSubmit = async () => {
+  const handleCreate = async () => {
     if (!currentUser || !canCreateLead(currentUser)) {
       setValidationError('This action is not permitted for your role.');
       return;
     }
-    if (!validateForSubmit()) {
-      setConfirmSubmit(false);
-      return;
-    }
-    if (!canEdit) {
-      setValidationError('This lead has already been submitted to the Project Manager.');
-      setConfirmSubmit(false);
+    if (!validateForCreate()) {
+      setConfirmCreate(false);
       return;
     }
     setBusy(true);
     setValidationError(null);
     try {
-      const id = await persistDraft(currentUser);
-      if (!id) throw new Error('Unable to save the lead before submit.');
-      const submitted = await LeadApi.submit(id);
-      if (!submitted.ok) {
-        const nextErrors: Record<string, string> = {};
-        for (const item of submitted.errors || []) nextErrors[item.field] = item.message;
-        setFieldErrors(nextErrors);
-        setMissing(Object.keys(nextErrors));
-        setValidationError(submitted.message || 'Unable to submit this lead. The Project Manager assignment was not completed.');
-        return;
-      }
-      StorageService.logAudit({
-        user_id: currentUser.id,
-        user_name: currentUser.name,
-        user_role: currentUser.role_name,
-        entity_type: 'LEAD',
-        entity_id: id,
-        action: 'LEAD_SUBMITTED_TO_PM',
-        description: `Submitted Lead ${leadNumber} (${formData.title}) to PM for technical review.`,
-      });
-      setSuccessMessage('Submitted Successfully');
-      setLeadStatus(submitted.payload.lead.status);
-      setConfirmSubmit(false);
-      router.push(`/pre-sales/leads/${id}?action=submitted`);
+      const id = await persistDraft(currentUser, { stayOnForm: false });
+      if (!id) throw new Error('Unable to create the project.');
+      setSuccessMessage('Project created successfully.');
+      setConfirmCreate(false);
+      router.push(`/projects/active?created=${encodeURIComponent(id)}`);
     } catch (error) {
-      setValidationError(error instanceof Error ? error.message : 'Unable to submit the lead. Please try again.');
-      setConfirmSubmit(false);
+      setValidationError(error instanceof Error ? error.message : 'Unable to create the project. Please try again.');
+      setConfirmCreate(false);
     } finally {
       setBusy(false);
     }
@@ -385,7 +324,6 @@ function CreateLeadForm() {
   };
 
   if (!currentUser) return null;
-  const formStage = workflowStatusPresentation(leadStatus);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 pb-12">
@@ -400,18 +338,15 @@ function CreateLeadForm() {
           </button>
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
-              <Building2 className="h-4 w-4" /> {isEdit ? 'Edit Customer Lead' : 'Create New Customer Lead'}
+              <FolderKanban className="h-4 w-4" /> {projectId ? 'Edit Project' : 'Create New Project'}
             </div>
-            <h1 className="mt-0.5 text-xl font-bold text-slate-100">Pre-Sales Lead Form</h1>
+            <h1 className="mt-0.5 text-xl font-bold text-slate-100">Create Project Form</h1>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <span className={`rounded-full border px-3 py-1 text-xs font-bold ${formStage.badgeClass}`}>
-            Current stage: {formStage.label}
-          </span>
           <button
             type="button"
-            disabled={busy || !canEdit}
+            disabled={busy}
             onClick={() => void handleSaveDraft()}
             className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
           >
@@ -419,14 +354,13 @@ function CreateLeadForm() {
           </button>
           <button
             type="button"
-            disabled={busy || !canEdit}
+            disabled={busy}
             onClick={() => {
-              if (validateForSubmit()) setConfirmSubmit(true);
+              if (validateForCreate()) setConfirmCreate(true);
             }}
             className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white shadow-md transition-all hover:bg-cyan-500 disabled:opacity-50"
-            data-demo="submit-to-pm"
           >
-            <Send className="h-4 w-4" /> Submit to PM
+            <FolderKanban className="h-4 w-4" /> Create Project
           </button>
         </div>
       </div>
@@ -436,7 +370,7 @@ function CreateLeadForm() {
           <AlertCircle className="h-5 w-5 shrink-0 text-rose-400" />
           <div>
             {missing.length > 0 && (
-              <div className="font-bold">Please complete all required fields before submitting the lead.</div>
+              <div className="font-bold">Please complete all required fields before creating the project.</div>
             )}
             <div className={missing.length > 0 ? 'mt-0.5' : 'font-bold'}>{validationError}</div>
           </div>
@@ -450,12 +384,12 @@ function CreateLeadForm() {
       )}
 
       <form className="space-y-6 text-xs" onSubmit={(event) => event.preventDefault()}>
-        <fieldset disabled={!canEdit} className="space-y-6 disabled:opacity-90">
-        <FormSection title="Section A — Basic Lead Information" hint={`Auto ID: ${leadNumber}`}>
+        <fieldset className="space-y-6">
+        <FormSection title="Section A — Basic Lead Information" hint={`Auto ID: ${projectCode}`}>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
-              <label className="mb-1 block font-medium text-slate-400">Lead ID (Auto)</label>
-              <input type="text" disabled value={leadNumber} className="w-full cursor-not-allowed rounded border border-slate-800 bg-slate-950 p-2 font-mono font-bold text-cyan-400" />
+              <label className="mb-1 block font-medium text-slate-400">Project ID (Auto)</label>
+              <input type="text" disabled value={projectCode} className="w-full cursor-not-allowed rounded border border-slate-800 bg-slate-950 p-2 font-mono font-bold text-cyan-400" />
             </div>
             <div className="md:col-span-2">
               <label className="mb-1 block font-semibold text-slate-300">Lead Title *</label>
@@ -615,7 +549,7 @@ function CreateLeadForm() {
                 <Plus className="h-3.5 w-3.5" /> Add Additional Field
               </button>
             </div>
-            {customFields.length === 0 && <p className="text-slate-500">Add lead-specific fields such as machine type, production volume, or line details.</p>}
+            {customFields.length === 0 && <p className="text-slate-500">Add project-specific fields such as machine type, production volume, or line details.</p>}
           {customFields.map((field) => (
               <AdditionalFieldRow
                 key={field.id}
@@ -628,9 +562,9 @@ function CreateLeadForm() {
 
           <EntityDocumentUpload
             title="Documents"
-            entityType="ADDITIONAL_INPUT"
-            entityId={leadId || undefined}
-            canEdit={canEdit}
+            entityType="PROJECT"
+            entityId={projectId || undefined}
+            canEdit
             ensureEntity={async () => {
               if (!currentUser) return null;
               return persistDraft(currentUser);
@@ -740,15 +674,15 @@ function CreateLeadForm() {
         </fieldset>
       </form>
 
-      <SubmitLeadModal open={confirmSubmit} busy={busy} onCancel={() => setConfirmSubmit(false)} onConfirm={() => void handleSubmit()} />
+      <CreateProjectModal open={confirmCreate} busy={busy} onCancel={() => setConfirmCreate(false)} onConfirm={() => void handleCreate()} />
     </div>
   );
 }
 
-export default function CreateLeadPage() {
+export default function CreateProjectPage() {
   return (
-    <Suspense fallback={<div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-xs text-slate-400">Loading lead form…</div>}>
-      <CreateLeadForm />
+    <Suspense fallback={<div className="rounded-xl border border-slate-800 bg-slate-900 p-5 text-xs text-slate-400">Loading project form…</div>}>
+      <CreateProjectForm />
     </Suspense>
   );
 }

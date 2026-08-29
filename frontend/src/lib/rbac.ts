@@ -48,7 +48,7 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     href: '/projects/planning',
     iconName: 'GanttChartSquare',
     category: 'projects',
-    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'PROJECT_MANAGER', 'TEAM_LEAD', 'SYSTEM_ADMIN']
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'SALES', 'PROCUREMENT', 'SYSTEM_ADMIN']
   },
   {
     name: 'My Assigned Work',
@@ -147,19 +147,50 @@ export function canCreateLead(user: User | null | undefined): boolean {
 
 export function canAccessGanttPlanning(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (user.role_code === 'ENG_DIRECTOR') return false;
-  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'BUSINESS_HEAD', 'CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return [
+    'PROJECT_MANAGER',
+    'TEAM_LEAD',
+    'BUSINESS_HEAD',
+    'ENG_DIRECTOR',
+    'CEO',
+    'CTO',
+    'SYSTEM_ADMIN',
+    'EMPLOYEE',
+    'PROJECT_ENGINEER',
+    'EXECUTION',
+    'SALES',
+    'PROCUREMENT',
+  ].includes(user.role_code);
 }
 
 export function canOpenProjectGantt(
   user: User | null | undefined,
-  project?: { pm_id?: string; team_lead_id?: string } | null
+  project?: { pm_id?: string; team_lead_id?: string; assigned_member_id?: string; team_ids?: string[] } | null
 ): boolean {
   if (!canAccessGanttPlanning(user) || !user) return false;
-  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN', 'SALES', 'PROCUREMENT'].includes(user.role_code)) return true;
   if (user.role_code === 'PROJECT_MANAGER') return !project || project.pm_id === user.id;
-  if (user.role_code === 'TEAM_LEAD') return Boolean(project && project.team_lead_id === user.id);
+  if (user.role_code === 'TEAM_LEAD') {
+    if (!project) return true;
+    return project.team_lead_id === user.id || Boolean(user.team_id && (project.team_ids || []).includes(user.team_id));
+  }
+  if (['EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION'].includes(user.role_code)) {
+    if (!project) return true;
+    return (
+      project.assigned_member_id === user.id ||
+      Boolean(user.team_id && (project.team_ids || []).includes(user.team_id))
+    );
+  }
   return false;
+}
+
+export function canEditProjectGantt(
+  user: User | null | undefined,
+  project?: { pm_id?: string } | null
+): boolean {
+  if (!user) return false;
+  if (user.role_code === 'SYSTEM_ADMIN') return true;
+  return user.role_code === 'PROJECT_MANAGER' && Boolean(!project || project.pm_id === user.id);
 }
 
 export function canCreateAnnouncement(user: User | null | undefined): boolean {
@@ -185,6 +216,15 @@ export function canPerformPmOperations(user: User | null | undefined): boolean {
 export function canPrepareFeasibility(user: User | null | undefined): boolean {
   if (!user) return false;
   return ['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function userIsOnLeadTeam(user: User | null | undefined, lead: Lead | null | undefined): boolean {
+  if (!user || !lead) return false;
+  if (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id) return true;
+  return Boolean(
+    user.team_id &&
+      (user.team_id === lead.assigned_team_id || (lead.assigned_team_ids || []).includes(user.team_id))
+  );
 }
 
 export function canPrepareCosting(user: User | null | undefined): boolean {

@@ -2,11 +2,11 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { Bot, Inbox, Search } from 'lucide-react';
+import { Bot, Inbox, Plus, Search } from 'lucide-react';
 import { ProjectsApi } from '@/lib/projectsApi';
 import { Project, ProjectHealth, User } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
-import { canOpenProjectGantt, canPerformPmOperations, isCeoViewOnly } from '@/lib/rbac';
+import { canCreateLead, canOpenProjectGantt, canPerformPmOperations, isCeoViewOnly } from '@/lib/rbac';
 import { formatLongDate } from '@/lib/format';
 
 type SortKey = 'progress' | 'health' | 'target' | 'updated';
@@ -28,8 +28,9 @@ export default function ActiveProjectsPage() {
   const [pm, setPm] = useState('');
   const [team, setTeam] = useState('');
   const [status, setStatus] = useState<'ACTIVE' | 'ON_HOLD' | 'ALL'>('ACTIVE');
-  const [sort, setSort] = useState<SortKey>('health');
+  const [sort, setSort] = useState<SortKey>('updated');
   const [summary, setSummary] = useState<{ total: number; onTrack: number; atRisk: number; critical: number } | null>(null);
+  const [createdId, setCreatedId] = useState('');
 
   const viewOnly = isCeoViewOnly(user) || ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'CTO'].includes(user?.role_code || '');
   const isPm = canPerformPmOperations(user);
@@ -50,6 +51,9 @@ export default function ActiveProjectsPage() {
   useEffect(() => {
     const current = StorageService.getCurrentUser();
     setUser(current);
+    if (typeof window !== 'undefined') {
+      setCreatedId(new URLSearchParams(window.location.search).get('created') || '');
+    }
     void load('ACTIVE');
   }, []);
 
@@ -72,29 +76,51 @@ export default function ActiveProjectsPage() {
     if (pm) rows = rows.filter((item) => item.pm_name === pm);
     if (team) rows = rows.filter((item) => (item.team_ids || []).includes(team));
     rows.sort((a, b) => {
+      if (createdId && (a.id === createdId || a.code === createdId) && b.id !== createdId && b.code !== createdId) return -1;
+      if (createdId && (b.id === createdId || b.code === createdId) && a.id !== createdId && a.code !== createdId) return 1;
       if (sort === 'progress') return b.progress - a.progress;
       if (sort === 'health') return (HEALTH_ORDER[a.health] ?? 9) - (HEALTH_ORDER[b.health] ?? 9);
       if (sort === 'target') return (a.target_completion || '').localeCompare(b.target_completion || '');
       return (b.last_update_at || b.updated_at).localeCompare(a.last_update_at || a.updated_at);
     });
     return rows;
-  }, [projects, q, health, pm, team, sort]);
+  }, [projects, q, health, pm, team, sort, createdId]);
 
   return (
     <div className="space-y-6 text-xs">
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
-          <Bot className="h-4 w-4" /> Project Visibility
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
+              <Bot className="h-4 w-4" /> Project Visibility
+            </div>
+            <h1 className="mt-1 text-xl font-bold text-slate-100">Active Projects</h1>
+            <p className="mt-1 text-xs text-slate-400">
+              {canCreateLead(user)
+                ? 'Projects you create appear in this list immediately. Converted orders also appear here after order conversion.'
+                : viewOnly
+                  ? 'Management view of execution health, owners, and blockers. Operational updates are handled by PM and teams.'
+                  : isPm
+                    ? 'Execution projects assigned to you after order conversion. Open a project to review teams, daily updates, and blockers.'
+                    : 'Active execution projects linked to your assignments and teams.'}
+            </p>
+          </div>
+          {canCreateLead(user) && (
+            <Link
+              href="/projects/create"
+              className="inline-flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-semibold text-white hover:bg-cyan-500"
+            >
+              <Plus className="h-4 w-4" /> Create Project
+            </Link>
+          )}
         </div>
-        <h1 className="mt-1 text-xl font-bold text-slate-100">Active Projects</h1>
-        <p className="mt-1 text-xs text-slate-400">
-          {viewOnly
-            ? 'Management view of execution health, owners, and blockers. Operational updates are handled by PM and teams.'
-            : isPm
-              ? 'Execution projects assigned to you after order conversion. Open a project to review teams, daily updates, and blockers.'
-              : 'Active execution projects linked to your assignments and teams.'}
-        </p>
       </div>
+
+      {createdId && (
+        <div className="rounded-xl border border-emerald-800 bg-emerald-950/40 px-4 py-3 text-emerald-200">
+          Project added to Active Projects. It is listed at the top.
+        </div>
+      )}
 
       {summary && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -190,7 +216,14 @@ export default function ActiveProjectsPage() {
           </thead>
           <tbody className="divide-y divide-slate-800/60 text-slate-300">
             {filtered.map((project) => (
-              <tr key={project.id} className="hover:bg-slate-800/40">
+              <tr
+                key={project.id}
+                className={
+                  createdId && (project.id === createdId || project.code === createdId)
+                    ? 'bg-cyan-950/40 hover:bg-slate-800/40'
+                    : 'hover:bg-slate-800/40'
+                }
+              >
                 <td className="p-3">
                   <Link href={`/projects/${project.id}`} className="font-semibold text-slate-100 hover:text-cyan-300">
                     {project.name}
@@ -234,7 +267,16 @@ export default function ActiveProjectsPage() {
           <div className="space-y-2 p-10 text-center text-slate-500">
             <Inbox className="mx-auto h-8 w-8 text-slate-600" />
             <p>No active execution projects for your role.</p>
-            <p className="text-[11px]">Converted orders appear here automatically after order conversion.</p>
+            <p className="text-[11px]">
+              {canCreateLead(user)
+                ? 'Create a project and it will appear in this list. Converted orders also appear here after order conversion.'
+                : 'Converted orders appear here automatically after order conversion.'}
+            </p>
+            {canCreateLead(user) && (
+              <Link href="/projects/create" className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
+                <Plus className="h-3.5 w-3.5" /> Create Project
+              </Link>
+            )}
           </div>
         )}
       </div>

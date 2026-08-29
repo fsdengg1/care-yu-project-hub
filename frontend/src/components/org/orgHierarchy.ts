@@ -33,6 +33,26 @@ export const MANAGEMENT_ROLES = new Set([
   'PROJECT_MANAGER',
 ]);
 
+const FUNCTIONAL_TEAM_ROLES = new Set([
+  'TEAM_LEAD',
+  'EMPLOYEE',
+  'PROJECT_ENGINEER',
+  'PROCUREMENT',
+  'EXECUTION',
+]);
+
+export function resolveReportingManagerId(roleCode: string, users: User[], hasTeam = false): string | undefined {
+  const active = users.filter((user) => user.status === 'ACTIVE');
+  const ceo = active.find((user) => user.role_code === 'CEO');
+  const businessHead = active.find((user) => user.role_code === 'BUSINESS_HEAD');
+  const pm = active.find((user) => user.role_code === 'PROJECT_MANAGER');
+  if (roleCode === 'CEO') return undefined;
+  if (roleCode === 'BUSINESS_HEAD' || roleCode === 'ENG_DIRECTOR' || roleCode === 'CTO') return ceo?.id;
+  if (roleCode === 'PROJECT_MANAGER') return businessHead?.id || ceo?.id;
+  if (hasTeam || FUNCTIONAL_TEAM_ROLES.has(roleCode)) return pm?.id;
+  return pm?.id || ceo?.id;
+}
+
 export const ORG_ADMIN_ROLES = new Set([
   'CEO',
   'CTO',
@@ -161,6 +181,8 @@ function majorityManagerId(members: User[]): string | undefined {
 }
 
 function managerIdForTeam(team: Team, users: User[]): string | undefined {
+  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER' && user.status !== 'INACTIVE');
+  if (pm) return pm.id;
   const lead = teamLeadOf(team, users);
   if (lead?.reporting_manager_id) return lead.reporting_manager_id;
   return majorityManagerId(users.filter((user) => user.team_id === team.id));
@@ -199,12 +221,13 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
 
   function canonicalManagerId(user: User): string | undefined {
     if (user.role_code === 'CEO') return undefined;
-    if (user.role_code === 'PROJECT_MANAGER') {
-      return directory.find((item) => item.role_code === 'ENG_DIRECTOR')?.id
-        || directory.find((item) => item.role_code === 'CEO')?.id;
-    }
-    if (MANAGEMENT_ROLES.has(user.role_code)) {
+    if (user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR' || user.role_code === 'CTO') {
       return directory.find((item) => item.role_code === 'CEO')?.id;
+    }
+    if (user.role_code === 'PROJECT_MANAGER') {
+      if (user.reporting_manager_id && directoryIds.has(user.reporting_manager_id)) return user.reporting_manager_id;
+      return directory.find((item) => item.role_code === 'BUSINESS_HEAD')?.id
+        || directory.find((item) => item.role_code === 'CEO')?.id;
     }
     const managerId = user.reporting_manager_id;
     if (managerId && directoryIds.has(managerId)) return managerId;

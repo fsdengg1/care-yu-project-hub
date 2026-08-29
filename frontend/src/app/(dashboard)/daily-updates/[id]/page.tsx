@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertTriangle, ArrowLeft, Paperclip, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Paperclip, ShieldAlert } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { canPerformPmOperations, canSubmitDailyUpdate } from '@/lib/rbac';
@@ -20,6 +20,7 @@ export default function DailyUpdateDetailPage() {
   const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [submittedFeedback, setSubmittedFeedback] = useState(false);
 
   const load = async () => {
     const payload = await DailyUpdatesApi.get(params.id);
@@ -37,6 +38,10 @@ export default function DailyUpdateDetailPage() {
     if (!current) return;
     setUser(current);
     void load();
+    if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('action') === 'submitted') {
+      setSubmittedFeedback(true);
+      window.history.replaceState({}, '', `/daily-updates/${params.id}`);
+    }
   }, [params.id]);
 
   if (!user) return null;
@@ -65,6 +70,13 @@ export default function DailyUpdateDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <span className={`rounded-full border px-3 py-1 text-xs font-bold ${
+              update.submission_status === 'SUBMITTED'
+                ? 'border-cyan-600 bg-cyan-950 text-cyan-200'
+                : 'border-slate-700 bg-slate-800 text-slate-300'
+            }`}>
+              Current stage: {update.submission_status === 'SUBMITTED' ? 'Submitted' : 'Draft'}
+            </span>
             <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${
               update.work_status === 'BLOCKED'
                 ? 'border-rose-800 bg-rose-950 text-rose-300'
@@ -72,12 +84,19 @@ export default function DailyUpdateDetailPage() {
             }`}>
               {WORK_STATUS_LABELS[update.work_status]}
             </span>
-            {update.submission_status === 'DRAFT' && (
-              <span className="rounded border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-300">DRAFT</span>
-            )}
           </div>
         </div>
       </div>
+
+      {submittedFeedback && (
+        <div className="rounded-xl border border-cyan-700 bg-cyan-950/70 px-4 py-3 text-cyan-100">
+          <div className="flex items-center gap-2 font-bold">
+            <CheckCircle2 className="h-4 w-4" />
+            Daily Update Submitted Successfully
+          </div>
+          <div className="mt-0.5 text-[11px] opacity-90">The update is stored against this project/task and visible to the Team Lead.</div>
+        </div>
+      )}
 
       {update.work_status === 'BLOCKED' && (
         <div className="rounded-xl border border-rose-900 bg-rose-950/30 p-4 text-rose-200">

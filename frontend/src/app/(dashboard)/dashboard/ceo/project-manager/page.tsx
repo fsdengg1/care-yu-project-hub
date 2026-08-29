@@ -5,8 +5,11 @@ import Link from 'next/link';
 import { Users } from 'lucide-react';
 import { apiRequest } from '@/lib/api';
 import { CeoDashboardPayload } from '@/lib/types';
+import { useAuth } from '@/components/auth/AuthProvider';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 
 export default function CeoProjectManagerPage() {
+  const { user } = useAuth();
   const [data, setData] = useState<CeoDashboardPayload['projectManager'] | null>(null);
   const [escalations, setEscalations] = useState(0);
 
@@ -44,6 +47,8 @@ export default function CeoProjectManagerPage() {
           <div className="mt-2 text-2xl font-bold text-rose-300">{escalations}</div>
         </Link>
       </div>
+
+      {user && <ProjectGanttPanel user={user} />}
     </div>
   );
 }

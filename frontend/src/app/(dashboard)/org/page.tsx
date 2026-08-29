@@ -16,7 +16,7 @@ import EmployeeActionModal, {
   EmployeeForm,
   EmployeeModalMode,
 } from '@/components/org/EmployeeActionModal';
-import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports, isDisplayedTeamMember } from '@/components/org/orgHierarchy';
+import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports, isDisplayedTeamMember, resolveReportingManagerId } from '@/components/org/orgHierarchy';
 import { UsersApi } from '@/lib/usersApi';
 import { LeadApi } from '@/lib/leadApi';
 import { apiRequest } from '@/lib/api';
@@ -160,6 +160,9 @@ export default function OrganizationManagementPage() {
     const teamLead = selectedTeam
       ? users.find((u) => u.id === selectedTeam.team_lead_id)
       : undefined;
+    const roleCode = selectedRole?.code || 'EMPLOYEE';
+    const reportingManagerId =
+      resolveReportingManagerId(roleCode, users, Boolean(selectedTeam)) || form.reporting_manager_id || undefined;
 
     if (modalMode === 'add') {
       const newUser: User = {
@@ -169,13 +172,13 @@ export default function OrganizationManagementPage() {
         email: form.email,
         phone: form.phone || '',
         role_id: form.role_id,
-        role_code: selectedRole?.code || 'EMPLOYEE',
+        role_code: roleCode,
         role_name: selectedRole?.name || 'Team Member',
         team_id: selectedTeam?.id,
         team_name: selectedTeam?.name,
         team_lead_id: teamLead?.id,
         team_lead_name: teamLead?.name,
-        reporting_manager_id: form.reporting_manager_id || undefined,
+        reporting_manager_id: reportingManagerId,
         status: 'ACTIVE',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -213,7 +216,7 @@ export default function OrganizationManagementPage() {
         modalMode === 'edit' || modalMode === 'team' ? teamLead?.name : selectedUser.team_lead_name,
       reporting_manager_id:
         modalMode === 'edit' || modalMode === 'manager'
-          ? form.reporting_manager_id || undefined
+          ? reportingManagerId
           : selectedUser.reporting_manager_id,
       status: modalMode === 'edit' ? form.status : selectedUser.status,
       updated_at: new Date().toISOString(),

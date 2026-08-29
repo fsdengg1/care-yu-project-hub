@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, UserPlus, Pencil } from 'lucide-react';
 import { Role, Team, User } from '@/lib/types';
+import { resolveReportingManagerId } from './orgHierarchy';
 
 export type EmployeeModalMode = 'add' | 'edit' | 'role' | 'team' | 'manager';
 
@@ -73,9 +74,10 @@ export default function EmployeeActionModal({
         status: employee.status,
       });
     } else {
-      setForm(EMPTY_FORM);
+      const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER' && user.status === 'ACTIVE');
+      setForm({ ...EMPTY_FORM, reporting_manager_id: pm?.id || '' });
     }
-  }, [open, employee]);
+  }, [open, employee, users]);
 
   if (!open) return null;
 
@@ -156,7 +158,16 @@ export default function EmployeeActionModal({
               <select
                 required
                 value={form.role_id}
-                onChange={(e) => setForm({ ...form, role_id: e.target.value })}
+                onChange={(e) => {
+                  const role = roles.find((item) => item.id === e.target.value);
+                  setForm({
+                    ...form,
+                    role_id: e.target.value,
+                    reporting_manager_id:
+                      resolveReportingManagerId(role?.code || 'EMPLOYEE', users, Boolean(form.team_id)) ||
+                      form.reporting_manager_id,
+                  });
+                }}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-[#0B1F3A] outline-none focus:border-blue-500"
               >
                 <option value="">Select role</option>
@@ -174,7 +185,16 @@ export default function EmployeeActionModal({
               <span className="font-medium text-slate-600">Team</span>
               <select
                 value={form.team_id}
-                onChange={(e) => setForm({ ...form, team_id: e.target.value })}
+                onChange={(e) => {
+                  const role = roles.find((item) => item.id === form.role_id);
+                  setForm({
+                    ...form,
+                    team_id: e.target.value,
+                    reporting_manager_id:
+                      resolveReportingManagerId(role?.code || 'EMPLOYEE', users, Boolean(e.target.value)) ||
+                      form.reporting_manager_id,
+                  });
+                }}
                 className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-[#0B1F3A] outline-none focus:border-blue-500"
               >
                 <option value="">Unassigned</option>

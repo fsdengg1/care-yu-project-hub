@@ -6,6 +6,7 @@ import { canViewProject } from './dailyUpdates.js';
 import { notificationService } from './notificationService.js';
 import { reminderScheduleFields, transferTaskResponsibility } from './responsibility.js';
 import { emitWorkflowEvent, WorkflowEventKey } from './workflowEngine.js';
+import { intakeStatusOf, markAcceptedInExecution, persistProject, stampProjectAction } from './projectWorkflow.js';
 
 export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
@@ -195,6 +196,9 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
   }
   const project = projectId ? store.getProjects().find((item) => item.id === projectId) : undefined;
   if (taskType === 'PROJECT_TASK' && !project) return { error: 'Project not found.' };
+  if (project && ['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED'].includes(intakeStatusOf(project))) {
+    return { error: 'Assign and accept the project before creating execution tasks.' };
+  }
   if (project && user.role_code === 'PROJECT_MANAGER' && project.pm_id !== user.id) {
     return { error: 'You do not have permission to view this project.', status: 403 as const };
   }
@@ -270,6 +274,17 @@ export function createWorkTask(user: User, body: Record<string, unknown>) {
       eventKey: `TASK_ASSIGNED:${task.id}:${assignee.id}:${now}`,
     });
   }
+  if (project) {
+    const current = store.getProjects().find((item) => item.id === project.id);
+    if (current) {
+      const afterAccept = markAcceptedInExecution(current, user);
+      persistProject({
+        ...afterAccept,
+        current_phase: 'EXECUTION',
+        ...stampProjectAction(user, 'TASK_ASSIGNED'),
+      });
+    }
+  }
   return { task };
 }
 
@@ -324,10 +339,46 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     next.progress_percent = Math.max(0, Math.min(100, Number(body.progress_percent) || 0));
   }
   if (body.blocked_reason !== undefined) next.blocked_reason = String(body.blocked_reason);
+  if (next.status === 'DONE' && current.assigned_to_id !== user.id && !canManage) {
+    return { error: 'You can only complete tasks assigned to you.', status: 403 as const };
+  }
+  if (next.status === 'BLOCKED' && !String(next.blocked_reason || '').trim()) {
+    return { error: 'Describe the issue or doubt against this task.', status: 400 as const };
+  }
   applyTaskLifecycle(user, current, next, {
     reviewAction: String(body.review_action || ''),
     comments: String(body.review_comments || body.comments || ''),
   });
+
+  if (next.status === 'BLOCKED' && current.status !== 'BLOCKED') {
+    const project = next.project_id ? store.getProjects().find((item) => item.id === next.project_id) : undefined;
+    notifyTaskHandover(next, user, [reviewerForTask(next)?.id, project?.team_lead_id], {
+      event: 'ISSUE_RAISED',
+      message: `${user.name} raised an issue on "${next.title}": ${next.blocked_reason}`,
+      status: 'Issue / Doubt',
+      comments: next.blocked_reason,
+    });
+    if (project) {
+      persistProject({
+        ...project,
+        issue: next.blocked_reason,
+        monitor_status: 'ISSUE_IDENTIFIED',
+        ...stampProjectAction(user, 'ISSUE_IDENTIFIED'),
+      });
+    }
+  }
+  if (next.status === 'IN_PROGRESS' && current.status !== 'IN_PROGRESS' && next.project_id) {
+    const project = store.getProjects().find((item) => item.id === next.project_id);
+    if (project) persistProject({ ...project, current_phase: 'EXECUTION', ...stampProjectAction(user, 'TASK_STARTED') });
+  }
+  if (
+    next.project_id &&
+    (next.status === 'DONE' && current.status !== 'DONE' ||
+      (next.review_status === 'PENDING_TL_REVIEW' && current.review_status !== 'PENDING_TL_REVIEW'))
+  ) {
+    const project = store.getProjects().find((item) => item.id === next.project_id);
+    if (project) persistProject({ ...project, ...stampProjectAction(user, 'TASK_COMPLETED') });
+  }
 
   tasks[index] = next;
   store.saveTasks(tasks);

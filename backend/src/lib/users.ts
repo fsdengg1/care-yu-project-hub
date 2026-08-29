@@ -1,6 +1,7 @@
 import { store } from '../store/db.js';
 import { Team, User } from '../types.js';
 import { isAllowedWorkEmail } from './authUser.js';
+import { inferReportingManager } from './directoryRoles.js';
 import { newId } from './leadWorkflow.js';
 
 const PROTECTED_DELETE_ROLES = new Set(['CEO']);
@@ -33,6 +34,19 @@ function hydrateFromOrg(partial: Partial<User>, team?: Team): Partial<User> {
     team_lead_id: lead?.id || team?.team_lead_id,
     team_lead_name: lead?.name || team?.team_lead_name,
   };
+}
+
+function applyOrgReporting(user: User): User {
+  if (user.role_code === 'CEO') {
+    const next = { ...user };
+    delete next.reporting_manager_id;
+    delete next.reporting_manager_name;
+    return next;
+  }
+  const peers = store.getUsers().filter((item) => item.id !== user.id);
+  const boss = inferReportingManager(user.role_code, peers, Boolean(user.team_id));
+  if (!boss || boss.id === user.id) return user;
+  return { ...user, reporting_manager_id: boss.id, reporting_manager_name: boss.name };
 }
 
 function syncTeamLead(user: User) {
@@ -68,7 +82,7 @@ export function createUser(actor: User, body: UserInput) {
 
   const team = body.team_id ? store.getTeams().find((item) => item.id === body.team_id) : undefined;
   const now = new Date().toISOString();
-  const user: User = {
+  const user: User = applyOrgReporting({
     id: newId('u'),
     employee_id: body.employee_id?.trim() || nextEmployeeId(users),
     name,
@@ -85,7 +99,7 @@ export function createUser(actor: User, body: UserInput) {
     created_at: now,
     updated_at: now,
     ...hydrateFromOrg({}, team),
-  };
+  });
 
   users.unshift(user);
   store.saveUsers(users);
@@ -142,12 +156,11 @@ export function updateUser(actor: User, userId: string, body: UserInput) {
   } else if (body.status === 'ACTIVE' && current.account_status === 'DISABLED') {
     next.account_status = current.password_hash || !current.invitation_code_hash ? 'ACTIVE' : 'INVITED';
   }
-  const manager = next.reporting_manager_id ? store.findUserById(next.reporting_manager_id) : undefined;
-  next.reporting_manager_name = manager?.name;
   next = { ...next, ...hydrateFromOrg(next, team) } as User;
   if (!team) {
     next = { ...next, team_id: undefined, team_name: undefined, team_lead_id: undefined, team_lead_name: undefined };
   }
+  next = applyOrgReporting(next);
 
   users[index] = next;
 

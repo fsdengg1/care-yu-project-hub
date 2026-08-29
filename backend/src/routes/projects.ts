@@ -9,6 +9,7 @@ import {
   buildProjectDetail,
   canAccessGanttModule,
   canManageProject,
+  createDirectProject,
   escalateProject,
   listVisibleProjects,
 } from '../lib/projects.js';
@@ -19,6 +20,7 @@ import {
   canEscalateProject,
   completionBlockers,
   markTlFinalReview,
+  monitorProject,
   reviewProjectIntake,
 } from '../lib/projectWorkflow.js';
 
@@ -42,6 +44,12 @@ router.get(
   }
 );
 
+router.post('/', requireAuth, requirePermission('create:lead'), (req: AuthedRequest, res) => {
+  const result = createDirectProject(req.user!, (req.body || {}) as Record<string, unknown>);
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.status(201).json({ project: result.project });
+});
+
 router.get(
   '/:id/activity',
   requireAuth,
@@ -59,7 +67,7 @@ router.get(
 router.get(
   '/:id/gantt',
   requireAuth,
-  requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates'),
+  requirePermission('view:projects', 'view:dashboard:ceo', 'view:daily-updates', 'view:leads'),
   (req: AuthedRequest, res) => {
     if (!canAccessGanttModule(req.user!)) {
       return res.status(403).json({
@@ -154,6 +162,21 @@ router.post(
     const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
     if (!project) return res.status(404).json({ message: 'Project not found.' });
     const result = markTlFinalReview(user, project, req.body?.comments);
+    if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+    return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
+  }
+);
+
+router.post(
+  '/:id/monitor',
+  requireAuth,
+  requirePermission('view:projects'),
+  (req: AuthedRequest, res) => {
+    const user = req.user!;
+    const project = store.getProjects().find((item) => item.id === paramId(req) || item.code === paramId(req));
+    if (!project) return res.status(404).json({ message: 'Project not found.' });
+    const status = String(req.body?.status || '').toUpperCase() === 'ISSUE_IDENTIFIED' ? 'ISSUE_IDENTIFIED' : 'ON_TRACK';
+    const result = monitorProject(user, project, status, req.body?.comments);
     if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
     return res.json({ project: result.project, detail: buildProjectDetail(user, result.project.id) });
   }

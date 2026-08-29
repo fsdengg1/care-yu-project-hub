@@ -21,26 +21,31 @@ export default function FeasibilityStudiesPage() {
     void (async () => {
       const apiLeads = await LeadApi.list();
       const storedAssignments = StorageService.getFeasibilityTeamAssignments();
-      const fromLeads: FeasibilityTeamAssignment[] = apiLeads
-        .filter((lead) => Boolean(lead.assigned_team_id) && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(lead.status))
-        .filter((lead) => !storedAssignments.some((item) => item.lead_id === lead.id && item.team_id === lead.assigned_team_id))
-        .map((lead) => ({
-          id: `fta-${lead.id}`,
-          lead_id: lead.id,
-          team_id: lead.assigned_team_id || '',
-          team_name: lead.assigned_team_name || 'Assigned team',
-          team_lead_id: lead.assigned_team_lead_id,
-          team_lead_name: lead.assigned_team_lead_name,
-          assignment_type: 'NORMAL',
-          priority: lead.priority,
-          due_date: lead.expected_decision_date || '',
-          pm_instructions: lead.pm_review_notes || 'Feasibility assignment',
-          status: lead.status === 'FEASIBILITY_SUBMITTED' ? 'SUBMITTED_TO_PM' : lead.status === 'FEASIBILITY_RETURNED' ? 'CHANGE_SUGGESTED' : 'PENDING_TEAM_LEAD_REVIEW',
-          created_by: lead.pm_name || 'Project Manager',
-          created_by_id: lead.pm_id || '',
-          created_at: lead.updated_at,
-          updated_at: lead.updated_at,
-        }));
+      const fromLeads: FeasibilityTeamAssignment[] = [];
+      for (const lead of apiLeads) {
+        if (!['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(lead.status)) continue;
+        const teamIds = [...new Set([...(lead.assigned_team_ids || []), ...(lead.assigned_team_id ? [lead.assigned_team_id] : [])].filter(Boolean))];
+        teamIds.forEach((teamId, index) => {
+          if (storedAssignments.some((item) => item.lead_id === lead.id && item.team_id === teamId)) return;
+          fromLeads.push({
+            id: `fta-${lead.id}-${teamId}`,
+            lead_id: lead.id,
+            team_id: teamId,
+            team_name: (lead.assigned_team_names || [])[index] || lead.assigned_team_name || 'Assigned team',
+            team_lead_id: teamId === lead.assigned_team_id ? lead.assigned_team_lead_id : undefined,
+            team_lead_name: teamId === lead.assigned_team_id ? lead.assigned_team_lead_name : undefined,
+            assignment_type: 'NORMAL',
+            priority: lead.priority,
+            due_date: lead.expected_decision_date || '',
+            pm_instructions: lead.pm_review_notes || 'Feasibility assignment',
+            status: lead.status === 'FEASIBILITY_SUBMITTED' ? 'SUBMITTED_TO_PM' : lead.status === 'FEASIBILITY_RETURNED' ? 'CHANGE_SUGGESTED' : 'PENDING_TEAM_LEAD_REVIEW',
+            created_by: lead.pm_name || 'Project Manager',
+            created_by_id: lead.pm_id || '',
+            created_at: lead.updated_at,
+            updated_at: lead.updated_at,
+          });
+        });
+      }
       setAssignments([...storedAssignments, ...fromLeads]);
       const map: Record<string, Lead> = {};
       apiLeads.forEach((l) => { map[l.id] = l; });

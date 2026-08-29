@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Building2, Inbox, Plus } from 'lucide-react';
+import { ArrowRight, Building2, FolderKanban, Inbox, Plus } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { LeadApi } from '@/lib/leadApi';
 import { canCreateLead } from '@/lib/rbac';
@@ -30,9 +30,14 @@ export default function LeadPipelinePanel({ title = 'Lead pipeline' }: { title?:
         </h2>
         <div className="flex items-center gap-3">
           {showCreate && (
-            <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
-              <Plus className="h-3.5 w-3.5" /> Create Lead
-            </Link>
+            <>
+              <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                <Plus className="h-3.5 w-3.5" /> Create Lead
+              </Link>
+              <Link href="/projects/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                <FolderKanban className="h-3.5 w-3.5" /> Create Project
+              </Link>
+            </>
           )}
           <Link href="/pre-sales/leads" className="text-xs text-cyan-400 hover:underline">View pipeline</Link>
         </div>
@@ -42,9 +47,14 @@ export default function LeadPipelinePanel({ title = 'Lead pipeline' }: { title?:
           <Inbox className="mx-auto h-6 w-6 text-slate-600" />
           <p className="text-xs font-medium text-slate-300">No leads in the pipeline yet.</p>
           {showCreate ? (
-            <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
-              <Plus className="h-3.5 w-3.5" /> Create New Lead
-            </Link>
+            <div className="flex items-center justify-center gap-4">
+              <Link href="/pre-sales/leads/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                <Plus className="h-3.5 w-3.5" /> Create Lead
+              </Link>
+              <Link href="/projects/create" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
+                <FolderKanban className="h-3.5 w-3.5" /> Create Project
+              </Link>
+            </div>
           ) : (
             <Link href="/pre-sales/leads" className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-400 hover:underline">
               Open lead pipeline <ArrowRight className="h-3 w-3" />

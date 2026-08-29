@@ -2,6 +2,14 @@ import { apiRequest } from './api';
 import { Escalation, Project, ProjectDetailPayload, ProjectStatus } from './types';
 
 export const ProjectsApi = {
+  async create(body: Record<string, unknown>) {
+    const result = await apiRequest<{ project: Project }>('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return { ok: true as const, project: result.data.project };
+    return { ok: false as const, message: result.message, status: result.status };
+  },
   async list(status: ProjectStatus | 'ALL' = 'ACTIVE') {
     const result = await apiRequest<{ projects: Project[]; summary: { total: number; onTrack: number; atRisk: number; critical: number; needAttention: number } }>(
       `/api/projects?status=${encodeURIComponent(status)}`
@@ -48,6 +56,13 @@ export const ProjectsApi = {
     return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/tl-review`, {
       method: 'POST',
       body: JSON.stringify({ comments }),
+    });
+  },
+
+  async monitor(id: string, status: 'ON_TRACK' | 'ISSUE_IDENTIFIED', comments?: string) {
+    return apiRequest<{ project: Project; detail: ProjectDetailPayload }>(`/api/projects/${id}/monitor`, {
+      method: 'POST',
+      body: JSON.stringify({ status, comments }),
     });
   },
 

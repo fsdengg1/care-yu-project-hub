@@ -95,6 +95,19 @@ export function hydrateLead(lead: Lead): Lead {
   const aligned = alignSeedLead(lead);
   const ownerId = aligned.current_owner_id || aligned.responsible_user_id;
   const ownerName = aligned.current_owner_name || aligned.responsible_user_name;
+  const assignmentTeams = store
+    .getFeasibilityTeamAssignments()
+    .filter((item) => item.lead_id === aligned.id && item.status !== 'CANCELLED');
+  const assignedTeamIds = [...new Set([
+    ...(aligned.assigned_team_ids || []),
+    ...(aligned.assigned_team_id ? [aligned.assigned_team_id] : []),
+    ...assignmentTeams.map((item) => item.team_id),
+  ].filter(Boolean))];
+  const assignedTeamNames = [...new Set([
+    ...(aligned.assigned_team_names || []),
+    ...(aligned.assigned_team_name ? [aligned.assigned_team_name] : []),
+    ...assignmentTeams.map((item) => item.team_name),
+  ].filter(Boolean))];
   return applyLeadWorkflowContext({
     ...aligned,
     pipeline_stage: stageFromStatus(aligned.status) || aligned.pipeline_stage,
@@ -102,6 +115,8 @@ export function hydrateLead(lead: Lead): Lead {
     current_owner_name: ownerName,
     responsible_user_id: aligned.responsible_user_id || ownerId,
     responsible_user_name: aligned.responsible_user_name || ownerName,
+    assigned_team_ids: assignedTeamIds,
+    assigned_team_names: assignedTeamNames,
   });
 }
 
@@ -237,6 +252,31 @@ export function isProcurementUser(user: User): boolean {
   return team ? isProcurementTeam(team) : false;
 }
 
+export function userIsOnAssignedLeadTeam(user: User, lead: Lead): boolean {
+  if (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id) return true;
+  if (user.team_id && (user.team_id === lead.assigned_team_id || (lead.assigned_team_ids || []).includes(user.team_id))) {
+    return true;
+  }
+  return store.getFeasibilityTeamAssignments().some(
+    (item) =>
+      item.lead_id === lead.id &&
+      item.status !== 'CANCELLED' &&
+      (item.team_lead_id === user.id || (user.team_id && item.team_id === user.team_id))
+  );
+}
+
+export function assignedTeamRecipientIds(lead: Lead): string[] {
+  const ids = new Set<string>();
+  for (const id of [lead.assigned_team_lead_id, lead.assigned_member_id, lead.responsible_user_id]) {
+    if (id) ids.add(id);
+  }
+  for (const item of store.getFeasibilityTeamAssignments()) {
+    if (item.lead_id !== lead.id || item.status === 'CANCELLED') continue;
+    if (item.team_lead_id) ids.add(item.team_lead_id);
+  }
+  return [...ids];
+}
+
 export function canOwnLead(user: User, lead: Lead): boolean {
   if (['SYSTEM_ADMIN', 'CEO', 'CTO', 'BUSINESS_HEAD'].includes(user.role_code)) return true;
   const ownerId = leadOwnerId(lead);
@@ -244,9 +284,7 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
   if (user.role_code === 'PROJECT_MANAGER' && lead.pm_id === user.id) return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
-  if (lead.assigned_team_lead_id === user.id) return true;
-  if (lead.assigned_member_id === user.id) return true;
-  if (lead.assigned_team_id && user.team_id === lead.assigned_team_id) return true;
+  if (userIsOnAssignedLeadTeam(user, lead)) return true;
   if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'COSTING_REJECTED'].includes(lead.status)) {
     return true;
   }
@@ -275,9 +313,18 @@ export function canPrepareFeasibility(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (!['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status)) return false;
   if (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id) return true;
-  if (pendingTeamAssignment(lead.id)) return false;
+  const mine = store
+    .getFeasibilityTeamAssignments()
+    .filter(
+      (item) =>
+        item.lead_id === lead.id &&
+        item.status !== 'CANCELLED' &&
+        (item.team_lead_id === user.id || (user.team_id && item.team_id === user.team_id))
+    );
+  if (mine.some((item) => item.status === 'PENDING_TEAM_LEAD_REVIEW')) return false;
+  if (mine.length) return true;
   if (user.role_code === 'TEAM_LEAD' && user.team_id === lead.assigned_team_id) return true;
-  if (user.team_id && user.team_id === lead.assigned_team_id) return true;
+  if (user.team_id && (user.team_id === lead.assigned_team_id || (lead.assigned_team_ids || []).includes(user.team_id))) return true;
   return false;
 }
 
@@ -359,6 +406,17 @@ export function pendingTeamAssignment(leadId: string): FeasibilityTeamAssignment
     .find((item) => item.lead_id === leadId && item.status === 'PENDING_TEAM_LEAD_REVIEW');
 }
 
+export function pendingTeamAssignmentForUser(leadId: string, user: User): FeasibilityTeamAssignment | undefined {
+  return store
+    .getFeasibilityTeamAssignments()
+    .find(
+      (item) =>
+        item.lead_id === leadId &&
+        item.status === 'PENDING_TEAM_LEAD_REVIEW' &&
+        (item.team_lead_id === user.id || (user.team_id && item.team_id === user.team_id))
+    );
+}
+
 export function approveLeadForAssignment(lead: Lead, user: User, notes?: string): Lead {
   if (lead.status === 'ACCEPTED_FOR_FEASIBILITY') return hydrateLead(lead);
   const now = new Date().toISOString();
@@ -422,20 +480,32 @@ export function assignTeamToLead(
   assignments.unshift(assignment);
   store.saveFeasibilityTeamAssignments(assignments);
 
-  const now = new Date().toISOString();
-  const nextStatus = direct ? 'FEASIBILITY_IN_PROGRESS' : 'ACCEPTED_FOR_FEASIBILITY';
   const working =
     lead.status === 'ACCEPTED_FOR_FEASIBILITY' || lead.status === 'FEASIBILITY_IN_PROGRESS'
       ? lead
       : approveLeadForAssignment(lead, user, notes);
+  const now = new Date().toISOString();
+  const existingIds = [...new Set([...(working.assigned_team_ids || []), ...(working.assigned_team_id ? [working.assigned_team_id] : []), team.id])];
+  const existingNames = [...new Set([...(working.assigned_team_names || []), ...(working.assigned_team_name ? [working.assigned_team_name] : []), team.name])];
+  const pending = store
+    .getFeasibilityTeamAssignments()
+    .some((item) => item.lead_id === lead.id && item.status === 'PENDING_TEAM_LEAD_REVIEW');
+  const keepStatus = ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED', 'FEASIBILITY_RETURNED'].includes(working.status);
+  const nextStatus = keepStatus
+    ? working.status
+    : pending || !direct
+      ? 'ACCEPTED_FOR_FEASIBILITY'
+      : 'FEASIBILITY_IN_PROGRESS';
   const updatedBase = transitionLead(working, nextStatus, user, direct ? 'Directly assigned to team member' : 'Assigned to Team Lead', {
-    assigned_team_id: team.id,
-    assigned_team_name: team.name,
-    assigned_team_lead_id: teamLead?.id,
-    assigned_team_lead_name: teamLead?.name || team.team_lead_name,
-    assignment_path: direct ? 'DIRECT_MEMBER' : 'TEAM_LEAD',
-    assigned_member_id: direct ? assignee.id : undefined,
-    assigned_member_name: direct ? assignee.name : undefined,
+    assigned_team_id: working.assigned_team_id || team.id,
+    assigned_team_name: working.assigned_team_name || team.name,
+    assigned_team_ids: existingIds,
+    assigned_team_names: existingNames,
+    assigned_team_lead_id: working.assigned_team_lead_id || teamLead?.id,
+    assigned_team_lead_name: working.assigned_team_lead_name || teamLead?.name || team.team_lead_name,
+    assignment_path: working.assignment_path || (direct ? 'DIRECT_MEMBER' : 'TEAM_LEAD'),
+    assigned_member_id: working.assigned_member_id || (direct ? assignee.id : undefined),
+    assigned_member_name: working.assigned_member_name || (direct ? assignee.name : undefined),
     pm_id: user.role_code === 'PROJECT_MANAGER' ? user.id : working.pm_id || findPm()?.id,
     pm_name: user.role_code === 'PROJECT_MANAGER' ? user.name : lead.pm_name || findPm()?.name,
     pm_review_notes: notes || lead.pm_review_notes,
@@ -455,6 +525,27 @@ export function assignTeamToLead(
   return { lead: updated, assignment, previousResponsibleUserId: transferred.previous?.id };
 }
 
+export function assignTeamsToLead(
+  lead: Lead,
+  user: User,
+  teamIds: string[],
+  assignees?: Record<string, string>,
+  notes?: string
+): { lead: Lead; assignments: FeasibilityTeamAssignment[] } {
+  const unique = [...new Set(teamIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!unique.length) {
+    throw Object.assign(new Error('Select at least one functional team.'), { status: 400 });
+  }
+  let current = lead;
+  const created: FeasibilityTeamAssignment[] = [];
+  for (const teamId of unique) {
+    const result = assignTeamToLead(current, user, teamId, assignees?.[teamId], notes);
+    current = result.lead;
+    created.push(result.assignment);
+  }
+  return { lead: current, assignments: created };
+}
+
 export function reviewLeadTeamIntake(
   lead: Lead,
   user: User,
@@ -462,18 +553,24 @@ export function reviewLeadTeamIntake(
   comments?: string
 ): Lead {
   const isAdmin = user.role_code === 'SYSTEM_ADMIN';
-  const isAssignedLead =
-    lead.assigned_team_lead_id === user.id ||
-    lead.assigned_member_id === user.id ||
-    (user.role_code === 'TEAM_LEAD' && Boolean(user.team_id) && user.team_id === lead.assigned_team_id);
+  const assignment =
+    pendingTeamAssignmentForUser(lead.id, user) ||
+    (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id
+      ? pendingTeamAssignment(lead.id)
+      : undefined);
+  const isAssignedLead = Boolean(
+    assignment ||
+      lead.assigned_team_lead_id === user.id ||
+      lead.assigned_member_id === user.id ||
+      (user.role_code === 'TEAM_LEAD' && Boolean(user.team_id) && (user.team_id === lead.assigned_team_id || (lead.assigned_team_ids || []).includes(user.team_id || '')))
+  );
   if (!isAdmin && !isAssignedLead) {
     throw new LeadWorkflowError('Only the assigned Team Lead or Team Member can accept or return this project.', 403);
   }
-  if (lead.status !== 'ACCEPTED_FOR_FEASIBILITY' || !lead.assigned_team_id) {
+  if (!['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS'].includes(lead.status)) {
     throw new LeadWorkflowError('This project is not awaiting Team Lead review.', 400);
   }
   const note = (comments || '').trim();
-  const assignment = pendingTeamAssignment(lead.id);
   const now = new Date().toISOString();
 
   if (action === 'return') {
@@ -484,20 +581,30 @@ export function reviewLeadTeamIntake(
       );
       store.saveFeasibilityTeamAssignments(assignments);
     }
-    let updated = transitionLead(lead, 'ACCEPTED_FOR_FEASIBILITY', user, note, {
-      assigned_team_id: undefined,
-      assigned_team_name: undefined,
-      assigned_team_lead_id: undefined,
-      assigned_team_lead_name: undefined,
-      assignment_path: undefined,
-      assigned_member_id: undefined,
-      assigned_member_name: undefined,
+    const remaining = store
+      .getFeasibilityTeamAssignments()
+      .filter((item) => item.lead_id === lead.id && item.status !== 'CANCELLED');
+    const remainingIds = remaining.map((item) => item.team_id);
+    const remainingNames = remaining.map((item) => item.team_name);
+    const primary = remaining[0];
+    let updated = transitionLead(lead, remaining.length ? lead.status : 'ACCEPTED_FOR_FEASIBILITY', user, note, {
+      assigned_team_id: primary?.team_id,
+      assigned_team_name: primary?.team_name,
+      assigned_team_ids: remainingIds,
+      assigned_team_names: remainingNames,
+      assigned_team_lead_id: remaining.length ? lead.assigned_team_lead_id : undefined,
+      assigned_team_lead_name: remaining.length ? lead.assigned_team_lead_name : undefined,
+      assignment_path: remaining.length ? lead.assignment_path : undefined,
+      assigned_member_id: remaining.length ? lead.assigned_member_id : undefined,
+      assigned_member_name: remaining.length ? lead.assigned_member_name : undefined,
       pm_return_reason: note,
     });
-    const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
-    if (pm) {
-      const transferred = transferLeadResponsibility(updated, pm, user, note);
-      updated = saveLead({ ...transferred.lead, pending_action: true });
+    if (!remaining.length) {
+      const pm = findPm(updated) || (updated.pm_id ? store.findUserById(updated.pm_id) : undefined);
+      if (pm) {
+        const transferred = transferLeadResponsibility(updated, pm, user, note);
+        updated = saveLead({ ...transferred.lead, pending_action: true });
+      }
     }
     return hydrateLead(updated);
   }
@@ -694,19 +801,18 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
       }
     }
 
+    const pendingMine = user.role_code === 'TEAM_LEAD' ? pendingTeamAssignmentForUser(lead.id, user) : undefined;
     if (
       user.role_code === 'TEAM_LEAD' &&
-      lead.status === 'ACCEPTED_FOR_FEASIBILITY' &&
-      lead.assigned_team_lead_id === user.id
+      pendingMine &&
+      ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS'].includes(lead.status)
     ) {
       add(lead, 'FEASIBILITY', 'Review requirements and accept the project, or return it to the Project Manager.');
-    }
-
-    if (
+    } else if (
       canPrepareFeasibility(user, lead) ||
       (user.role_code === 'TEAM_LEAD' &&
         ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status) &&
-        (lead.assigned_team_lead_id === user.id || user.team_id === lead.assigned_team_id))
+        userIsOnAssignedLeadTeam(user, lead))
     ) {
       add(
         lead,

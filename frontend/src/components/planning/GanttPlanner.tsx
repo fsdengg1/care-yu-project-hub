@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Diamond, GanttChartSquare, Plus, ShieldAlert, Trash2 } from 'lucide-react';
+import { AlertTriangle, Diamond, GanttChartSquare, Lock, Plus, ShieldAlert, Trash2 } from 'lucide-react';
 import { PlanningApi, PlanTaskPayload } from '@/lib/planningApi';
 import { formatLongDate } from '@/lib/format';
 import {
@@ -132,6 +132,8 @@ export default function GanttPlanner({ user }: { user: User }) {
   const [form, setForm] = useState(emptyTaskForm);
   const [zoom, setZoom] = useState<'day' | 'week' | 'month'>('week');
   const [forbidden, setForbidden] = useState(false);
+  const [projectStart, setProjectStart] = useState('');
+  const [projectDue, setProjectDue] = useState('');
 
   const canManage = Boolean(plan?.canEditGantt ?? plan?.canManage);
 
@@ -168,6 +170,8 @@ export default function GanttPlanner({ user }: { user: User }) {
     setForbidden(false);
     setError(null);
     setPlan(result.plan);
+    setProjectStart(result.plan.project.start_date || '');
+    setProjectDue(result.plan.project.target_completion || '');
   };
 
   useEffect(() => {
@@ -293,10 +297,19 @@ export default function GanttPlanner({ user }: { user: User }) {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
-              <GanttChartSquare className="h-4 w-4" /> {canManage ? 'PM Planning' : 'Project Visibility'}
+              <GanttChartSquare className="h-4 w-4" /> {canManage ? 'PM Planning' : 'Project Gantt Chart'}
+              {!canManage && (
+                <span className="inline-flex items-center gap-1 rounded border border-slate-700 px-2 py-0.5 text-[10px] font-bold normal-case tracking-wider text-slate-300">
+                  <Lock className="h-3 w-3" /> Read Only
+                </span>
+              )}
             </div>
-            <h1 className="mt-1 text-xl font-bold text-slate-100">Project Gantt & Planning</h1>
-            <p className="mt-1 text-xs text-slate-400">Plan, assign and track execution across active projects.</p>
+            <h1 className="mt-1 text-xl font-bold text-slate-100">Project Gantt Chart</h1>
+            <p className="mt-1 text-xs text-slate-400">
+              {canManage
+                ? 'Create and maintain the project timeline. Task progress is shared with Daily Work Updates and Active Projects.'
+                : 'Read-only view of the Project Manager’s Gantt chart. Update your work through Daily Work Updates — not this timeline.'}
+            </p>
             {plan && (
               <p className="mt-2 text-[11px] text-slate-400">
                 Project Manager: <span className="font-semibold text-slate-200">{plan.project.pm_name}</span>
@@ -316,8 +329,8 @@ export default function GanttPlanner({ user }: { user: User }) {
         </div>
         <p className="mt-3 text-[11px] text-slate-500">
           {canManage
-            ? 'Full planning control for projects assigned to you. Task progress is shared with Daily Work Updates and Active Projects.'
-            : 'Read-only management visibility of the execution plan and progress.'}
+            ? 'Only you can add tasks, change dates, dependencies, and assignments. Other roles see this same chart as read-only.'
+            : 'Read-only. You cannot edit dates, drag bars, add tasks, change assignments, or change the project timeline.'}
         </p>
       </div>
 
@@ -330,7 +343,7 @@ export default function GanttPlanner({ user }: { user: User }) {
           }}
           className="min-w-64 rounded-md border border-slate-800 bg-slate-950 px-2 py-1.5 text-slate-200"
         >
-          {projects.length === 0 && <option value="">{user.role_code === 'TEAM_LEAD' ? 'No assigned projects' : 'No active projects'}</option>}
+          {projects.length === 0 && <option value="">{['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION'].includes(user.role_code) ? 'No assigned projects' : 'No active projects'}</option>}
           {projects.map((project) => (
             <option key={project.id} value={project.id}>
               {project.customer_name} – {project.name} ({project.progress}%)
@@ -379,6 +392,38 @@ export default function GanttPlanner({ user }: { user: User }) {
             <button type="button" onClick={() => openTaskModal('milestone')} className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-200 hover:border-cyan-700">
               <Diamond className="mr-1 inline h-3 w-3" /> Add Milestone
             </button>
+            <div className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-800 bg-slate-950 px-2 py-1.5">
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">
+                Start
+                <input
+                  type="date"
+                  value={projectStart}
+                  onChange={(event) => setProjectStart(event.target.value)}
+                  className="ml-1 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-slate-200"
+                />
+              </label>
+              <label className="text-[10px] uppercase tracking-wider text-slate-500">
+                Target
+                <input
+                  type="date"
+                  value={projectDue}
+                  onChange={(event) => setProjectDue(event.target.value)}
+                  className="ml-1 rounded border border-slate-800 bg-slate-900 px-1.5 py-0.5 text-slate-200"
+                />
+              </label>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  run(async () =>
+                    PlanningApi.updateTimeline(projectId, { start_date: projectStart, target_completion: projectDue })
+                  )
+                }
+                className="rounded-md bg-cyan-600 px-2 py-1 font-bold text-white hover:bg-cyan-500 disabled:opacity-50"
+              >
+                Save timeline
+              </button>
+            </div>
           </>
         )}
         {plan && (
@@ -415,7 +460,7 @@ export default function GanttPlanner({ user }: { user: User }) {
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-8 text-center">
           <h2 className="text-sm font-bold text-slate-100">No Gantt Plans Available</h2>
           <p className="mt-2 text-slate-400">
-            {user.role_code === 'TEAM_LEAD'
+            {['TEAM_LEAD', 'EMPLOYEE', 'PROJECT_ENGINEER', 'EXECUTION'].includes(user.role_code)
               ? "You currently don't have any projects assigned to you for Gantt monitoring."
               : 'There are no active projects available for Gantt planning.'}
           </p>
@@ -431,10 +476,10 @@ export default function GanttPlanner({ user }: { user: User }) {
               <thead className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/95 text-[10px] uppercase tracking-wider text-slate-400">
                 <tr>
                   <th className="sticky left-0 z-10 bg-slate-950 p-3">Phase / Task</th>
-                  <th className="p-3">Assigned</th>
-                  <th className="p-3">Start</th>
-                  <th className="p-3">End</th>
-                  <th className="p-3">Dur.</th>
+                  <th className="p-3">Assigned To</th>
+                  <th className="p-3">Start Date</th>
+                  <th className="p-3">Due Date</th>
+                  <th className="p-3">Duration</th>
                   <th className="p-3">Progress</th>
                   <th className="p-3">Status</th>
                   <th className="p-3" style={{ minWidth: 320 }}>
@@ -456,7 +501,7 @@ export default function GanttPlanner({ user }: { user: User }) {
                       />
                     </div>
                   </th>
-                  <th className="p-3" />
+                  {canManage && <th className="p-3" />}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
@@ -482,8 +527,9 @@ export default function GanttPlanner({ user }: { user: User }) {
                           today
                         />
                       </td>
+                      {canManage && (
                       <td className="p-3">
-                        {canManage && group.phase.id !== 'unphased' && (
+                        {group.phase.id !== 'unphased' && (
                           <button
                             type="button"
                             onClick={() => run(async () => PlanningApi.deletePhase(projectId, group.phase.id))}
@@ -493,6 +539,7 @@ export default function GanttPlanner({ user }: { user: User }) {
                           </button>
                         )}
                       </td>
+                      )}
                     </tr>
                     {group.tasks.map((task) => (
                       <React.Fragment key={task.id}>
@@ -525,7 +572,7 @@ export default function GanttPlanner({ user }: { user: User }) {
                 ))}
                 {plan.tasks.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500">
+                    <td colSpan={canManage ? 9 : 8} className="p-8 text-center text-slate-500">
                       {canManage
                         ? 'Create a plan or add a task to start scheduling this active project.'
                         : 'The Project Manager has not created an execution plan yet.'}
@@ -659,8 +706,8 @@ function TaskRow({
           today
         />
       </td>
+      {canManage && (
       <td className="p-3">
-        {canManage ? (
           <div className="flex flex-wrap gap-1">
             <button type="button" onClick={onEdit} className="rounded border border-slate-700 px-2 py-0.5 text-slate-200">Edit</button>
             <button type="button" onClick={onComplete} className="rounded border border-emerald-900 px-2 py-0.5 text-emerald-300">Done</button>
@@ -677,10 +724,8 @@ function TaskRow({
               <Link href={`/daily-updates/${task.latest_update_id}`} className="rounded border border-cyan-900 px-2 py-0.5 text-cyan-300">Review</Link>
             )}
           </div>
-        ) : task.latest_update_id ? (
-          <Link href={`/daily-updates/${task.latest_update_id}`} className="text-cyan-400 hover:underline">Review update</Link>
-        ) : null}
       </td>
+      )}
     </tr>
   );
 }
@@ -711,7 +756,7 @@ function TimelineBar({
   const width = Math.max(1.5, right - left);
   const todayLeft = offsetPct(new Date().toISOString().slice(0, 10), min, span);
   return (
-    <div className="relative h-6 overflow-hidden rounded bg-slate-950">
+    <div className="pointer-events-none relative h-6 select-none overflow-hidden rounded bg-slate-950">
       {today && <span className="absolute inset-y-0 w-px bg-cyan-400/70" style={{ left: `${todayLeft}%` }} />}
       {milestone ? (
         <span className="absolute top-1 h-3.5 w-3.5 rotate-45 border border-cyan-400 bg-cyan-300" style={{ left: `calc(${left}% - 7px)` }} />

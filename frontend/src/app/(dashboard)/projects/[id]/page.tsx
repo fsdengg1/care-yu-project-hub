@@ -5,16 +5,48 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Bot, ShieldAlert } from 'lucide-react';
 import { ProjectsApi } from '@/lib/projectsApi';
-import { formatInrCompact, formatLongDate, WORK_STATUS_LABELS } from '@/lib/format';
+import { TasksApi } from '@/lib/tasksApi';
+import {
+  ESCALATION_LEVEL_LABELS,
+  formatDateTime,
+  formatInrCompact,
+  formatLongDate,
+  PROJECT_ACTION_SUCCESS,
+  TASK_STATUS_LABELS,
+  WORK_STATUS_LABELS,
+} from '@/lib/format';
 import { StorageService } from '@/lib/storage';
 import { canOpenProjectGantt } from '@/lib/rbac';
-import { ProjectDetailPayload, ProjectStatus, User } from '@/lib/types';
+import { ProjectDetailPayload, ProjectStatus, Task, User } from '@/lib/types';
+import ProjectWorkflowBanner from '@/components/projects/ProjectWorkflowBanner';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
+import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 
 function healthClass(health: string) {
   if (health === 'CRITICAL') return 'border-rose-800 bg-rose-950 text-rose-300';
   if (health === 'AT_RISK') return 'border-amber-800 bg-amber-950 text-amber-300';
   return 'border-emerald-800 bg-emerald-950 text-emerald-300';
 }
+
+const INTAKE_FIELDS: Array<[string, string]> = [
+  ['title', 'Project title'],
+  ['customer_name', 'Customer'],
+  ['customer_contact_name', 'Contact name'],
+  ['customer_contact_email', 'Contact email'],
+  ['customer_contact_phone', 'Contact phone'],
+  ['customer_location', 'Location'],
+  ['industry', 'Industry'],
+  ['project_type', 'Project type'],
+  ['estimated_opportunity_value', 'Opportunity value'],
+  ['customer_target_date', 'Target date'],
+  ['scope_summary', 'Scope'],
+  ['requirements_summary', 'Requirements'],
+  ['technical_notes', 'Technical notes'],
+  ['dependencies', 'Dependencies'],
+  ['pm_instructions', 'PM instructions'],
+  ['project_goals', 'Project goals'],
+  ['timeline_notes', 'Timeline'],
+];
 
 export default function ProjectDetailPage() {
   const params = useParams<{ id: string }>();
@@ -32,6 +64,16 @@ export default function ProjectDetailPage() {
   const [assigneeId, setAssigneeId] = useState('');
   const [intakeComment, setIntakeComment] = useState('');
   const [tlComment, setTlComment] = useState('');
+  const [monitorComment, setMonitorComment] = useState('');
+  const [taskBusy, setTaskBusy] = useState<string | null>(null);
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    priority: 'Medium',
+    due_date: '',
+    assigned_to_id: '',
+    depends_on_id: '',
+  });
 
   const load = async () => {
     const payload = await ProjectsApi.get(params.id);
@@ -57,6 +99,35 @@ export default function ProjectDetailPage() {
   if (!detail) return null;
 
   const project = detail.project;
+  const workflow = detail.workflow;
+  const intake = (project.intake_form || {}) as Record<string, unknown>;
+  const allTasks = detail.tasks || [];
+  const memberOnly = Boolean(
+    user &&
+      !detail.canManage &&
+      user.role_code !== 'TEAM_LEAD' &&
+      !['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)
+  );
+  const visibleTasks = memberOnly ? allTasks.filter((task) => task.assigned_to_id === user?.id) : allTasks;
+  const doneCount = allTasks.filter((task) => task.status === 'DONE' && task.review_status !== 'PENDING_TL_REVIEW').length;
+  const taskProgress = allTasks.length ? Math.round((doneCount / allTasks.length) * 100) : project.progress;
+
+  const run = async (fn: () => Promise<void>) => {
+    setError(null);
+    await fn();
+  };
+
+  const updateTask = async (task: Task, body: Parameters<typeof TasksApi.update>[1], success: string) => {
+    setTaskBusy(task.id);
+    const result = await TasksApi.update(task.id, body);
+    setTaskBusy(null);
+    if (!result.ok) {
+      setError(result.message);
+      return;
+    }
+    setMessage(success);
+    await load();
+  };
 
   return (
     <div className="space-y-6 text-xs">
@@ -87,18 +158,23 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
+      <ProjectWorkflowBanner workflow={workflow} message={message} error={error} />
+
+      {user && canOpenProjectGantt(user, project) && <ProjectGanttPanel user={user} projectId={project.id} />}
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Project ID" value={project.code} />
         <Field label="Lead ID" value={project.lead_number || project.lead_id || '—'} href={project.lead_id ? `/pre-sales/leads/${project.lead_id}` : undefined} />
         <Field label="Project Manager" value={project.pm_name} />
         <Field label="Team Lead" value={project.team_lead_name || '—'} />
         <Field label="Assigned member" value={project.assigned_member_name || '—'} />
-        <Field label="Workflow" value={(detail.actions?.intake_status || project.intake_status || 'IN_EXECUTION').replace(/_/g, ' ')} />
+        <Field label="Assigned by" value={project.assigned_by_name ? `${project.assigned_by_name} · ${formatDateTime(project.assigned_at)}` : '—'} />
         <Field label="Project value" value={formatInrCompact(project.value || 0)} />
         <Field label="Start date" value={formatLongDate(project.start_date)} />
         <Field label="Target completion" value={formatLongDate(project.target_completion)} />
-        <Field label="Overall progress" value={`${project.progress}%`} />
+        <Field label="Overall progress" value={`${taskProgress}%`} />
         <Field label="Health" value={project.health.replace('_', ' ')} />
+        <Field label="Monitor" value={project.monitor_status === 'ISSUE_IDENTIFIED' ? 'Issue / Blocker Identified' : project.monitor_status === 'ON_TRACK' ? 'On Track' : '—'} />
       </div>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
@@ -119,23 +195,44 @@ export default function ProjectDetailPage() {
         <div className="mt-4">
           <div className="mb-1 flex items-center justify-between text-slate-400">
             <span>Progress</span>
-            <span className="text-slate-100">{project.progress}%</span>
+            <span className="text-slate-100">{taskProgress}%</span>
           </div>
           <div className="h-2 overflow-hidden rounded bg-slate-800">
             <div
               className={`h-full ${project.health === 'CRITICAL' ? 'bg-rose-500' : project.health === 'AT_RISK' ? 'bg-amber-400' : 'bg-emerald-500'}`}
-              style={{ width: `${project.progress}%` }}
+              style={{ width: `${taskProgress}%` }}
             />
           </div>
         </div>
       </section>
 
-      {(detail.actions?.canAssign || detail.actions?.canIntake || detail.actions?.canTlReview || (detail.actions?.canEscalate && !detail.canManage)) && (
+      {(Object.keys(intake).length > 0 || project.source === 'DIRECT_CREATE') && (
+        <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+          <h2 className="mb-3 text-sm font-bold text-slate-100">Project scope & requirements</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {INTAKE_FIELDS.map(([key, label]) => {
+              const value = intake[key];
+              if (value === undefined || value === null || value === '') return null;
+              return <Field key={key} label={label} value={String(value)} />;
+            })}
+          </div>
+          {project.intake_comment && (
+            <p className="mt-3 rounded border border-slate-800 bg-slate-950/60 p-2 text-slate-300">Latest comment: {project.intake_comment}</p>
+          )}
+        </section>
+      )}
+
+      <EntityDocumentUpload
+        entityType="PROJECT"
+        entityId={project.id}
+        canEdit={Boolean(detail.canManage || user?.role_code === 'TEAM_LEAD')}
+        ensureEntity={async () => project.id}
+        title="Documents"
+      />
+
+      {(detail.actions?.canAssign || detail.actions?.canIntake || detail.actions?.canTlReview || (detail.actions?.canEscalate && !detail.canManage) || detail.actions?.canMonitor || detail.actions?.canBreakdown) && (
         <section className="space-y-4 rounded-xl border border-cyan-900/50 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">Execution workflow</h2>
-          {project.intake_comment && (
-            <p className="rounded border border-slate-800 bg-slate-950/60 p-2 text-slate-300">Latest comment: {project.intake_comment}</p>
-          )}
           {detail.actions?.canAssign && (
             <div className="space-y-2">
               <p className="text-slate-400">Assign to a Team Lead (review required) or directly to a Team Member. You stay the Project Manager.</p>
@@ -150,7 +247,7 @@ export default function ProjectDetailPage() {
                 </select>
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => void run(async () => {
                     if (!assigneeId) {
                       setError('Select who should own execution.');
                       return;
@@ -160,9 +257,9 @@ export default function ProjectDetailPage() {
                       setError(result.message);
                       return;
                     }
-                    setMessage('Project assigned. You retain PM ownership and visibility.');
+                    setMessage(PROJECT_ACTION_SUCCESS.assigned);
                     await load();
-                  }}
+                  })}
                   className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
                 >
                   Assign project
@@ -172,38 +269,133 @@ export default function ProjectDetailPage() {
           )}
           {detail.actions?.canIntake && (
             <div className="space-y-2">
-              <p className="text-slate-400">Review scope, timeline, and PM instructions. Accept to break into tasks, or return with comments.</p>
+              <p className="text-slate-400">Review scope, requirements, documents, timeline, dependencies, and PM instructions. Accept to break into tasks, or return with comments.</p>
               <textarea rows={2} value={intakeComment} onChange={(e) => setIntakeComment(e.target.value)} placeholder="Comments (required if returning)" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => void run(async () => {
                     const result = await ProjectsApi.intake(project.id, 'accept', intakeComment);
                     if (!result.ok) {
                       setError(result.message);
                       return;
                     }
-                    setMessage('Project accepted. Create tasks in My Assigned Work or Gantt.');
+                    setMessage(PROJECT_ACTION_SUCCESS.accepted);
                     await load();
-                  }}
+                  })}
                   className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
                 >
-                  Accept project
+                  Accept Project
                 </button>
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => void run(async () => {
                     const result = await ProjectsApi.intake(project.id, 'return', intakeComment);
                     if (!result.ok) {
                       setError(result.message);
                       return;
                     }
-                    setMessage('Project returned to the Project Manager.');
+                    setMessage(PROJECT_ACTION_SUCCESS.returned);
                     await load();
-                  }}
+                  })}
                   className="rounded-lg border border-amber-800 bg-amber-950 px-4 py-2 font-bold text-amber-100 hover:bg-amber-900"
                 >
-                  Return to PM
+                  Return / Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {detail.actions?.canBreakdown && (
+            <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <h3 className="font-bold text-slate-100">Task breakdown & assignment</h3>
+              <div className="grid gap-2 md:grid-cols-2">
+                <input value={taskForm.title} onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })} placeholder="Task name" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+                <select value={taskForm.assigned_to_id} onChange={(e) => setTaskForm({ ...taskForm, assigned_to_id: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                  <option value="">Assigned team member</option>
+                  {(detail.assignableUsers || []).map((item) => (
+                    <option key={item.id} value={item.id}>{item.name} · {item.role_name}</option>
+                  ))}
+                </select>
+                <input value={taskForm.description} onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })} placeholder="Description" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100 md:col-span-2" />
+                <select value={taskForm.priority} onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
+                  <option>Low</option>
+                  <option>Medium</option>
+                  <option>High</option>
+                  <option>Critical</option>
+                </select>
+                <input type="date" value={taskForm.due_date} onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+                <select value={taskForm.depends_on_id} onChange={(e) => setTaskForm({ ...taskForm, depends_on_id: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100 md:col-span-2">
+                  <option value="">No dependency</option>
+                  {allTasks.map((task) => (
+                    <option key={task.id} value={task.id}>{task.title}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => void run(async () => {
+                  if (!taskForm.title.trim() || !taskForm.assigned_to_id) {
+                    setError('Task name and assigned team member are required.');
+                    return;
+                  }
+                  const result = await TasksApi.create({
+                    title: taskForm.title.trim(),
+                    description: taskForm.description,
+                    task_type: 'PROJECT_TASK',
+                    project_id: project.id,
+                    assigned_to_id: taskForm.assigned_to_id,
+                    due_date: taskForm.due_date || undefined,
+                    priority: taskForm.priority,
+                    depends_on_id: taskForm.depends_on_id || undefined,
+                  });
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setTaskForm({ title: '', description: '', priority: 'Medium', due_date: '', assigned_to_id: '', depends_on_id: '' });
+                  setMessage(PROJECT_ACTION_SUCCESS.taskAssigned);
+                  await load();
+                })}
+                className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
+              >
+                Assign task
+              </button>
+            </div>
+          )}
+          {detail.actions?.canMonitor && (
+            <div className="space-y-2">
+              <p className="text-slate-400">Review task progress, daily updates, quality, issues, and overall health.</p>
+              <textarea rows={2} value={monitorComment} onChange={(e) => setMonitorComment(e.target.value)} placeholder="Comments required if an issue/blocker is identified" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void run(async () => {
+                    const result = await ProjectsApi.monitor(project.id, 'ON_TRACK', monitorComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage(PROJECT_ACTION_SUCCESS.onTrack);
+                    await load();
+                  })}
+                  className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
+                >
+                  On Track
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void run(async () => {
+                    const result = await ProjectsApi.monitor(project.id, 'ISSUE_IDENTIFIED', monitorComment);
+                    if (!result.ok) {
+                      setError(result.message);
+                      return;
+                    }
+                    setMessage(PROJECT_ACTION_SUCCESS.issueIdentified);
+                    await load();
+                  })}
+                  className="rounded-lg border border-amber-800 bg-amber-950 px-4 py-2 font-bold text-amber-100 hover:bg-amber-900"
+                >
+                  Issue / Blocker Identified
                 </button>
               </div>
             </div>
@@ -214,15 +406,15 @@ export default function ProjectDetailPage() {
               <textarea rows={2} value={tlComment} onChange={(e) => setTlComment(e.target.value)} placeholder="Final review notes" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => void run(async () => {
                   const result = await ProjectsApi.tlReview(project.id, tlComment);
                   if (!result.ok) {
                     setError(result.message);
                     return;
                   }
-                  setMessage('Final review sent to the Project Manager.');
+                  setMessage(PROJECT_ACTION_SUCCESS.tlReview);
                   await load();
-                }}
+                })}
                 className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
                 Submit Team Lead review
@@ -235,15 +427,15 @@ export default function ProjectDetailPage() {
               <input value={escImpact} onChange={(e) => setEscImpact(e.target.value)} placeholder="Impact" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => void run(async () => {
                   const result = await ProjectsApi.escalate(project.id, { issue: escIssue, impact: escImpact, severity: 'HIGH' });
                   if (!result.ok) {
                     setError(result.message);
                     return;
                   }
-                  setMessage('Escalation raised to the next level.');
+                  setMessage(PROJECT_ACTION_SUCCESS.escalated);
                   await load();
-                }}
+                })}
                 className="inline-flex items-center gap-1 rounded-lg border border-rose-800 bg-rose-950 px-4 py-2 font-bold text-rose-200 hover:bg-rose-900"
               >
                 <ShieldAlert className="h-3.5 w-3.5" /> Escalate issue
@@ -252,6 +444,76 @@ export default function ProjectDetailPage() {
           )}
         </section>
       )}
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-100">Tasks</h2>
+          <span className="text-slate-400">{doneCount}/{allTasks.length || 0} complete · {taskProgress}%</span>
+        </div>
+        {visibleTasks.length === 0 && <p className="text-slate-500">No tasks assigned yet.</p>}
+        <div className="space-y-2">
+          {visibleTasks.map((task) => {
+            const isAssignee = user?.id === task.assigned_to_id;
+            const busy = taskBusy === task.id;
+            return (
+              <div key={task.id} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="font-semibold text-slate-100">{task.title}</div>
+                    <div className="text-slate-400">{task.description || '—'}</div>
+                    <div className="mt-1 text-slate-500">
+                      {task.assigned_to} · {TASK_STATUS_LABELS[task.review_status === 'PENDING_TL_REVIEW' ? 'PENDING_TL_REVIEW' : task.status] || task.status}
+                      {task.priority ? ` · ${task.priority}` : ''}
+                      {task.due_date ? ` · due ${formatLongDate(task.due_date)}` : ''}
+                    </div>
+                    {task.blocked_reason && <div className="mt-1 text-rose-300">Issue: {task.blocked_reason}</div>}
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {isAssignee && task.status === 'TODO' && (
+                      <button disabled={busy} onClick={() => void updateTask(task, { status: 'IN_PROGRESS' }, 'Work in progress')} className="rounded border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60">Work in Progress</button>
+                    )}
+                    {isAssignee && task.status !== 'DONE' && task.review_status !== 'PENDING_TL_REVIEW' && (
+                      <>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const reason = window.prompt('Describe the issue or doubt') || '';
+                            if (!reason.trim()) return;
+                            void updateTask(task, { status: 'BLOCKED', blocked_reason: reason.trim() }, 'Issue / doubt raised');
+                          }}
+                          className="rounded border border-amber-800 px-2.5 py-1 font-bold text-amber-100 hover:bg-amber-950 disabled:opacity-60"
+                        >
+                          Issue / Doubt
+                        </button>
+                        <button disabled={busy} onClick={() => void updateTask(task, { status: 'DONE' }, PROJECT_ACTION_SUCCESS.taskCompleted)} className="rounded bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60">Completed</button>
+                      </>
+                    )}
+                    {user?.role_code === 'TEAM_LEAD' && task.review_status === 'PENDING_TL_REVIEW' && (
+                      <>
+                        <button disabled={busy} onClick={() => void updateTask(task, { review_action: 'approve' }, PROJECT_ACTION_SUCCESS.taskCompleted)} className="rounded bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60">Validate complete</button>
+                        <button
+                          disabled={busy}
+                          onClick={() => {
+                            const comments = window.prompt('Comments for send-back') || '';
+                            if (!comments.trim()) return;
+                            void updateTask(task, { review_action: 'return', review_comments: comments.trim() }, 'Task returned for correction');
+                          }}
+                          className="rounded border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
+                        >
+                          Send back
+                        </button>
+                      </>
+                    )}
+                    {isAssignee && (
+                      <Link href={`/daily-updates/new?assignment=${encodeURIComponent(task.id)}`} className="rounded bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500">Daily update</Link>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <h2 className="mb-3 text-sm font-bold text-slate-100">Team</h2>
@@ -318,7 +580,39 @@ export default function ProjectDetailPage() {
             ))}
           </div>
         </div>
+        {(detail.dailyUpdates || []).length > 0 && (
+          <div className="mt-4">
+            <h3 className="mb-2 font-semibold text-slate-200">Update history</h3>
+            {detail.dailyUpdates!.map((item) => (
+              <Link key={item.id} href={`/daily-updates/${item.id}`} className="mb-2 block rounded border border-slate-800 p-2 text-slate-300 hover:border-cyan-800">
+                {formatLongDate(item.work_date)} · {item.user_name} · {WORK_STATUS_LABELS[item.work_status] || item.work_status} · {item.progress_percent}% · {item.work_completed || item.task_title}
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
+
+      {detail.escalations.length > 0 && (
+        <section className="rounded-xl border border-rose-900/40 bg-slate-900/90 p-5">
+          <h2 className="mb-3 text-sm font-bold text-slate-100">Escalation history</h2>
+          {detail.escalations.map((item) => (
+            <Link key={item.id} href={`/dashboard/ceo/escalations/${item.id}`} className="mb-3 block rounded-lg border border-slate-800 bg-slate-950/60 p-3 hover:border-rose-800">
+              <div className="font-semibold text-slate-100">{item.code} · {item.issue}</div>
+              <div className="text-slate-400">
+                {ESCALATION_LEVEL_LABELS[item.current_level] || item.current_level} · {item.status === 'RESOLVED' ? 'Resolved' : 'Open'}
+                {item.raised_by_name ? ` · raised by ${item.raised_by_name}` : ''}
+                {` · ${formatDateTime(item.created_at)}`}
+              </div>
+              {(item.history || []).map((event) => (
+                <div key={event.id} className="mt-1 text-slate-500">
+                  {event.action} · {ESCALATION_LEVEL_LABELS[event.level] || event.level} · {event.actor_name} · {formatDateTime(event.at)}
+                  {event.comments ? ` · ${event.comments}` : ''}
+                </div>
+              ))}
+            </Link>
+          ))}
+        </section>
+      )}
 
       {detail.delayedMilestones.length > 0 && (
         <section className="rounded-xl border border-amber-900/50 bg-amber-950/20 p-5">
@@ -332,10 +626,46 @@ export default function ProjectDetailPage() {
       {detail.canManage && (
         <section className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <h2 className="text-sm font-bold text-slate-100">PM controls</h2>
-          <p className="text-slate-500">Overall progress is calculated from Gantt tasks. Approve handover after Team Lead final review, then close the project. Open escalations and in-progress tasks block closure.</p>
+          <p className="text-slate-500">Overall progress is calculated from tasks. Approve handover after Team Lead final review, then close the project. Open escalations and incomplete tasks block closure.</p>
           <Link href={`/projects/planning?project=${project.id}`} className="inline-flex rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500">
             Open Gantt & Planning
           </Link>
+          <div className="flex flex-wrap gap-2">
+            {detail.actions?.canHandover && (
+              <button
+                type="button"
+                onClick={() => void run(async () => {
+                  const result = await ProjectsApi.patch(project.id, { status: 'HANDOVER' });
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage(PROJECT_ACTION_SUCCESS.approved);
+                  await load();
+                })}
+                className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
+              >
+                Approve handover
+              </button>
+            )}
+            {detail.actions?.canComplete && (
+              <button
+                type="button"
+                onClick={() => void run(async () => {
+                  const result = await ProjectsApi.patch(project.id, { status: 'COMPLETED' });
+                  if (!result.ok) {
+                    setError(result.message);
+                    return;
+                  }
+                  setMessage(PROJECT_ACTION_SUCCESS.completed);
+                  router.push('/projects/active');
+                })}
+                className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
+              >
+                Complete project
+              </button>
+            )}
+          </div>
           <div className="grid gap-3 md:grid-cols-3">
             <label className="block">
               <span className="mb-1 block text-slate-400">Status</span>
@@ -362,7 +692,7 @@ export default function ProjectDetailPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={async () => {
+              onClick={() => void run(async () => {
                 const result = await ProjectsApi.patch(project.id, {
                   status,
                   current_phase: phase,
@@ -374,13 +704,13 @@ export default function ProjectDetailPage() {
                   return;
                 }
                 setRemark('');
-                setMessage('Project updated. Progress is calculated from the Gantt task plan.');
+                setMessage(status === 'COMPLETED' ? PROJECT_ACTION_SUCCESS.completed : status === 'HANDOVER' ? PROJECT_ACTION_SUCCESS.approved : 'Project updated.');
                 if (status === 'COMPLETED') {
                   router.push('/projects/active');
                   return;
                 }
                 await load();
-              }}
+              })}
               className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
             >
               Save project status
@@ -388,7 +718,7 @@ export default function ProjectDetailPage() {
             {project.issue && (
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => void run(async () => {
                   const result = await ProjectsApi.patch(project.id, { issue: null });
                   if (!result.ok) {
                     setError(result.message);
@@ -396,7 +726,7 @@ export default function ProjectDetailPage() {
                   }
                   setMessage('Blocker cleared.');
                   await load();
-                }}
+                })}
                 className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 font-bold text-slate-100 hover:bg-slate-700"
               >
                 Resolve blocker
@@ -409,15 +739,15 @@ export default function ProjectDetailPage() {
           </div>
           <button
             type="button"
-            onClick={async () => {
+            onClick={() => void run(async () => {
               const result = await ProjectsApi.escalate(project.id, { issue: escIssue, impact: escImpact, severity: 'HIGH' });
               if (!result.ok) {
                 setError(result.message);
                 return;
               }
-              setMessage('Escalation raised.');
+              setMessage(PROJECT_ACTION_SUCCESS.escalated);
               await load();
-            }}
+            })}
             className="inline-flex items-center gap-1 rounded-lg border border-rose-800 bg-rose-950 px-4 py-2 font-bold text-rose-200 hover:bg-rose-900"
           >
             <ShieldAlert className="h-3.5 w-3.5" /> Escalate issue
@@ -439,12 +769,6 @@ export default function ProjectDetailPage() {
         ))}
         {detail.activity.length === 0 && <p className="text-slate-500">No project activity yet.</p>}
       </section>
-
-      {(message || error) && (
-        <div className={`rounded-xl border px-4 py-3 ${error ? 'border-rose-900 bg-rose-950/40 text-rose-300' : 'border-emerald-900 bg-emerald-950/30 text-emerald-300'}`}>
-          {error || message}
-        </div>
-      )}
     </div>
   );
 }

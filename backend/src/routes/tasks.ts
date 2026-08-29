@@ -39,7 +39,9 @@ router.get('/:id', requireAuth, (req: AuthedRequest, res) => {
 router.patch('/:id', requireAuth, (req: AuthedRequest, res) => {
   const result = updateWorkTask(req.user!, paramId(req), req.body || {});
   if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'Task not found.' });
-  if ('error' in result) return res.status(403).json({ message: 'You do not have permission to view this project.' });
+  if ('error' in result) {
+    return res.status(result.status || 403).json({ message: result.error === 'forbidden' ? 'You do not have permission to update this task.' : result.error });
+  }
   return res.json({ task: result.task });
 });
 

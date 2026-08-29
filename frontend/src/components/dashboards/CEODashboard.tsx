@@ -14,6 +14,7 @@ import { User, CeoDashboardPayload } from '@/lib/types';
 import { apiRequest } from '@/lib/api';
 import { formatClock, formatInrCompact, formatRelativeTime } from '@/lib/format';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
+import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 
 interface DashboardProps {
   user: User;
@@ -175,6 +176,8 @@ export default function CEODashboard({ user }: DashboardProps) {
           </div>
         </Link>
       </div>
+
+      <ProjectGanttPanel user={user} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">

@@ -24,7 +24,8 @@ export function canAccessEntity(user: User, entityType: EntityDocument['entity_t
       lead.assigned_member_id === user.id ||
       lead.responsible_user_id === user.id ||
       lead.pm_id === user.id ||
-      Boolean(user.team_id && user.team_id === lead.assigned_team_id)
+      Boolean(user.team_id && user.team_id === lead.assigned_team_id) ||
+      Boolean(user.team_id && (lead.assigned_team_ids || []).includes(user.team_id))
     );
   }
   if (entityType === 'PROJECT') {
