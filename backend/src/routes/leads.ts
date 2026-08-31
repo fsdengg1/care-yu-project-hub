@@ -23,6 +23,7 @@ import {
   canOwnLead,
   canPrepareCosting,
   canPrepareFeasibility,
+  canPrepareQuotation,
   handLeadToBusinessHead,
   handLeadToProcurement,
   approveLeadForAssignment,
@@ -1021,11 +1022,13 @@ router.post(
     const user = req.user!;
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
-    if (!canHandleLeadCommercial(user, lead)) {
-      return forbidden(res);
-    }
     if (lead.status !== 'QUOTATION' && lead.status !== 'NEGOTIATION') {
       return res.status(400).json({ message: 'Quotation can be prepared only after costing is approved.' });
+    }
+    if (!canPrepareQuotation(user, lead)) {
+      return res.status(403).json({
+        message: 'Only the lead creator can prepare this quotation. The quotation owner is assigned automatically from who created the lead.',
+      });
     }
     const send = Boolean(req.body?.send);
     const incoming = { ...(lead.quotation || emptyQuotation()), ...(req.body?.quotation || {}) } as QuotationRecord;

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
-import { canHandleLeadCommercial, canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
+import { canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, canPrepareQuotation, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
 import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS, workflowStatusPresentation } from '@/lib/format';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
@@ -50,7 +50,11 @@ const emptyCost = (lead: Lead): CostingRecord => ({
 
 export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpdated }: Props) {
   const isPM = canPerformPmOperations(currentUser);
-  const canQuote = canHandleLeadCommercial(currentUser, lead);
+  const canQuote = canPrepareQuotation(currentUser, lead);
+  const quotationOwnerName = lead.created_by || lead.sales_owner || 'Lead creator';
+  const quotationOwnerRole =
+    lead.created_by_role ||
+    (lead.business_vertical === 'Engineering Director' ? 'Engineering Director' : 'Business Head');
   const isOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
     || currentUser.role_code === 'BUSINESS_HEAD'
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
@@ -456,6 +460,22 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'reject', returnReason.trim()), 'Unable to reject procurement.', 'reject')} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Reject</button>
           </div>
+        </div>
+      )}
+
+      {['QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-xs">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Quotation owner</div>
+          <div className="mt-1 font-semibold text-slate-100">
+            {quotationOwnerName}
+            <span className="ml-2 font-normal text-slate-400">({quotationOwnerRole})</span>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Assigned automatically from the lead creator. This person cannot be selected manually.
+            {lead.created_by_id !== currentUser.id && currentUser.role_code !== 'SYSTEM_ADMIN'
+              ? ' Only this owner can prepare or send the quotation.'
+              : ''}
+          </p>
         </div>
       )}
 

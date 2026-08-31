@@ -136,26 +136,40 @@ async function main() {
       : `OK via System Admin workaround (${costingActor.name}). No PROCUREMENT user exists for a true actor demo.`;
   }
 
+  const quotationOwner = store.findUserById(lead.created_by_id) || sales!;
+
   if (lead.status === 'COSTING_SUBMITTED') {
     lead = transitionLead(lead, 'QUOTATION', pm!, 'Costing approved', {
       costing: emptyCosting({ ...(lead.costing || {}), status: 'APPROVED', pm_approved_by: pm!.name }),
     });
     lead = handLeadToBusinessHead(lead, pm!, 'Costing approved — ready for quotation');
-    assert(bh, 'Business Head is required for quotation');
-    assert(canHandleLeadCommercial(bh!, lead), 'Business Head must handle quotation even if Engineering Director created the lead');
-    assert(canPrepareQuotation(bh!, lead), 'Business Head must see quotation actions');
-    report.step7 = `OK — PM approved costing and handed quotation to ${lead.current_owner_name || bh!.name}`;
+    const otherCommercial = quotationOwner.role_code === 'ENG_DIRECTOR' ? bh : users.find((user) => user.role_code === 'ENG_DIRECTOR');
+    assert(canHandleLeadCommercial(quotationOwner, lead), 'Lead creator must handle that lead quotation');
+    assert(canPrepareQuotation(quotationOwner, lead), 'Lead creator must see quotation actions');
+    if (otherCommercial && otherCommercial.id !== quotationOwner.id) {
+      assert(
+        !canPrepareQuotation(otherCommercial, lead),
+        'The other commercial role must not create this lead quotation'
+      );
+    }
+    assert(lead.responsible_user_id === quotationOwner.id || lead.current_owner_id === quotationOwner.id, 'Quotation must be handed to the lead creator');
+    report.step7 = `OK — PM approved costing and handed quotation to ${lead.current_owner_name || quotationOwner.name} (lead creator)`;
   } else {
     report.step7 = 'SKIPPED — waiting on costing submit';
   }
 
   if (lead.status === 'QUOTATION') {
-    lead = transitionLead(lead, 'NEGOTIATION', bh!, 'Quotation sent to customer', {
-      quotation: emptyQuotation({ quotation_value: 600000, sent_at: now, sent_by: bh!.name, sent_by_id: bh!.id }),
+    lead = transitionLead(lead, 'NEGOTIATION', quotationOwner, 'Quotation sent to customer', {
+      quotation: emptyQuotation({
+        quotation_value: 600000,
+        sent_at: now,
+        sent_by: quotationOwner.name,
+        sent_by_id: quotationOwner.id,
+      }),
     });
-    report.step8 = `OK — Quotation sent by ${bh!.name}`;
+    report.step8 = `OK — Quotation sent by ${quotationOwner.name}`;
     report.step9 = 'OK — Moved to negotiation';
-    const converted = convertLeadToProject(lead, bh!);
+    const converted = convertLeadToProject(lead, quotationOwner);
     lead = converted.lead;
     assert(lead.status === 'ORDER_CONVERTED', `Step 10 expected ORDER_CONVERTED, got ${lead.status}`);
     report.step10 = `OK — Converted to ${converted.project.code}`;

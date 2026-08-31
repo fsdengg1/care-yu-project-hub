@@ -37,6 +37,26 @@ const LEAD_STAGE_RESPONSIBLE_ROLE: Record<string, string> = {
   NEGOTIATION: 'BUSINESS_HEAD',
 };
 
+export function quotationOwnerRole(lead?: Lead): 'BUSINESS_HEAD' | 'ENG_DIRECTOR' {
+  if (!lead) return 'BUSINESS_HEAD';
+  const creator = lead.created_by_id ? store.findUserById(lead.created_by_id) : undefined;
+  if (creator?.role_code === 'ENG_DIRECTOR') return 'ENG_DIRECTOR';
+  if (creator?.role_code === 'BUSINESS_HEAD') return 'BUSINESS_HEAD';
+  const createdRole = (lead.created_by_role || '').toLowerCase();
+  if (createdRole.includes('engineering director') || createdRole.includes('eng_director')) return 'ENG_DIRECTOR';
+  if (lead.business_vertical === 'Engineering Director') return 'ENG_DIRECTOR';
+  return 'BUSINESS_HEAD';
+}
+
+export function findQuotationOwner(lead?: Lead): User | undefined {
+  if (!lead) return designatedUserForRole('BUSINESS_HEAD');
+  const creator = lead.created_by_id ? store.findUserById(lead.created_by_id) : undefined;
+  if (isActiveUser(creator) && (creator!.role_code === 'BUSINESS_HEAD' || creator!.role_code === 'ENG_DIRECTOR')) {
+    return creator;
+  }
+  return designatedUserForRole(quotationOwnerRole(lead), lead);
+}
+
 export function userPreferences(user?: User | null): NotificationPreferences {
   return {
     ...DEFAULT_NOTIFICATION_PREFERENCES,
@@ -99,6 +119,9 @@ export function findBusinessHead(lead?: Lead): User | undefined {
 }
 
 export function workflowRoleForLead(lead: Lead): string | undefined {
+  if (lead.status === 'QUOTATION' || lead.status === 'NEGOTIATION' || lead.status === 'LOST') {
+    return quotationOwnerRole(lead);
+  }
   return LEAD_STAGE_RESPONSIBLE_ROLE[lead.status];
 }
 

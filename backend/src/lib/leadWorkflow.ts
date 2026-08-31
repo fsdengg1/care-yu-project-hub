@@ -17,8 +17,8 @@ import {
   User,
 } from '../types.js';
 import {
-  findBusinessHead,
   findPm as resolveProjectManager,
+  findQuotationOwner,
   resolveProjectManagerForAssignment,
   transferLeadResponsibility,
 } from './responsibility.js';
@@ -292,11 +292,9 @@ export function canOwnLead(user: User, lead: Lead): boolean {
 }
 
 export function canHandleLeadCommercial(user: User, lead: Lead): boolean {
-  if (['SYSTEM_ADMIN', 'BUSINESS_HEAD'].includes(user.role_code)) return true;
-  if (!['ENG_DIRECTOR', 'SALES'].includes(user.role_code)) return false;
-  if (lead.created_by_id === user.id || lead.sales_owner_id === user.id) return true;
-  if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
-  return false;
+  if (user.role_code === 'SYSTEM_ADMIN') return true;
+  if (!['BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return false;
+  return lead.created_by_id === user.id;
 }
 
 export function canEditProjectInput(user: User, lead: Lead): boolean {
@@ -337,13 +335,17 @@ export function canPrepareCosting(user: User, lead: Lead): boolean {
 export function canPrepareQuotation(user: User, lead: Lead): boolean {
   if (user.role_code === 'SYSTEM_ADMIN') return true;
   if (!['QUOTATION', 'NEGOTIATION'].includes(lead.status)) return false;
-  return canHandleLeadCommercial(user, lead);
+  if (lead.created_by_id === user.id && ['BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return true;
+  const creator = lead.created_by_id ? store.findUserById(lead.created_by_id) : undefined;
+  if (creator && creator.status === 'ACTIVE') return false;
+  const owner = findQuotationOwner(lead);
+  return owner?.id === user.id;
 }
 
 export function handLeadToBusinessHead(lead: Lead, actor: User, reason = 'Ready for quotation'): Lead {
-  const businessHead = findBusinessHead(lead);
-  if (!businessHead || businessHead.id === leadOwnerId(lead)) return saveLead(lead);
-  const transferred = transferLeadResponsibility(lead, businessHead, actor, reason);
+  const owner = findQuotationOwner(lead);
+  if (!owner || owner.id === leadOwnerId(lead)) return saveLead(lead);
+  const transferred = transferLeadResponsibility(lead, owner, actor, reason);
   return saveLead(transferred.lead);
 }
 
