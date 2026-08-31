@@ -8,6 +8,8 @@ import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import WorkflowStatusBanner, { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
+import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
+import { NotificationsApi } from '@/lib/notificationsApi';
 import { formatRelativeTime, formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
 import { canCreateLead } from '@/lib/rbac';
 import {
@@ -70,6 +72,10 @@ export default function LeadDetailPage() {
 
   // Customer Communication Modal
   const [showActivityModal, setShowActivityModal] = useState(false);
+  const [clientSubject, setClientSubject] = useState('');
+  const [clientMessage, setClientMessage] = useState('');
+  const [clientBusy, setClientBusy] = useState(false);
+  const [clientNotice, setClientNotice] = useState('');
   const [activityForm, setActivityForm] = useState({ activity_type: 'Customer Call' as const, contact_person: '', subject: '', description: '' });
 
   // Document Upload Modal
@@ -481,6 +487,8 @@ export default function LeadDetailPage() {
       </div>
 
       <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} />
+
+      <SmartEmailNotificationPanel entityType="LEAD" entityId={lead.id} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="rounded-xl border border-cyan-800/70 bg-cyan-950/20 p-4 lg:col-span-2">
@@ -968,6 +976,54 @@ export default function LeadDetailPage() {
                   </button>
                 )}
               </div>
+              {(isPM || isSalesOwner) && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3 space-y-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Client / customer email</div>
+                  <p className="text-[11px] text-slate-400">
+                    This sends to {lead.customer_email || 'the customer'} and is kept separate from internal PMS notifications.
+                  </p>
+                  <input
+                    value={clientSubject}
+                    onChange={(e) => setClientSubject(e.target.value)}
+                    placeholder="Subject"
+                    className="w-full rounded border border-slate-800 bg-slate-900 p-2 text-slate-100"
+                  />
+                  <textarea
+                    rows={3}
+                    value={clientMessage}
+                    onChange={(e) => setClientMessage(e.target.value)}
+                    placeholder="Message to the customer"
+                    className="w-full rounded border border-slate-800 bg-slate-900 p-2 text-slate-100"
+                  />
+                  {clientNotice && <div className="text-xs text-emerald-300">{clientNotice}</div>}
+                  <button
+                    type="button"
+                    disabled={clientBusy || !clientSubject.trim() || !clientMessage.trim() || !lead.customer_email}
+                    onClick={async () => {
+                      setClientBusy(true);
+                      setClientNotice('');
+                      const result = await NotificationsApi.sendClientEmail({
+                        entityType: 'LEAD',
+                        entityId: lead.id,
+                        subject: clientSubject.trim(),
+                        message: clientMessage.trim(),
+                        type: 'CLIENT_LEAD_EMAIL',
+                      });
+                      setClientBusy(false);
+                      if (!result.ok) {
+                        setActionError(result.message);
+                        return;
+                      }
+                      setClientSubject('');
+                      setClientMessage('');
+                      setClientNotice('Customer email sent. It appears under Client emails in Notifications.');
+                    }}
+                    className="flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-amber-500 disabled:opacity-50"
+                  >
+                    <Send className="h-3.5 w-3.5" /> Send customer email
+                  </button>
+                </div>
+              )}
               {activities.length === 0 ? <div className="p-8 text-center text-slate-500">No activities logged yet.</div> : (
                 <div className="space-y-3">
                   {activities.map(a => (

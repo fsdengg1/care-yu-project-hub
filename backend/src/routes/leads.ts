@@ -1017,7 +1017,7 @@ router.post(
   '/:id/quotation',
   requireAuth,
   requirePermission('create:quotation', 'edit:lead', 'create:lead'),
-  (req: AuthedRequest, res) => {
+  async (req: AuthedRequest, res) => {
     const user = req.user!;
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
@@ -1055,6 +1055,26 @@ router.post(
         actor: user,
         message: `${user.name} submitted the quotation. Negotiation can now begin.`,
       });
+      if (updated.customer_email) {
+        await notificationService.notifyClientEmail({
+          actor: user,
+          entityType: 'LEAD',
+          entityId: updated.id,
+          entityName: updated.title,
+          customerName: updated.customer_name,
+          customerEmail: updated.customer_email,
+          customerContact: updated.customer_contact,
+          type: 'CLIENT_PROPOSAL',
+          subject: `Proposal – ${updated.title}`,
+          intro: `${user.name} has sent a commercial proposal for ${updated.title}.`,
+          details: [
+            ['Quotation value', String(quotation.quotation_value || '')],
+            ['Validity', quotation.validity || ''],
+            ['Payment terms', quotation.payment_terms || ''],
+          ],
+          eventKey: `CLIENT_PROPOSAL:${updated.id}:${quotation.sent_at || Date.now()}`,
+        });
+      }
     }
     return res.json(payloadFor(updated));
   }

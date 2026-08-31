@@ -1,7 +1,9 @@
 import { env } from '../config/env.js';
 import { store } from '../store/db.js';
 import {
+  EmailChannel,
   EmailDeliveryStatus,
+  EmailPolicy,
   NotificationDelivery,
   NotificationItem,
   NotificationPreferenceCategory,
@@ -13,8 +15,13 @@ import {
   userPreferences,
 } from './responsibility.js';
 import {
+  appendNotificationHistory,
+  reminderDueAt,
+} from './smartNotifications.js';
+import {
   acceptedEmail,
   assignmentEmail,
+  clientCommunicationEmail,
   digestEmail,
   escalationEmail,
   forwardEmail,
@@ -44,6 +51,9 @@ type NotifyInput = {
   emailSubject: string;
   emailHtml: string;
   emailText: string;
+  emailPolicy?: EmailPolicy;
+  emailChannel?: EmailChannel;
+  stageName?: string;
 };
 
 function findByEventKey(eventKey: string) {
@@ -87,6 +97,8 @@ async function deliverEmail(params: {
     retry_count: 0,
     created_at: now,
     updated_at: now,
+    email_channel: params.input.emailChannel || 'INTERNAL',
+    dispatch_mode: params.input.emailPolicy === 'DEFERRED' ? 'DEFERRED' : 'IMMEDIATE',
   };
   saveDelivery(delivery);
 
@@ -98,6 +110,9 @@ async function deliverEmail(params: {
       subject: params.input.emailSubject,
       htmlContent: params.input.emailHtml,
       text: params.input.emailText,
+      emailChannel: params.input.emailChannel || 'INTERNAL',
+      emailType: params.input.emailType,
+      notificationId: params.notification.id,
     });
     const status: EmailDeliveryStatus = result.status === 'FAILED' ? 'FAILED' : 'SENT';
     saveDelivery({
@@ -152,13 +167,21 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
 
   const prefs = userPreferences(recipient);
   const actionUrl = input.actionUrl || entityActionUrl(input.entityType, input.entityId);
+  const emailChannel: EmailChannel = input.emailChannel || 'INTERNAL';
+  const emailPolicy: EmailPolicy = input.emailPolicy || (emailChannel === 'CLIENT' ? 'IMMEDIATE' : 'DEFERRED');
+  const payload = {
+    subject: input.emailSubject,
+    html: input.emailHtml,
+    text: input.emailText,
+    type: input.emailType,
+  };
   let notification: NotificationItem | undefined;
   const hasEmail = Boolean(recipient.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient.email));
   if (!hasEmail) {
     console.error('[EMAIL] Notification email skipped: recipient email is missing', { userId: recipient.id });
   }
 
-  if (shouldSendInApp(prefs, input.preferenceCategory)) {
+  if (shouldSendInApp(prefs, input.preferenceCategory) || emailChannel === 'CLIENT') {
     try {
       notification = store.appendNotification({
         recipient_id: recipient.id,
@@ -171,11 +194,33 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
         action_url: actionUrl,
         priority: input.priority || 'HIGH',
         event_key: input.eventKey,
-        email_status: 'PENDING',
+        email_status: emailPolicy === 'DEFERRED' ? 'NOT_SENT' : 'PENDING',
+        email_channel: emailChannel,
+        email_policy: emailPolicy,
+        email_dispatch: 'NOT_SENT',
+        notification_status: 'NOT_SENT',
+        reminder_due_at: emailPolicy === 'DEFERRED' ? reminderDueAt() : undefined,
+        stage_name: input.stageName,
+        email_payload: payload,
+        notification_history: [
+          {
+            status: 'NOT_SENT',
+            reason:
+              emailPolicy === 'DEFERRED'
+                ? 'Item assigned in PMS. Email was not sent automatically. Use Send Email Notification for urgent cases.'
+                : 'Notification created.',
+            actor_id: input.senderId,
+            created_at: new Date().toISOString(),
+          },
+        ],
       });
     } catch (error) {
       console.error('[notifications] in-app create failed', error);
     }
+  }
+
+  if (emailPolicy === 'DEFERRED') {
+    return { notification, skipped: false };
   }
 
   if (!hasEmail || !shouldSendEmail(prefs, input.preferenceCategory)) {
@@ -183,7 +228,11 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
       const notifications = store.getNotifications();
       const index = notifications.findIndex((item) => item.id === notification!.id);
       if (index !== -1) {
-        notifications[index] = { ...notifications[index], email_status: 'SKIPPED' };
+        notifications[index] = {
+          ...notifications[index],
+          email_status: 'SKIPPED',
+          email_dispatch: 'SKIPPED',
+        };
         store.saveNotifications(notifications);
         notification = notifications[index];
       }
@@ -205,20 +254,37 @@ export async function notifyUser(input: NotifyInput): Promise<{ notification?: N
       priority: input.priority || 'HIGH',
       event_key: input.eventKey,
       email_status: 'PENDING',
+      email_channel: emailChannel,
+      email_policy: emailPolicy,
+      email_dispatch: 'NOT_SENT',
+      notification_status: 'NOT_SENT',
+      email_payload: payload,
+      stage_name: input.stageName,
       read_status: false,
       created_at: new Date().toISOString(),
     };
   }
 
   try {
-    notification = await deliverEmail({ notification, recipient, input: { ...input, actionUrl } });
+    notification = await deliverEmail({ notification, recipient, input: { ...input, actionUrl, emailChannel, emailPolicy } });
+    if (notification.email_status === 'SENT') {
+      notification =
+        appendNotificationHistory(
+          {
+            ...notification,
+            email_dispatch: 'AUTOMATICALLY_SENT',
+          },
+          'AUTOMATICALLY_SENT',
+          'Email sent immediately by the PMS (reminder, escalation, digest, or client communication).'
+        ) || notification;
+    }
   } catch (error) {
     console.error('[notifications] email failed', error);
     if (notification.id.startsWith('notif-') && store.getNotifications().some((item) => item.id === notification!.id)) {
       const notifications = store.getNotifications();
       const index = notifications.findIndex((item) => item.id === notification!.id);
       if (index !== -1) {
-        notifications[index] = { ...notifications[index], email_status: 'FAILED' };
+        notifications[index] = { ...notifications[index], email_status: 'FAILED', email_dispatch: 'FAILED' };
         store.saveNotifications(notifications);
         notification = notifications[index];
       }
@@ -320,6 +386,9 @@ export async function notifyAssignment(params: {
     emailSubject: email.subject,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'DEFERRED',
+    emailChannel: 'INTERNAL',
+    stageName: params.entityType === 'TASK' ? 'Task Assignment' : 'Lead Assignment',
   });
 }
 
@@ -364,6 +433,9 @@ export async function notifyForward(params: {
     emailSubject: email.subject,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'DEFERRED',
+    emailChannel: 'INTERNAL',
+    stageName: params.entityType === 'TASK' ? 'Task Forward' : 'Lead Forward',
   });
 }
 
@@ -402,6 +474,9 @@ export async function notifyApproval(params: {
     emailSubject: `Approval Required – ${params.entityName}`,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'DEFERRED',
+    emailChannel: 'INTERNAL',
+    stageName: 'Approval',
   });
 }
 
@@ -442,6 +517,9 @@ export async function notifyReminder(params: {
     emailSubject: email.subject,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'IMMEDIATE',
+    emailChannel: 'INTERNAL',
+    stageName: params.stage,
   });
 }
 
@@ -483,6 +561,9 @@ export async function notifyEscalation(params: {
     emailSubject: email.subject,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'IMMEDIATE',
+    emailChannel: 'INTERNAL',
+    stageName: params.stage,
   });
 }
 
@@ -516,7 +597,79 @@ export async function notifyDigest(params: {
     emailSubject: email.subject,
     emailHtml: email.html,
     emailText: email.text,
+    emailPolicy: 'IMMEDIATE',
+    emailChannel: 'INTERNAL',
   });
+}
+
+export async function notifyClientEmail(params: {
+  actor: User;
+  entityType: 'LEAD' | 'PROJECT';
+  entityId: string;
+  entityName: string;
+  customerName: string;
+  customerEmail: string;
+  customerContact?: string;
+  type: Extract<NotificationItem['type'], 'CLIENT_PROPOSAL' | 'CLIENT_LEAD_EMAIL' | 'CLIENT_PROJECT_UPDATE' | 'CLIENT_COMMUNICATION'>;
+  subject: string;
+  intro: string;
+  details?: Array<[string, string]>;
+  eventKey?: string;
+}) {
+  const toEmail = params.customerEmail.trim().toLowerCase();
+  if (!toEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toEmail)) {
+    return { skipped: true as const, error: 'invalid_customer_email' as const };
+  }
+  const email = clientCommunicationEmail({
+    recipientName: params.customerContact || params.customerName,
+    subject: params.subject,
+    title: params.subject,
+    intro: params.intro,
+    details: [
+      ['Customer', params.customerName],
+      ['Item', params.entityName],
+      ...(params.details || []),
+    ],
+  });
+  const now = new Date().toISOString();
+  const result = await sendEmail({
+    toEmail,
+    toName: params.customerContact || params.customerName,
+    subject: email.subject,
+    htmlContent: email.html,
+    text: email.text,
+    emailChannel: 'CLIENT',
+    emailType: params.type,
+  });
+  const notification = store.appendNotification({
+    recipient_id: params.actor.id,
+    sender_id: params.actor.id,
+    type: params.type,
+    title: params.subject,
+    message: `Client email to ${toEmail}: ${params.intro}`,
+    entity_type: params.entityType,
+    entity_id: params.entityId,
+    action_url: entityActionUrl(params.entityType, params.entityId),
+    priority: 'MEDIUM',
+    event_key: params.eventKey || `CLIENT:${params.type}:${params.entityId}:${now}`,
+    email_status: result.status === 'FAILED' ? 'FAILED' : result.status === 'QUEUED' ? 'PENDING' : 'SENT',
+    email_sent_at: result.status === 'SENT' ? now : undefined,
+    email_channel: 'CLIENT',
+    email_policy: 'IMMEDIATE',
+    email_dispatch: result.status === 'FAILED' ? 'FAILED' : 'MANUALLY_SENT',
+    notification_status: result.status === 'FAILED' ? 'NOT_SENT' : 'MANUALLY_SENT',
+    email_payload: { subject: email.subject, html: email.html, text: email.text, type: params.type },
+    notification_history: [
+      {
+        status: result.status === 'FAILED' ? 'NOT_SENT' : 'MANUALLY_SENT',
+        reason: `Client/customer email sent to ${toEmail}.`,
+        actor_id: params.actor.id,
+        actor_name: params.actor.name,
+        created_at: now,
+      },
+    ],
+  });
+  return { notification, skipped: false as const, deliveryStatus: result.status };
 }
 
 export const notificationService = {
@@ -527,5 +680,6 @@ export const notificationService = {
   notifyReminder,
   notifyEscalation,
   notifyDigest,
+  notifyClientEmail,
   retryNotificationEmail,
 };

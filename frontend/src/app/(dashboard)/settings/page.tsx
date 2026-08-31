@@ -459,7 +459,7 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-slate-100">Notifications</h2>
         </div>
         <p className="mb-5 text-sm text-slate-400">
-          Assignment, forward, and approval alerts stay on for critical business events. Reminder emails can be reduced.
+          Internal stage and assignment emails are not sent automatically. Use Send Email Notification on the item when it is urgent. If nobody views or acts within the reminder period, PMS sends an automatic reminder. Client/customer emails stay on a separate list.
         </p>
         <div className="space-y-3">
           {[

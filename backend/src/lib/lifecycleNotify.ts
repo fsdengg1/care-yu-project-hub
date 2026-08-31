@@ -78,6 +78,9 @@ export async function dispatchHandoverAsync(input: HandoverInput) {
       emailSubject: email.subject,
       emailHtml: email.html,
       emailText: email.text,
+      emailPolicy: 'DEFERRED',
+      emailChannel: 'INTERNAL',
+      stageName: input.status,
     });
   }
 }

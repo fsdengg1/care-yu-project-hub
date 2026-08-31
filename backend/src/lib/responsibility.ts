@@ -265,13 +265,17 @@ export function transferTaskResponsibility(
 }
 
 export function markLeadActed(lead: Lead, extra: Partial<Lead> = {}): Lead {
-  return {
+  const next: Lead = {
     ...lead,
     ...extra,
     pending_action: false,
     last_action_at: new Date().toISOString(),
     next_reminder_at: undefined,
   };
+  void import('./smartNotifications.js').then((mod) => {
+    mod.markNotificationsCompleted('LEAD', lead.id);
+  });
+  return next;
 }
 
 export function leadNeedsReminder(lead: Lead) {

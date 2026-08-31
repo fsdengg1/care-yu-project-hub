@@ -108,7 +108,7 @@ export function getPool(): pg.Pool {
 
 export async function ensureSchema(): Promise<void> {
   const { USERS_TABLE_DDL } = await import('./usersTable.js');
-  const { RELATIONAL_TABLES, RELATIONAL_TABLE_NAMES, buildCreateTableSql, migrateJsonCollectionsIfNeeded } = await import(
+  const { RELATIONAL_TABLES, RELATIONAL_TABLE_NAMES, buildCreateTableSql, addMissingColumnSql, migrateJsonCollectionsIfNeeded } = await import(
     './relationalStore.js'
   );
   try {
@@ -131,6 +131,7 @@ export async function ensureSchema(): Promise<void> {
     await client.query(USERS_TABLE_DDL);
     for (const def of RELATIONAL_TABLES) {
       await client.query(buildCreateTableSql(def));
+      await client.query(addMissingColumnSql(def));
     }
     await client.query(`
       COMMENT ON TABLE store_collections IS 'Legacy JSON backup. Live data is stored in relational tables (roles, teams, leads, ...).';

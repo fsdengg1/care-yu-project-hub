@@ -4,6 +4,12 @@ import { store } from '../store/db.js';
 import { Lead, Task, User } from '../types.js';
 import { hoursFromNow, leadNeedsReminder, reportingManagerOf, taskNeedsReminder } from './responsibility.js';
 import { notificationService } from './notificationService.js';
+import {
+  dispatchNotificationEmail,
+  latestDeferredForRecipient,
+  markNotificationsOverdue,
+  recipientHasViewed,
+} from './smartNotifications.js';
 
 let started = false;
 
@@ -39,19 +45,34 @@ async function processLeadReminder(lead: Lead) {
   const owner = store.findUserById(lead.responsible_user_id);
   if (!owner) return;
 
+  const today = todayKey();
+  if (lead.due_date && lead.due_date < today) {
+    markNotificationsOverdue('LEAD', lead.id);
+  }
+
+  const viewed = recipientHasViewed('LEAD', lead.id, owner.id) || Boolean(lead.last_action_at);
+  const deferred = latestDeferredForRecipient('LEAD', lead.id, owner.id);
+  const emailAlreadySent =
+    deferred &&
+    (deferred.email_dispatch === 'MANUALLY_SENT' || deferred.email_dispatch === 'AUTOMATICALLY_SENT' || deferred.email_status === 'SENT');
+
   const count = lead.reminder_count || 0;
   if (count < env.maxReminders) {
     const nextCount = count + 1;
-    await notificationService.notifyReminder({
-      entityType: 'LEAD',
-      entityId: lead.id,
-      entityName: lead.title,
-      recipientUserId: owner.id,
-      stage: lead.pipeline_stage || lead.status,
-      assignedOn: lead.assigned_at,
-      status: lead.status,
-      reminderCount: nextCount,
-    });
+    if (deferred && !emailAlreadySent && !viewed && !deferred.completed_at) {
+      await dispatchNotificationEmail({ notification: deferred, mode: 'AUTOMATIC' });
+    } else if (emailAlreadySent && !lead.last_action_at) {
+      await notificationService.notifyReminder({
+        entityType: 'LEAD',
+        entityId: lead.id,
+        entityName: lead.title,
+        recipientUserId: owner.id,
+        stage: lead.pipeline_stage || lead.status,
+        assignedOn: lead.assigned_at,
+        status: lead.status,
+        reminderCount: nextCount,
+      });
+    }
     saveLead({
       ...lead,
       reminder_count: nextCount,
@@ -89,19 +110,34 @@ async function processTaskReminder(task: Task) {
   const owner = store.findUserById(ownerId);
   if (!owner) return;
 
+  const today = todayKey();
+  if (task.due_date && task.due_date < today) {
+    markNotificationsOverdue('TASK', task.id);
+  }
+
+  const viewed = recipientHasViewed('TASK', task.id, owner.id) || Boolean(task.last_action_at);
+  const deferred = latestDeferredForRecipient('TASK', task.id, owner.id);
+  const emailAlreadySent =
+    deferred &&
+    (deferred.email_dispatch === 'MANUALLY_SENT' || deferred.email_dispatch === 'AUTOMATICALLY_SENT' || deferred.email_status === 'SENT');
+
   const count = task.reminder_count || 0;
   if (count < env.maxReminders) {
     const nextCount = count + 1;
-    await notificationService.notifyReminder({
-      entityType: 'TASK',
-      entityId: task.id,
-      entityName: task.title,
-      recipientUserId: owner.id,
-      stage: task.status,
-      assignedOn: task.created_at,
-      status: task.status,
-      reminderCount: nextCount,
-    });
+    if (deferred && !emailAlreadySent && !viewed && !deferred.completed_at) {
+      await dispatchNotificationEmail({ notification: deferred, mode: 'AUTOMATIC' });
+    } else if (emailAlreadySent && task.status !== 'DONE') {
+      await notificationService.notifyReminder({
+        entityType: 'TASK',
+        entityId: task.id,
+        entityName: task.title,
+        recipientUserId: owner.id,
+        stage: task.status,
+        assignedOn: task.created_at,
+        status: task.status,
+        reminderCount: nextCount,
+      });
+    }
     saveTask({
       ...task,
       reminder_count: nextCount,

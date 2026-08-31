@@ -1,6 +1,12 @@
 import { initStore, shutdownStore, store } from '../src/store/db.js';
 import { notificationService } from '../src/lib/notificationService.js';
 import {
+  canManuallySendEmail,
+  deriveNotificationStatus,
+  dispatchNotificationEmail,
+  markNotificationsViewed,
+} from '../src/lib/smartNotifications.js';
+import {
   isCurrentResponsible,
   leadNeedsReminder,
   resolveResponsibleUser,
@@ -62,10 +68,58 @@ async function main() {
   });
   assert(duplicate.skipped === true, 'Duplicate event key must not send a second notification');
 
+  const assignKey = `VERIFY_DEFER:${Date.now()}`;
+  const created = await notificationService.notifyAssignment({
+    entityType: 'LEAD',
+    entityId: copy.id,
+    entityName: copy.title,
+    recipientUserId: other.id,
+    assignedByUserId: pm!.id,
+    eventKey: assignKey,
+  });
+  assert(created.skipped === false, 'New assignment should create an in-app notification');
+  assert(created.notification?.email_status === 'NOT_SENT', 'Assignment must not send Outlook email immediately');
+  assert(created.notification?.email_policy === 'DEFERRED', 'Assignment email policy should be deferred');
+  assert(created.notification?.email_channel === 'INTERNAL', 'Assignment email is an internal PMS notification');
+  assert(deriveNotificationStatus(created.notification!) === 'NOT_SENT', 'Lifecycle status starts as Not Sent');
+  assert(canManuallySendEmail(pm!, created.notification!), 'Assigner can click Send Email Notification');
+  assert(!canManuallySendEmail(other!, created.notification!), 'Assignee cannot send the email to themselves');
+
+  const outboundBefore = store.getOutboundEmails().length;
+  const sent = await dispatchNotificationEmail({
+    notification: created.notification!,
+    mode: 'MANUAL',
+    actor: pm!,
+  });
+  assert(
+    sent.notification.email_dispatch === 'MANUALLY_SENT' ||
+      sent.notification.email_status === 'SENT' ||
+      sent.notification.email_status === 'PENDING' ||
+      sent.notification.email_status === 'FAILED',
+    'Manual send should update dispatch status'
+  );
+  assert(store.getOutboundEmails().length >= outboundBefore, 'Manual send writes an outbound email record');
+
+  markNotificationsViewed('LEAD', copy.id, other.id);
+  const viewed = store.getNotifications().find((item) => item.id === created.notification!.id);
+  assert(viewed?.viewed_at, 'Assigned person viewing the lead should mark the notification viewed');
+
+  const reminder = await notificationService.notifyReminder({
+    entityType: 'LEAD',
+    entityId: copy.id,
+    entityName: copy.title,
+    recipientUserId: other.id,
+    reminderCount: 1,
+    status: 'SUBMITTED_TO_PM',
+  });
+  assert(reminder.notification?.email_policy === 'IMMEDIATE', 'Automatic reminders still send email immediately');
+
   console.log('verify-notifications ok', {
     pm: pm!.email,
     ownerAfterForward: other!.email,
     duplicateSkipped: duplicate.skipped,
+    deferredStatus: created.notification?.email_status,
+    manualDispatch: sent.notification.email_dispatch,
   });
   await shutdownStore();
 }

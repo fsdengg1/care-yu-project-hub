@@ -12,6 +12,9 @@ export type OutboundEmailInput = {
   subject: string;
   text: string;
   html: string;
+  emailChannel?: 'INTERNAL' | 'CLIENT';
+  emailType?: string;
+  notificationId?: string;
 };
 
 export type EmailDeliveryResult = {
@@ -272,6 +275,9 @@ export async function sendEmail(input: {
   toName?: string;
   text?: string;
   toUserId?: string;
+  emailChannel?: 'INTERNAL' | 'CLIENT';
+  emailType?: string;
+  notificationId?: string;
 }): Promise<EmailDeliveryResult> {
   const toEmail = input.toEmail.trim().toLowerCase();
   const subject = input.subject.trim();
@@ -296,6 +302,9 @@ export async function sendEmail(input: {
     subject,
     html: htmlContent,
     text: input.text || htmlContent.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(),
+    emailChannel: input.emailChannel,
+    emailType: input.emailType,
+    notificationId: input.notificationId,
   });
   return {
     status: sent.status,
@@ -318,6 +327,9 @@ export async function sendTransactionalEmail(
     body: redactEmailSecrets(input.text),
     status: delivery.status,
     created_at: new Date().toISOString(),
+    email_channel: input.emailChannel,
+    email_type: input.emailType,
+    notification_id: input.notificationId,
     deliveryMode: delivery.mode,
     transactionId: delivery.transactionId,
     transaction_id: delivery.transactionId,

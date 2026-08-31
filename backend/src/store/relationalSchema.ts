@@ -128,17 +128,45 @@ export const RELATIONAL_TABLES: TableDef[] = [
         'action_url',
         'priority',
         'event_key',
-        'email_status'
+        'email_status',
+        'email_channel',
+        'email_policy',
+        'email_dispatch',
+        'notification_status',
+        'stage_name'
       ),
       f('read_status', 'boolean'),
-      ...ts('email_sent_at', 'acted_at', 'read_at', 'created_at'),
+      f('email_payload', 'jsonb'),
+      f('notification_history', 'jsonb'),
+      ...ts(
+        'email_sent_at',
+        'acted_at',
+        'read_at',
+        'viewed_at',
+        'completed_at',
+        'overdue_at',
+        'reminder_due_at',
+        'created_at'
+      ),
     ],
   },
   {
     collection: 'notificationDeliveries',
     table: 'notification_deliveries',
     fields: [
-      ...text('notification_id', 'event_key', 'recipient_user_id', 'recipient_email', 'subject', 'email_type', 'status', 'transaction_id', 'failure_reason'),
+      ...text(
+        'notification_id',
+        'event_key',
+        'recipient_user_id',
+        'recipient_email',
+        'subject',
+        'email_type',
+        'status',
+        'transaction_id',
+        'failure_reason',
+        'email_channel',
+        'dispatch_mode'
+      ),
       f('retry_count', 'integer'),
       ...ts('sent_at', 'created_at', 'updated_at'),
     ],
@@ -380,7 +408,18 @@ export const RELATIONAL_TABLES: TableDef[] = [
     collection: 'outboundEmails',
     table: 'outbound_emails',
     fields: [
-      ...text('to_user_id', 'to_email', 'to_name', 'subject', 'body', 'status', 'notification_id', 'email_type', 'transaction_id'),
+      ...text(
+        'to_user_id',
+        'to_email',
+        'to_name',
+        'subject',
+        'body',
+        'status',
+        'notification_id',
+        'email_type',
+        'transaction_id',
+        'email_channel'
+      ),
       f('created_at', 'timestamptz'),
     ],
   },

@@ -486,9 +486,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }))}
           <input value={quote.document_name} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
           {lead.status === 'QUOTATION' && (
-            <div className="flex gap-2">
+            <div className="space-y-2">
+              <p className="text-[11px] text-slate-400">
+                Send Quotation emails the customer at {lead.customer_email || 'the recorded customer address'} (client email). Internal PMS users are notified on their dashboard and only receive Outlook mail if someone clicks Send Email Notification.
+              </p>
+              <div className="flex gap-2">
               <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, false))} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Quotation</button>
               <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, true))} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Send Quotation</button>
+              </div>
             </div>
           )}
         </div>

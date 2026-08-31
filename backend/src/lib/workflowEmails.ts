@@ -234,6 +234,56 @@ export function digestEmail(params: {
   };
 }
 
+export function clientCommunicationEmail(params: {
+  recipientName: string;
+  intro: string;
+  details: Array<[string, string]>;
+  actionUrl?: string;
+  subject: string;
+  title: string;
+}) {
+  return {
+    subject: params.subject,
+    ...workflowEmailContent({
+      title: params.title,
+      greeting: `Hello ${params.recipientName},`,
+      intro: params.intro,
+      details: params.details,
+      ctaLabel: params.actionUrl ? 'View details' : 'Contact CareYu',
+      ctaUrl: params.actionUrl ? absoluteAppUrl(params.actionUrl) : absoluteAppUrl('/'),
+      closing: 'This message was sent by CareYu Automation regarding your project.',
+    }),
+  };
+}
+
+export function stageReadyEmail(params: {
+  recipientName: string;
+  projectName: string;
+  stageName: string;
+  completedBy: string;
+  completedOn: string;
+  nextStage?: string;
+  actionUrl: string;
+}) {
+  return {
+    subject: `Project Stage Completed – ${params.stageName}`,
+    ...workflowEmailContent({
+      title: `${params.stageName} completed`,
+      greeting: `Hello ${params.recipientName},`,
+      intro: `The ${params.stageName} stage for "${params.projectName}" is complete and ready for your action.`,
+      details: [
+        ['Project', params.projectName],
+        ['Stage', params.stageName],
+        ['Completed by', params.completedBy],
+        ['Completed on', params.completedOn],
+        ['Next stage', params.nextStage || ''],
+      ],
+      ctaLabel: 'Open in PMS',
+      ctaUrl: absoluteAppUrl(params.actionUrl),
+    }),
+  };
+}
+
 export function handoverEmail(params: {
   recipientName: string;
   subject: string;

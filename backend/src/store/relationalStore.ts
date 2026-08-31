@@ -107,6 +107,12 @@ ${columns}
 
 export const RELATIONAL_TABLES_DDL = RELATIONAL_TABLES.map(buildCreateTableSql).join('\n');
 
+export function addMissingColumnSql(def: TableDef): string {
+  return def.fields
+    .map((field) => `ALTER TABLE ${def.table} ADD COLUMN IF NOT EXISTS ${field.column} ${sqlType(field.type)};`)
+    .join('\n');
+}
+
 function rowToRecord(def: TableDef, row: Record<string, unknown>): Record<string, unknown> {
   const record: Record<string, unknown> = {
     id: String(row.record_key || ''),

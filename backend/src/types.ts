@@ -168,7 +168,11 @@ export interface NotificationItem {
     | 'ACTION_REQUIRED'
     | 'DAILY_REMINDER'
     | 'ESCALATION'
-    | 'APPROVAL_REQUIRED';
+    | 'APPROVAL_REQUIRED'
+    | 'CLIENT_PROPOSAL'
+    | 'CLIENT_LEAD_EMAIL'
+    | 'CLIENT_PROJECT_UPDATE'
+    | 'CLIENT_COMMUNICATION';
   title: string;
   message: string;
   entity_type: string;
@@ -179,11 +183,48 @@ export interface NotificationItem {
   action_url?: string;
   priority?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   event_key?: string;
-  email_status?: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED';
+  email_status?: 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED' | 'NOT_SENT';
   email_sent_at?: string;
   acted_at?: string;
   read_status: boolean;
   read_at?: string;
+  created_at: string;
+  email_channel?: EmailChannel;
+  email_policy?: EmailPolicy;
+  email_dispatch?: EmailDispatchStatus;
+  notification_status?: NotificationLifecycleStatus;
+  viewed_at?: string;
+  completed_at?: string;
+  overdue_at?: string;
+  reminder_due_at?: string;
+  stage_name?: string;
+  email_payload?: NotificationEmailPayload;
+  notification_history?: NotificationHistoryEntry[];
+}
+
+export type EmailChannel = 'INTERNAL' | 'CLIENT';
+export type EmailPolicy = 'IMMEDIATE' | 'DEFERRED';
+export type EmailDispatchStatus = 'NOT_SENT' | 'MANUALLY_SENT' | 'AUTOMATICALLY_SENT' | 'FAILED' | 'SKIPPED';
+export type NotificationLifecycleStatus =
+  | 'NOT_SENT'
+  | 'MANUALLY_SENT'
+  | 'AUTOMATICALLY_SENT'
+  | 'VIEWED'
+  | 'COMPLETED'
+  | 'OVERDUE';
+
+export interface NotificationEmailPayload {
+  subject: string;
+  html: string;
+  text: string;
+  type: string;
+}
+
+export interface NotificationHistoryEntry {
+  status: NotificationLifecycleStatus;
+  reason: string;
+  actor_id?: string;
+  actor_name?: string;
   created_at: string;
 }
 
@@ -222,6 +263,8 @@ export interface NotificationDelivery {
   retry_count: number;
   created_at: string;
   updated_at: string;
+  email_channel?: EmailChannel;
+  dispatch_mode?: 'MANUAL' | 'AUTOMATIC' | 'IMMEDIATE' | 'DEFERRED';
 }
 
 export type LeadStatus =
@@ -1239,6 +1282,7 @@ export interface OutboundEmail {
   notification_id?: string;
   email_type?: string;
   transaction_id?: string;
+  email_channel?: EmailChannel;
 }
 
 export type ForumCategory =

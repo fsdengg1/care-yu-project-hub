@@ -472,6 +472,9 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
       action: 'TASK_COMPLETED',
       description: `${user.name} completed "${next.title}".`,
     });
+    void import('./smartNotifications.js').then((mod) => {
+      mod.markNotificationsCompleted('TASK', next.id);
+    });
   }
   return { task: next };
 }

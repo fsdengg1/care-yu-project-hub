@@ -19,6 +19,7 @@ import { StorageService } from '@/lib/storage';
 import { canOpenProjectGantt } from '@/lib/rbac';
 import { ProjectDetailPayload, ProjectStatus, Task, User } from '@/lib/types';
 import ProjectWorkflowBanner from '@/components/projects/ProjectWorkflowBanner';
+import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 
@@ -207,6 +208,8 @@ export default function ProjectDetailPage() {
       </div>
 
       <ProjectWorkflowBanner workflow={workflow} message={message} error={error} />
+
+      <SmartEmailNotificationPanel entityType="PROJECT" entityId={project.id} />
 
       {user &&
         canOpenProjectGantt(user, project) &&

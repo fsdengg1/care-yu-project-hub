@@ -5,6 +5,7 @@ import { TasksApi } from '@/lib/tasksApi';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { WorkAssignment } from '@/lib/types';
 import { PROJECT_ACTION_SUCCESS } from '@/lib/format';
+import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 
 function fmt(value?: string) {
   if (!value) return '—';
@@ -130,6 +131,16 @@ export default function MemberTaskCard({ assignment, onChanged }: { assignment: 
 
       {notice ? <p className="mt-3 text-sm text-emerald-300">{notice}</p> : null}
       {error ? <p className="mt-3 text-sm text-rose-300">{error}</p> : null}
+
+      {assignment.task_id ? (
+        <div className="mt-4">
+          <SmartEmailNotificationPanel entityType="TASK" entityId={assignment.task_id} compact />
+        </div>
+      ) : assignment.lead_id ? (
+        <div className="mt-4">
+          <SmartEmailNotificationPanel entityType="LEAD" entityId={assignment.lead_id} compact />
+        </div>
+      ) : null}
 
       {!viewOnly && !blocked ? (
         <div className="mt-4 flex flex-wrap gap-2">
