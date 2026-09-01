@@ -13,7 +13,7 @@ function todayIso() {
 export default function CreateTaskForm({
   open,
   people,
-  projects,
+  projects: _projects,
   currentUserId,
   onClose,
   onCreated,
@@ -56,13 +56,11 @@ export default function CreateTaskForm({
       return;
     }
     const typedProject = projectName.trim();
-    const matched = projects.find((project) => project.name.trim().toLowerCase() === typedProject.toLowerCase());
     setBusy(true);
     const result = await TasksApi.create({
       title: description.trim().slice(0, 120),
       description: description.trim(),
       task_type: typedProject ? 'PROJECT_TASK' : 'NON_PROJECT_TASK',
-      project_id: matched?.id,
       project_name: typedProject || undefined,
       assigned_to_id: currentUserId,
       start_date: today,

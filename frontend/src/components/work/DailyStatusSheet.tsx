@@ -39,7 +39,7 @@ type PatchBody = Record<string, unknown>;
 export default function DailyStatusSheet({
   rows,
   people,
-  projects,
+  projects: _projects,
   userId,
   canEditAll,
   canDelete,
@@ -252,19 +252,17 @@ export default function DailyStatusSheet({
                       </td>
                     )}
                     <td>
-                    {editable && canEditAll ? (
-                      <select
-                        className="sheet-select"
-                        value={row.projectId || ''}
-                        onChange={(event) => void onPatch(row.id, { project_id: event.target.value })}
-                      >
-                        <option value="">—</option>
-                        {projects.map((project) => (
-                          <option key={project.id} value={project.id}>
-                            {project.name}
-                          </option>
-                        ))}
-                      </select>
+                    {editable ? (
+                      <input
+                        key={`${row.id}-${row.project}`}
+                        className="sheet-input"
+                        defaultValue={row.project === '—' ? '' : row.project}
+                        onBlur={(event) => {
+                          const value = event.target.value.trim();
+                          const current = row.project === '—' ? '' : row.project;
+                          if (value !== current) void onPatch(row.id, { project_name: value });
+                        }}
+                      />
                     ) : (
                       row.project || '—'
                     )}

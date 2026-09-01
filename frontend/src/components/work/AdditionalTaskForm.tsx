@@ -9,7 +9,7 @@ import DependencyMultiSelect from './DependencyMultiSelect';
 export default function AdditionalTaskForm({
   open,
   people,
-  projects,
+  projects: _projects,
   currentUserId,
   requirePerson,
   onClose,
@@ -24,7 +24,7 @@ export default function AdditionalTaskForm({
   onCreated: (message: string) => void;
 }) {
   const [description, setDescription] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [projectName, setProjectName] = useState('');
   const [deadline, setDeadline] = useState('');
   const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [personId, setPersonId] = useState(currentUserId);
@@ -45,12 +45,13 @@ export default function AdditionalTaskForm({
       setError('Please enter a task description.');
       return;
     }
+    const typedProject = projectName.trim();
     setBusy(true);
     const result = await TasksApi.create({
       title: description.trim().slice(0, 120),
       description: description.trim(),
-      task_type: projectId ? 'PROJECT_TASK' : 'NON_PROJECT_TASK',
-      project_id: projectId || undefined,
+      task_type: typedProject ? 'PROJECT_TASK' : 'NON_PROJECT_TASK',
+      project_name: typedProject || undefined,
       assigned_to_id: assigneeId,
       due_date: deadline || undefined,
       depends_on_ids: dependsOn,
@@ -62,7 +63,7 @@ export default function AdditionalTaskForm({
       return;
     }
     setDescription('');
-    setProjectId('');
+    setProjectName('');
     setDeadline('');
     setDependsOn([]);
     setPersonId(currentUserId);
@@ -86,18 +87,12 @@ export default function AdditionalTaskForm({
           )}
           <div>
             <div className="mb-1 font-semibold text-slate-300">Project (optional)</div>
-            <select
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
+            <input
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
               className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
-            >
-              <option value="">Non-project / —</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+              placeholder="Project name"
+            />
           </div>
           <div>
             <div className="mb-1 font-semibold text-slate-300">Task description</div>
