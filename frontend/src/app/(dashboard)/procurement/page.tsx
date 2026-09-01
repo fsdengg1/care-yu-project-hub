@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import Link from 'next/link';
 import { ShoppingCart } from 'lucide-react';
 import { apiRequest } from '@/lib/api';
 import { ProcurementRequest } from '@/lib/types';
@@ -65,9 +64,9 @@ export default function ProcurementPage() {
                   <tr key={item.id} className="hover:bg-slate-800/30">
                     <td className="p-3 font-semibold text-slate-100">{item.request}</td>
                     <td className="p-3">
-                      <Link href="/projects/active" className="font-medium text-cyan-300 hover:underline">
+                      <span className="font-medium text-slate-100">
                         {item.customer_name} – {item.project_name}
-                      </Link>
+                      </span>
                     </td>
                     <td className="p-3">
                       <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${STATUS_STYLE[item.status]}`}>

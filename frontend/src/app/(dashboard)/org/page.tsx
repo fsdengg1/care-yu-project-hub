@@ -5,7 +5,6 @@ import {
   Building2,
   Plus,
   Users,
-  FolderKanban,
   UserCheck,
 } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
@@ -18,22 +17,12 @@ import EmployeeActionModal, {
 } from '@/components/org/EmployeeActionModal';
 import { ORG_ADMIN_ROLES, MANAGEMENT_ROLES, getDirectReports, isDisplayedTeamMember, resolveReportingManagerId } from '@/components/org/orgHierarchy';
 import { UsersApi } from '@/lib/usersApi';
-import { LeadApi } from '@/lib/leadApi';
 import { apiRequest } from '@/lib/api';
 
 type Selection =
   | { kind: 'person'; nodeId: string; userId: string; reportingContextId?: string }
   | { kind: 'team'; nodeId: string; teamId: string }
   | null;
-
-const ACTIVE_PROJECT_STATUSES = new Set([
-  'SUBMITTED_TO_PM',
-  'UNDER_PM_REVIEW',
-  'ADDITIONAL_INFORMATION_REQUIRED',
-  'RESUBMITTED_TO_PM',
-  'ACCEPTED_FOR_FEASIBILITY',
-  'FEASIBILITY_IN_PROGRESS',
-]);
 
 export default function OrganizationManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -43,7 +32,6 @@ export default function OrganizationManagementPage() {
   const [selection, setSelection] = useState<Selection>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<EmployeeModalMode>('add');
-  const [activeProjects, setActiveProjects] = useState(0);
   const [teamStats, setTeamStats] = useState<
     Record<string, { activeProjects: number; pendingTasks: number; completedTasks: number }>
   >({});
@@ -59,9 +47,6 @@ export default function OrganizationManagementPage() {
     setTeams(nextTeams);
     setRoles(StorageService.getRoles());
     setCurrentUser(StorageService.getCurrentUser());
-
-    const leads = await LeadApi.list();
-    setActiveProjects(leads.filter((lead) => ACTIVE_PROJECT_STATUSES.has(lead.status)).length);
 
     const assignments = StorageService.getFeasibilityTeamAssignments();
     const tasks = StorageService.getTasks();
@@ -288,11 +273,10 @@ export default function OrganizationManagementPage() {
         )}
       </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-2 lg:grid-cols-3">
         {[
           { label: 'Total Employees', value: users.filter((u) => u.role_code !== 'SYSTEM_ADMIN').length, icon: Users },
           { label: 'Teams', value: teams.length, icon: Building2 },
-          { label: 'Active Projects', value: activeProjects, icon: FolderKanban },
           {
             label: 'Active Members',
             value: users.filter((u) => u.status === 'ACTIVE' && u.role_code !== 'SYSTEM_ADMIN').length,

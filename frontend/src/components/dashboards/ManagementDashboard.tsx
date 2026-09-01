@@ -2,16 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Inbox } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { User } from '@/lib/types';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
-import { ProjectsApi } from '@/lib/projectsApi';
 import { DailyStatusRow, deadlineCellClass, deadlineTone } from '@/lib/dailyStatus';
 import { formatEmployeeDisplayName } from '@/lib/people';
 import { formatDateTime, formatRelativeTime } from '@/lib/format';
 import KPIStatCard from '@/components/work/KPIStatCard';
-import ProjectCard from '@/components/work/ProjectCard';
 import EmployeePerformanceCard from '@/components/work/EmployeePerformanceCard';
 import TaskDetailDrawer from '@/components/work/TaskDetailDrawer';
 import StatusBadge from '@/components/work/StatusBadge';
@@ -20,28 +18,20 @@ type AttentionKey = 'critical' | 'action' | 'hold' | 'upcoming' | 'completed' | 
 
 export default function ManagementDashboard({ user }: { user: User }) {
   const [rows, setRows] = useState<DailyStatusRow[]>([]);
-  const [projects, setProjects] = useState<Awaited<ReturnType<typeof ProjectsApi.list>>['projects']>([]);
   const [attention, setAttention] = useState<AttentionKey>(null);
   const [employeeFilter, setEmployeeFilter] = useState('');
-  const [projectPerson, setProjectPerson] = useState('');
-  const [projectFilterId, setProjectFilterId] = useState('');
   const [drawer, setDrawer] = useState<DailyStatusRow | null>(null);
   const [error, setError] = useState('');
   const [updatesToday, setUpdatesToday] = useState(0);
 
   useEffect(() => {
     void (async () => {
-      const [sheet, listed, summary] = await Promise.all([
-        DailyStatusApi.sheet(),
-        ProjectsApi.list('ACTIVE'),
-        DailyUpdatesApi.summary(),
-      ]);
+      const [sheet, summary] = await Promise.all([DailyStatusApi.sheet(), DailyUpdatesApi.summary()]);
       if (!sheet.ok) {
         setError(sheet.message || 'Unable to load dashboard data.');
         return;
       }
       setRows(sheet.rows);
-      setProjects(listed.projects);
       setUpdatesToday(summary?.submittedToday ?? sheet.kpis?.updatesToday ?? 0);
     })();
   }, [user.id]);
@@ -54,7 +44,6 @@ export default function ManagementDashboard({ user }: { user: User }) {
     const critical = rows.filter((row) => row.overdue && (row.status === 'Waiting' || row.status === 'Hold')).length;
     return {
       overall: rows.length ? Math.round((completed / rows.length) * 100) : 0,
-      projects: projects.length,
       tasks: rows.length,
       completed,
       inProgress,
@@ -63,7 +52,7 @@ export default function ManagementDashboard({ user }: { user: User }) {
       critical,
       updatesToday,
     };
-  }, [rows, projects.length, updatesToday]);
+  }, [rows, updatesToday]);
 
   const attentionRows = useMemo(() => {
     if (attention === 'critical') return rows.filter((row) => row.overdue);
@@ -113,7 +102,6 @@ export default function ManagementDashboard({ user }: { user: User }) {
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <KPIStatCard label="Overall Performance" value={`${totals.overall}%`} hint="Completed vs total tasks" />
-        <KPIStatCard label="Total Projects" value={totals.projects} onClick={() => undefined} />
         <KPIStatCard label="Total Tasks" value={totals.tasks} />
         <KPIStatCard label="Completed" value={totals.completed} tone="success" />
         <KPIStatCard label="In Progress" value={totals.inProgress} />
@@ -174,89 +162,6 @@ export default function ManagementDashboard({ user }: { user: User }) {
                 </div>
               </button>
             ))}
-          </div>
-        )}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-100">Project Performance</h2>
-          <Link href="/projects/active" className="text-xs font-bold text-cyan-400 hover:underline">View all</Link>
-        </div>
-        {projects.length === 0 ? (
-          <div className="rounded-xl border border-slate-800 p-8 text-center text-xs text-slate-500">
-            <Inbox className="mx-auto mb-2 h-6 w-6" /> No project activity available.
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {projects.slice(0, 6).map((project) => {
-              const related = rows.filter((row) => row.projectId === project.id);
-              const byPerson = new Map<string, DailyStatusRow[]>();
-              for (const row of related) {
-                const current = byPerson.get(row.personId) || [];
-                current.push(row);
-                byPerson.set(row.personId, current);
-              }
-              return (
-                <ProjectCard
-                  key={project.id}
-                  project={project}
-                  taskCounts={{
-                    total: related.length,
-                    completed: related.filter((row) => row.status === 'Completed').length,
-                    inProgress: related.filter((row) => row.status === 'In Progress').length,
-                    overdue: related.filter((row) => row.overdue).length,
-                    members: byPerson.size,
-                  }}
-                  contributors={[...byPerson.entries()].map(([id, personRows]) => {
-                    const completed = personRows.filter((row) => row.status === 'Completed').length;
-                    return {
-                      id,
-                      name: personRows[0]?.person || id,
-                      total: personRows.length,
-                      completed,
-                      inProgress: personRows.filter((row) => row.status === 'In Progress').length,
-                      progress: personRows.length ? Math.round((completed / personRows.length) * 100) : 0,
-                    };
-                  })}
-                  selectedPersonId={projectFilterId === project.id ? projectPerson : ''}
-                  onPersonClick={(id) => {
-                    if (projectFilterId === project.id && projectPerson === id) {
-                      setProjectPerson('');
-                      setProjectFilterId('');
-                      return;
-                    }
-                    setProjectFilterId(project.id);
-                    setProjectPerson(id);
-                  }}
-                />
-              );
-            })}
-          </div>
-        )}
-        {projectFilterId && projectPerson && (
-          <div className="mt-4 space-y-2">
-            {rows
-              .filter((row) => row.projectId === projectFilterId && row.personId === projectPerson)
-              .map((row) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => setDrawer(row)}
-                  className="flex w-full flex-wrap items-start justify-between gap-2 rounded-xl border border-slate-800 p-3 text-left hover:border-cyan-700"
-                >
-                  <div>
-                    <div className="text-xs font-semibold text-slate-100">{row.person} · {row.taskDescription}</div>
-                    <div className="text-[11px] text-slate-500">{row.project}</div>
-                  </div>
-                  <div className="text-right">
-                    <StatusBadge status={row.status} />
-                    <div className={`mt-1 rounded px-1.5 py-0.5 text-[11px] ${deadlineCellClass(deadlineTone(row.status, row.deadlineIso || row.deadline))}`}>
-                      {row.deadline}
-                    </div>
-                  </div>
-                </button>
-              ))}
           </div>
         )}
       </section>

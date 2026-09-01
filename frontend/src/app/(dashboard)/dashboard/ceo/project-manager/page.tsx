@@ -34,10 +34,6 @@ export default function CeoProjectManagerPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Link href="/projects/active" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Active Projects</div>
-          <div className="mt-2 text-2xl font-bold text-slate-100">{data?.activeProjects ?? 0}</div>
-        </Link>
         <Link href="/pre-sales/leads" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
           <div className="text-[10px] uppercase tracking-wider text-slate-500">Pending Reviews</div>
           <div className="mt-2 text-2xl font-bold text-amber-300">{data?.pendingReviews ?? 0}</div>

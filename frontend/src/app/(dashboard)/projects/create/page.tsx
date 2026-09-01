@@ -108,7 +108,7 @@ function CreateProjectForm() {
 
   useEffect(() => {
     if (currentUser && !canCreateLead(currentUser)) {
-      router.replace('/projects/active');
+      router.replace('/dashboard');
       return;
     }
     if (currentUser?.role_code === 'ENG_DIRECTOR') {

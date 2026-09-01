@@ -307,7 +307,7 @@ export default function GanttPlanner({ user }: { user: User }) {
             <h1 className="mt-1 text-xl font-bold text-slate-100">Project Gantt Chart</h1>
             <p className="mt-1 text-xs text-slate-400">
               {canManage
-                ? 'Create and maintain the project timeline. Task progress is shared with Daily Work Updates and Active Projects.'
+                ? 'Create and maintain the project timeline. Task progress is shared with Daily Work Updates.'
                 : 'Read-only view of the Project Manager’s Gantt chart. Update your work through Daily Work Updates — not this timeline.'}
             </p>
             {plan && (

@@ -33,6 +33,12 @@ function givenName(name: string): string {
   return first;
 }
 
+export function personGivenKey(name?: string): string {
+  return givenName(name || '')
+    .toLowerCase()
+    .replace(/[^a-z]/g, '');
+}
+
 function titleForGivenName(given: string): 'Mr.' | 'Mrs.' {
   const key = given.toLowerCase().replace(/[^a-z]/g, '');
   if (FEMALE_GIVEN_NAMES.has(key)) return 'Mrs.';

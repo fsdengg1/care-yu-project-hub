@@ -36,7 +36,7 @@ export default function ProjectActivityPage() {
         <p className="mt-1 text-slate-400">
           Chronological history of daily updates, progress, blockers, assignments, approvals, and escalations. Also recorded in Audit Trail.
         </p>
-        <Link href="/projects/active" className="mt-2 inline-block text-cyan-400 hover:underline">Back to Active Projects</Link>
+        <Link href="/dashboard" className="mt-2 inline-block text-cyan-400 hover:underline">Back to Dashboard</Link>
       </div>
 
       {error && <div className="rounded-xl border border-rose-900 bg-rose-950/40 p-4 text-rose-300">{error}</div>}

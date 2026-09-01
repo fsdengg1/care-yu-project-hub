@@ -4,10 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
-  Briefcase,
   Cpu,
   DollarSign,
-  HeartPulse,
   Users,
 } from 'lucide-react';
 import { User, CeoDashboardPayload } from '@/lib/types';
@@ -29,12 +27,6 @@ const PIPELINE_BARS: Array<{ key: keyof CeoDashboardPayload['pipeline']['stages'
   { key: 'negotiation', label: 'Negotiation' },
   { key: 'converted', label: 'Converted' },
 ];
-
-function healthDot(health: string) {
-  if (health === 'CRITICAL') return 'bg-rose-500';
-  if (health === 'AT_RISK') return 'bg-amber-400';
-  return 'bg-emerald-400';
-}
 
 export default function CEODashboard({ user }: DashboardProps) {
   const [data, setData] = useState<CeoDashboardPayload | null>(null);
@@ -87,7 +79,7 @@ export default function CEODashboard({ user }: DashboardProps) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <Link href="/pre-sales/leads" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-sm transition hover:border-cyan-700">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Pre-Sales Pipeline</span>
@@ -102,38 +94,6 @@ export default function CEODashboard({ user }: DashboardProps) {
             <span>{data?.pipeline.inProgress ?? 0} In Progress</span>
             <span>{data?.pipeline.awaitingApproval ?? 0} Awaiting Approval</span>
             <span>{data?.pipeline.negotiation ?? 0} Negotiation</span>
-          </div>
-        </Link>
-
-        <Link href="/projects/active" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-sm transition hover:border-cyan-700">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Active Execution Projects</span>
-            <div className="rounded-lg border border-blue-800/40 bg-blue-950 p-2 text-blue-400">
-              <Briefcase className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3 text-2xl font-bold text-slate-100">{data?.projects.total ?? 0} Projects</div>
-          <div className="mt-3 space-y-1 text-[11px]">
-            <div className="text-emerald-400">● {data?.projects.onTrack ?? 0} On Track</div>
-            <div className="text-amber-300">⚠ {data?.projects.atRisk ?? 0} At Risk</div>
-            <div className="text-rose-400">🔴 {data?.projects.critical ?? 0} Critical</div>
-          </div>
-        </Link>
-
-        <Link href="/projects/active" className="rounded-xl border border-slate-800 bg-slate-900/90 p-4 shadow-sm transition hover:border-cyan-700">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Project Health</span>
-            <div className="rounded-lg border border-rose-800/40 bg-rose-950 p-2 text-rose-300">
-              <HeartPulse className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3 text-2xl font-bold text-slate-100">
-            {data?.projects.needAttention ?? 0} / {data?.projects.total ?? 0} Need Attention
-          </div>
-          <div className="mt-3 space-y-1 text-[11px] text-slate-400">
-            <div className="text-emerald-400">● {data?.projects.onTrack ?? 0} On Track</div>
-            <div className="text-amber-300">⚠ {data?.projects.atRisk ?? 0} At Risk</div>
-            <div className="text-rose-400">🔴 {data?.projects.critical ?? 0} Critical</div>
           </div>
         </Link>
 
@@ -167,7 +127,6 @@ export default function CEODashboard({ user }: DashboardProps) {
           </div>
           <div className="mt-3 text-xl font-bold text-slate-100">{data?.projectManager.name ?? '—'}</div>
           <div className="mt-3 space-y-1 text-[11px] text-slate-400">
-            <div>{data?.projectManager.activeProjects ?? 0} Active Projects</div>
             <div>{data?.projectManager.pendingReviews ?? 0} Pending Reviews</div>
             <div className="text-rose-300">{data?.projectManager.escalations ?? 0} Escalations</div>
           </div>
@@ -228,65 +187,6 @@ export default function CEODashboard({ user }: DashboardProps) {
               )}
             </div>
           )}
-        </section>
-
-        <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
-          <h2 className="mb-4 text-xs font-bold uppercase tracking-wider text-slate-200">Project Health</h2>
-          <div className="mb-4 flex items-end gap-6">
-            <div>
-              <div className="text-3xl font-bold text-slate-100">{data?.projects.total ?? 0}</div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">Projects</div>
-            </div>
-            <div className="flex-1 space-y-2 text-[11px]">
-              <div className="text-emerald-400">🟢 {data?.projects.onTrack ?? 0} On Track</div>
-              <div className="h-2 overflow-hidden rounded bg-slate-800">
-                <div
-                  className="h-full bg-emerald-500"
-                  style={{ width: `${data && data.projects.total ? (data.projects.onTrack / data.projects.total) * 100 : 0}%` }}
-                />
-              </div>
-              <div className="text-amber-300">🟡 {data?.projects.atRisk ?? 0} At Risk</div>
-              <div className="text-rose-400">🔴 {data?.projects.critical ?? 0} Critical</div>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[11px]">
-              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="pb-2">Project</th>
-                  <th className="pb-2">PM</th>
-                  <th className="pb-2">Progress</th>
-                  <th className="pb-2">Health</th>
-                  <th className="pb-2">Issue</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800 text-slate-300">
-                {(data?.projects.items ?? []).length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-8 text-center text-xs text-slate-500">
-                      No projects found.
-                    </td>
-                  </tr>
-                ) : (
-                  (data?.projects.items ?? []).map((project) => (
-                  <tr key={project.id} className="cursor-pointer hover:bg-slate-800/40">
-                    <td className="py-2">
-                      <Link href="/projects/active" className="font-semibold text-slate-100">
-                        {project.customer_name} {project.name}
-                      </Link>
-                    </td>
-                    <td className="py-2">{project.pm_name}</td>
-                    <td className="py-2">{project.progress}%</td>
-                    <td className="py-2">
-                      <span className={`inline-block h-2.5 w-2.5 rounded-full ${healthDot(project.health)}`} />
-                    </td>
-                    <td className="py-2 text-slate-400">{project.issue || '—'}</td>
-                  </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
         </section>
       </div>
 

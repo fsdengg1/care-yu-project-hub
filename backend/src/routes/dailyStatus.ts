@@ -4,6 +4,7 @@ import { requirePermission } from '../lib/rbac.js';
 import {
   buildDailyStatusKpis,
   buildDailyStatusRows,
+  canSeeAllDailyStatusRows,
   compareSnapshots,
   directoryPeople,
   fromSheetStatus,
@@ -54,6 +55,9 @@ router.post(
   '/snapshot',
   requirePermission('view:daily-updates', 'submit:daily-update'),
   (req: AuthedRequest, res) => {
+    if (!canSeeAllDailyStatusRows(req.user!)) {
+      return res.status(403).json({ message: 'Only the Project Manager, Engineering Director, or CEO can save the shared morning/evening snapshot.' });
+    }
     const period = readPeriod(req.body?.period);
     const date = typeof req.body?.date === 'string' && req.body.date ? req.body.date : todayDate();
     const result = saveDailyStatusSnapshot(req.user!, period, date);

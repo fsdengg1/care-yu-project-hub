@@ -210,8 +210,8 @@ export default function ProjectDetailPage() {
   return (
     <div className="space-y-6 text-xs">
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-        <Link href="/projects/active" className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
-          <ArrowLeft className="h-3 w-3" /> Active Projects
+        <Link href="/dashboard" className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
+          <ArrowLeft className="h-3 w-3" /> Dashboard
         </Link>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -955,7 +955,7 @@ export default function ProjectDetailPage() {
                     return;
                   }
                   setMessage(PROJECT_ACTION_SUCCESS.completed);
-                  router.push('/projects/active');
+                  router.push('/dashboard');
                 })}
                 className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
@@ -1004,7 +1004,7 @@ export default function ProjectDetailPage() {
                 setRemark('');
                 setMessage(status === 'COMPLETED' ? PROJECT_ACTION_SUCCESS.completed : status === 'HANDOVER' ? PROJECT_ACTION_SUCCESS.approved : 'Project updated.');
                 if (status === 'COMPLETED') {
-                  router.push('/projects/active');
+                  router.push('/dashboard');
                   return;
                 }
                 await load();

@@ -21,6 +21,7 @@ import tasksRouter from './routes/tasks.js';
 import { startNotificationScheduler } from './lib/reminderJob.js';
 import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
 import { ensureLiveDirectory } from './lib/directoryRoles.js';
+import { ensureActionItemTasks } from './lib/actionItemSheet.js';
 import emailRouter from './routes/email.js';
 
 const app = express();
@@ -129,6 +130,7 @@ async function start() {
     `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
   );
   await ensureLiveDirectory();
+  ensureActionItemTasks();
   logEmailConfigOnStartup();
   startNotificationScheduler();
 

@@ -191,6 +191,15 @@ function visibleUsers(user: User): User[] {
   );
 }
 
+export function canSeeAllDailyStatusRows(user: User) {
+  return ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+function scopedDailyStatusRows(user: User, rows: DailyStatusRow[]) {
+  if (canSeeAllDailyStatusRows(user)) return rows;
+  return rows.filter((row) => row.personId === user.id);
+}
+
 export function buildDailyStatusRows(user: User): DailyStatusRow[] {
   const users = visibleUsers(user);
   const projects = store.getProjects();
@@ -199,7 +208,11 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
     .filter((item) => item.submission_status === 'SUBMITTED')
     .slice()
     .sort((a, b) => (b.submitted_at || b.updated_at).localeCompare(a.submitted_at || a.updated_at));
-  const tasks = store.getTasks().filter((task) => !task.is_milestone && canViewTask(user, task));
+  const tasks = store.getTasks().filter((task) => {
+    if (task.is_milestone) return false;
+    if (canSeeAllDailyStatusRows(user)) return canViewTask(user, task);
+    return task.assigned_to_id === user.id;
+  });
 
   return tasks
     .map((task) => {
@@ -285,7 +298,7 @@ export function rowsForPeriod(user: User, period: SnapshotPeriod, date = todayIs
   available: boolean;
 } {
   const snap = loadDailyStatusSnapshot(date, period);
-  if (snap) return { rows: snap, source: 'snapshot', available: true };
+  if (snap) return { rows: scopedDailyStatusRows(user, snap), source: 'snapshot', available: true };
   if (date === todayIso()) return { rows: buildDailyStatusRows(user), source: 'live', available: true };
   return { rows: [], source: 'snapshot', available: false };
 }
@@ -331,11 +344,13 @@ function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): Compa
 }
 
 export function compareSnapshots(user: User, date = yesterdayIso()): { items: CompareItem[]; available: boolean; date: string } {
-  const morning = loadDailyStatusSnapshot(date, 'morning');
-  const evening = loadDailyStatusSnapshot(date, 'evening');
-  if (!morning || !evening) {
+  const morningRaw = loadDailyStatusSnapshot(date, 'morning');
+  const eveningRaw = loadDailyStatusSnapshot(date, 'evening');
+  if (!morningRaw || !eveningRaw) {
     return { items: [], available: false, date };
   }
+  const morning = scopedDailyStatusRows(user, morningRaw);
+  const evening = scopedDailyStatusRows(user, eveningRaw);
   const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id)]);
   const items: CompareItem[] = [...ids].map((id) => {
     const am = morning.find((row) => row.id === id);
