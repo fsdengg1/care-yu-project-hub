@@ -4,13 +4,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { LeadApi } from '@/lib/leadApi';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
+import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { TasksApi } from '@/lib/tasksApi';
-import { UsersApi } from '@/lib/usersApi';
-import { ProjectsApi } from '@/lib/projectsApi';
 import { StorageService } from '@/lib/storage';
-import { MyWorkItem, Project, User, WorkAssignment } from '@/lib/types';
-import { formatLongDate, LEAD_STATUS_LABELS, PIPELINE_STAGE_LABELS, TASK_STATUS_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
-import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
+import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
+import { LEAD_STATUS_LABELS } from '@/lib/format';
+import { deadlineCellClass, deadlineTone, DailyStatusPerson, formatSheetDate, sheetStatusClass, toSheetStatus } from '@/lib/dailyStatus';
+import { canCreateLead, canSubmitDailyUpdate } from '@/lib/rbac';
+import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
+import CreateTaskForm from '@/components/work/CreateTaskForm';
 import {
   CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
 } from 'lucide-react';
@@ -78,20 +80,11 @@ export default function MyAssignedWorkPage() {
   const [assignments, setAssignments] = useState<WorkAssignment[]>([]);
   const [filter, setFilter] = useState<WorkFilter>('ALL');
   const [showCreate, setShowCreate] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [createError, setCreateError] = useState<string | null>(null);
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    title: '',
-    description: '',
-    task_type: 'PROJECT_TASK' as 'PROJECT_TASK' | 'NON_PROJECT_TASK',
-    project_id: '',
-    assigned_to_id: '',
-    start_date: '',
-    due_date: '',
-    priority: 'Medium',
-  });
+  const [additionalOpen, setAdditionalOpen] = useState(false);
+  const [sheetPeople, setSheetPeople] = useState<DailyStatusPerson[]>([]);
+  const [sheetProjects, setSheetProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const loadAssignments = async () => {
     setAssignments(await DailyUpdatesApi.assignments(true));
@@ -107,17 +100,10 @@ export default function MyAssignedWorkPage() {
       setGroups(result.groups);
       setItems(result.items);
       await loadAssignments();
-      if (canCreateWorkTask(user)) {
-        const listed = await UsersApi.list();
-        setUsers(
-          listed.users.filter((item) => {
-            if (item.status !== 'ACTIVE') return false;
-            if (user.role_code === 'TEAM_LEAD') return item.team_id === user.team_id || item.id === user.id;
-            return true;
-          })
-        );
-        const projectResult = await ProjectsApi.list('ALL');
-        setProjects(projectResult.projects);
+      const sheet = await DailyStatusApi.sheet();
+      if (sheet.ok) {
+        setSheetPeople(sheet.people);
+        setSheetProjects(sheet.projects);
       }
     })();
   }, []);
@@ -151,44 +137,7 @@ export default function MyAssignedWorkPage() {
   const actionable = items.filter((item) => item.category !== 'CREATE');
   const isCommercial = ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(currentUser.role_code);
   const canCreateLeads = canCreateLead(currentUser);
-  const canCreate = canCreateWorkTask(currentUser);
-
-  const createTask = async () => {
-    setCreateError(null);
-    if (!form.title.trim()) {
-      setCreateError('Task title is required.');
-      return;
-    }
-    if (form.task_type === 'PROJECT_TASK' && !form.project_id) {
-      setCreateError('Select a project.');
-      return;
-    }
-    if (!form.assigned_to_id) {
-      setCreateError('Select a team member.');
-      return;
-    }
-    if (!form.due_date) {
-      setCreateError('Due date is required.');
-      return;
-    }
-    const result = await TasksApi.create({
-      title: form.title,
-      description: form.description,
-      task_type: form.task_type,
-      project_id: form.task_type === 'PROJECT_TASK' ? form.project_id : undefined,
-      assigned_to_id: form.assigned_to_id || currentUser.id,
-      start_date: form.start_date || undefined,
-      due_date: form.due_date || undefined,
-      priority: form.priority,
-    });
-    if (!result.ok) {
-      setCreateError(result.message);
-      return;
-    }
-    setShowCreate(false);
-    setForm({ title: '', description: '', task_type: 'PROJECT_TASK', project_id: '', assigned_to_id: '', start_date: '', due_date: '', priority: 'Medium' });
-    await refreshWork();
-  };
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div className="space-y-6 text-xs">
@@ -200,18 +149,19 @@ export default function MyAssignedWorkPage() {
         <p className="mt-0.5 text-xs text-slate-400">
           Tasks for <span className="font-semibold text-cyan-300">{currentUser.name}</span> based on role, workflow state, and assignment.
         </p>
+        {notice && <div className="mt-3 rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-emerald-200">{notice}</div>}
       </div>
 
-      {(assignments.length > 0 || canCreate) && (
-        <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex flex-col gap-3 border-b border-slate-800 pb-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-bold text-slate-100">Assigned execution work</h2>
             <div className="flex flex-wrap items-center gap-2">
-              {canCreate && (
-                <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white">
-                  <Plus className="h-3 w-3" /> Create Task
-                </button>
-              )}
+              <button onClick={() => setAdditionalOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600">
+                <Plus className="h-3 w-3" /> Additional Task
+              </button>
+              <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white">
+                <Plus className="h-3 w-3" /> Create Task
+              </button>
               <Link href="/daily-updates" className="text-cyan-400 hover:underline">Daily Work Updates</Link>
             </div>
           </div>
@@ -240,23 +190,23 @@ export default function MyAssignedWorkPage() {
             <table className="w-full min-w-[640px] text-left">
               <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
                 <tr>
-                  <th className="p-2">Task</th>
                   <th className="p-2">Project</th>
-                  <th className="p-2">Due Date</th>
-                  <th className="p-2">Priority</th>
+                  <th className="p-2">Task Description</th>
+                  <th className="p-2">Dependencies</th>
                   <th className="p-2">Status</th>
-                  <th className="p-2">Last update</th>
+                  <th className="p-2">Current Date</th>
+                  <th className="p-2">Task Deadline</th>
                   <th className="p-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {visibleAssignments.map((item) => {
-                  const today = new Date().toISOString().slice(0, 10);
                   const overdue = Boolean(item.due_date && item.due_date < today && item.current_status !== 'DONE' && item.current_status !== 'COMPLETED');
                   const taskId = item.task_id || (item.source === 'TASK' ? item.id : '');
                   const busy = taskBusy === taskId;
                   const isAssignee = item.assigned_to_id === currentUser.id;
                   const isReviewer = currentUser.role_code === 'TEAM_LEAD' && item.review_status === 'PENDING_TL_REVIEW';
+                  const sheetStatus = toSheetStatus(item.current_status);
                   return (
                   <tr
                     key={item.id}
@@ -268,25 +218,27 @@ export default function MyAssignedWorkPage() {
                           : undefined
                     }
                   >
-                    <td className="p-2 font-semibold text-slate-100">{item.task_title}</td>
                     <td className="p-2">
                       {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
-                      {assignmentType(item) === 'NON_PROJECT_TASK' ? 'No Project' : item.project_name}
+                      {assignmentType(item) === 'NON_PROJECT_TASK' ? '—' : item.project_name || '—'}
                     </td>
-                    <td className={`p-2 ${overdue ? 'font-semibold text-rose-300' : ''}`}>
-                      {overdue && <AlertTriangle className="mr-1 inline h-3 w-3" />}
-                      {formatLongDate(item.due_date)}
-                    </td>
-                    <td className="p-2">{item.priority}</td>
+                    <td className="p-2 font-semibold text-slate-100">{item.description || item.task_title}</td>
+                    <td className="p-2">{item.depends_on_title || item.dependency || '—'}</td>
                     <td className="p-2">
-                      {WORK_STATUS_LABELS[item.current_status] || TASK_STATUS_LABELS[item.current_status] || item.current_status}
+                      <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${sheetStatusClass(sheetStatus)}`}>
+                        {sheetStatus}
+                      </span>
                       {item.blocked && item.blocker && (
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-rose-300">
                           <AlertTriangle className="h-3 w-3" /> {item.blocker}
                         </div>
                       )}
                     </td>
-                    <td className="p-2">{formatLongDate(item.last_update_at)}</td>
+                    <td className="p-2">{formatSheetDate(today)}</td>
+                    <td className={`p-2 ${deadlineCellClass(deadlineTone(sheetStatus, item.due_date, today))}`}>
+                      {overdue && <AlertTriangle className="mr-1 inline h-3 w-3" />}
+                      {formatSheetDate(item.due_date)}
+                    </td>
                     <td className="p-2 text-right">
                       <div className="flex flex-wrap justify-end gap-1">
                         {taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && (
@@ -367,56 +319,6 @@ export default function MyAssignedWorkPage() {
             </table>
           </div>
         </div>
-      )}
-
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 p-5 text-xs">
-            <h3 className="text-sm font-bold text-slate-100">Create task</h3>
-            <div className="mt-3 space-y-3">
-              <div>
-                <div className="mb-1 font-medium text-slate-400">Task Type</div>
-                <label className="mr-4 text-slate-200">
-                  <input type="radio" className="mr-1" checked={form.task_type === 'PROJECT_TASK'} onChange={() => setForm({ ...form, task_type: 'PROJECT_TASK' })} />
-                  Project Task
-                </label>
-                <label className="text-slate-200">
-                  <input type="radio" className="mr-1" checked={form.task_type === 'NON_PROJECT_TASK'} onChange={() => setForm({ ...form, task_type: 'NON_PROJECT_TASK', project_id: '' })} />
-                  Non-Project Task
-                </label>
-              </div>
-              <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Task title" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-              {form.task_type === 'PROJECT_TASK' && (
-                <select value={form.project_id} onChange={(e) => setForm({ ...form, project_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                  <option value="">Project *</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>{project.name}</option>
-                  ))}
-                </select>
-              )}
-              <select value={form.assigned_to_id} onChange={(e) => setForm({ ...form, assigned_to_id: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                <option value="">Assigned To</option>
-                {users.map((item) => (
-                  <option key={item.id} value={item.id}>{item.name}</option>
-                ))}
-              </select>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-                <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-              </div>
-              <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100">
-                {['Low', 'Medium', 'High', 'Critical'].map((item) => <option key={item}>{item}</option>)}
-              </select>
-              <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Description" rows={3} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-              {createError && <div className="rounded border border-rose-900 bg-rose-950/40 px-3 py-2 text-rose-300">{createError}</div>}
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={() => setShowCreate(false)} className="rounded border border-slate-700 px-3 py-1.5">Cancel</button>
-              <button onClick={() => void createTask()} className="rounded bg-cyan-600 px-3 py-1.5 font-bold text-white">Create</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {isCommercial && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -494,6 +396,29 @@ export default function MyAssignedWorkPage() {
           )}
         </div>
       )}
+      <CreateTaskForm
+        open={showCreate}
+        people={sheetPeople}
+        projects={sheetProjects}
+        currentUserId={currentUser.id}
+        onClose={() => setShowCreate(false)}
+        onCreated={(message) => {
+          setNotice(message);
+          void refreshWork();
+        }}
+      />
+      <AdditionalTaskForm
+        open={additionalOpen}
+        people={sheetPeople}
+        projects={sheetProjects}
+        currentUserId={currentUser.id}
+        requirePerson={false}
+        onClose={() => setAdditionalOpen(false)}
+        onCreated={(message) => {
+          setNotice(message);
+          void refreshWork();
+        }}
+      />
     </div>
   );
 }

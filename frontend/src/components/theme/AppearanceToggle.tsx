@@ -9,7 +9,7 @@ export default function AppearanceToggle() {
 
   return (
     <div
-      className="flex items-center rounded-md border border-slate-700/80 bg-slate-800/80 p-0.5"
+              className="flex items-center rounded-md border border-slate-600 bg-slate-800 p-0.5"
       role="group"
       aria-label="Appearance"
     >

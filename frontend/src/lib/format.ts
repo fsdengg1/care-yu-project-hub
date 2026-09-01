@@ -39,11 +39,13 @@ export function formatClock(iso: string): string {
 }
 
 export const WORK_STATUS_LABELS: Record<string, string> = {
-  NOT_STARTED: 'Not Started',
+  NOT_STARTED: 'Yet to Start',
   IN_PROGRESS: 'In Progress',
-  BLOCKED: 'Blocked',
+  BLOCKED: 'Waiting',
+  WAITING: 'Waiting',
   COMPLETED: 'Completed',
-  TODO: 'Not Started',
+  HOLD: 'Hold',
+  TODO: 'Yet to Start',
   DONE: 'Completed',
   PENDING_TL_REVIEW: 'Pending Team Lead Review',
   CORRECTION_REQUIRED: 'Correction Required',
@@ -130,24 +132,24 @@ export function workflowStatusPresentation(status: string): {
     return {
       label: 'Submitted',
       tone: 'submitted',
-      badgeClass: 'border-cyan-600 bg-cyan-950 text-cyan-200',
-      bannerClass: 'border-cyan-700 bg-cyan-950/50 text-cyan-100',
+      badgeClass: 'border-cyan-600 bg-cyan-950 text-cyan-300',
+      bannerClass: 'border-cyan-700 bg-cyan-950/50 text-cyan-300',
     };
   }
   if (APPROVED_STATUSES.has(status) || status === 'APPROVED') {
     return {
       label: 'Approved',
       tone: 'approved',
-      badgeClass: 'border-emerald-600 bg-emerald-950 text-emerald-200',
-      bannerClass: 'border-emerald-700 bg-emerald-950/50 text-emerald-100',
+      badgeClass: 'border-emerald-600 bg-emerald-950 text-emerald-300',
+      bannerClass: 'border-emerald-700 bg-emerald-950/50 text-emerald-300',
     };
   }
   if (REJECTED_STATUSES.has(status) || status === 'REJECTED' || status === 'LOST') {
     return {
       label: status === 'LOST' ? 'Lost' : 'Rejected',
       tone: 'rejected',
-      badgeClass: 'border-rose-600 bg-rose-950 text-rose-200',
-      bannerClass: 'border-rose-700 bg-rose-950/50 text-rose-100',
+      badgeClass: 'border-rose-600 bg-rose-950 text-rose-300',
+      bannerClass: 'border-rose-700 bg-rose-950/50 text-rose-300',
     };
   }
   if (status === 'DRAFT') {
@@ -162,15 +164,15 @@ export function workflowStatusPresentation(status: string): {
     return {
       label,
       tone: 'returned',
-      badgeClass: 'border-amber-600 bg-amber-950 text-amber-200',
-      bannerClass: 'border-amber-700 bg-amber-950/50 text-amber-100',
+      badgeClass: 'border-amber-600 bg-amber-950 text-amber-300',
+      bannerClass: 'border-amber-700 bg-amber-950/50 text-amber-300',
     };
   }
   return {
     label,
     tone: 'progress',
-    badgeClass: 'border-indigo-700 bg-indigo-950 text-indigo-200',
-    bannerClass: 'border-indigo-800 bg-indigo-950/40 text-indigo-100',
+    badgeClass: 'border-indigo-700 bg-indigo-950 text-indigo-300',
+    bannerClass: 'border-indigo-800 bg-indigo-950/40 text-indigo-300',
   };
 }
 
@@ -195,9 +197,11 @@ export function formatDateTime(value?: string): string {
 }
 
 export const TASK_STATUS_LABELS: Record<string, string> = {
-  TODO: 'Not Started',
-  IN_PROGRESS: 'Work in Progress',
-  BLOCKED: 'Issue / Doubt',
+  TODO: 'Yet to Start',
+  IN_PROGRESS: 'In Progress',
+  BLOCKED: 'Waiting',
+  WAITING: 'Waiting',
+  HOLD: 'Hold',
   DONE: 'Completed',
   PENDING_TL_REVIEW: 'Pending Team Lead Review',
   CORRECTION_REQUIRED: 'Correction Required',
@@ -250,3 +254,5 @@ export const ESCALATION_LEVEL_LABELS: Record<string, string> = {
   ENG_DIRECTOR: 'Level 3 — Engineering Director',
   CEO: 'Level 4 — CEO',
 };
+
+export { formatEmployeeDisplayName, dedupeByStableId } from './people';

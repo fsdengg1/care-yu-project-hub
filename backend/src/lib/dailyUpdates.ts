@@ -11,6 +11,7 @@ import {
   WorkAssignment,
 } from '../types.js';
 import { canOwnLead } from './leadWorkflow.js';
+import { formatEmployeeDisplayName } from './people.js';
 import { persistComputedProgress } from './projectProgress.js';
 import { buildEscalation, notifyEscalationOwner, persistProject, saveEscalation, stampProjectAction } from './projectWorkflow.js';
 import { emitWorkflowEvent } from './workflowEngine.js';
@@ -44,7 +45,8 @@ export function todayDate(): string {
 }
 
 function taskStatusToWork(status: Task['status']): string {
-  if (status === 'BLOCKED') return 'BLOCKED';
+  if (status === 'BLOCKED' || status === 'WAITING') return 'WAITING';
+  if (status === 'HOLD') return 'HOLD';
   if (status === 'DONE') return 'COMPLETED';
   if (status === 'IN_PROGRESS') return 'IN_PROGRESS';
   return 'NOT_STARTED';
@@ -128,8 +130,17 @@ function latestUpdateFor(assignmentId: string, taskId?: string): DailyUpdate | u
 function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAssignment {
   const latest = latestUpdateFor(task.id, task.id);
   const taskType = task.task_type || (task.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK');
-  const isNonProject = taskType === 'NON_PROJECT_TASK' || !task.project_id;
+  const isNonProject = (taskType === 'NON_PROJECT_TASK' || !task.project_id) && !task.project_name;
   const dependsOn = task.depends_on_id ? store.getTasks().find((item) => item.id === task.depends_on_id) : undefined;
+  const dependencyIds = [...new Set([...(Array.isArray(task.depends_on_ids) ? task.depends_on_ids : []), task.depends_on_id].filter(Boolean))] as string[];
+  const dependencyNames = dependencyIds
+    .map((id) => {
+      const person = store.findUserById(id);
+      if (person) return formatEmployeeDisplayName(person);
+      return store.getTasks().find((item) => item.id === id)?.title;
+    })
+    .filter(Boolean)
+    .join(', ');
   return {
     id: task.id,
     source: 'TASK',
@@ -138,7 +149,7 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     lead_number: lead?.lead_number,
     project_id: isNonProject ? undefined : task.project_id || project?.id,
     project_code: isNonProject ? undefined : project?.code,
-    project_name: isNonProject ? 'No Project' : project?.name || lead?.title || task.title,
+    project_name: project?.name || task.project_name || (isNonProject ? '—' : lead?.title || task.title),
     customer_name: isNonProject ? '' : project?.customer_name || lead?.customer_name || '',
     task_title: task.title,
     workflow_stage: lead?.pipeline_stage || (project && !isNonProject ? 'EXECUTION' : 'ASSIGNED'),
@@ -162,7 +173,7 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     description: task.description,
     assigned_by: task.assigned_by,
     team_lead_name: project?.team_lead_name,
-    depends_on_title: dependsOn?.title,
+    depends_on_title: dependencyNames || dependsOn?.title,
     remarks: task.remarks,
     next_plan: latest?.next_plan,
     dependency: latest?.dependency,

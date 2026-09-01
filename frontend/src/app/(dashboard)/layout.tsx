@@ -27,7 +27,7 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
         <NotificationProvider user={user}>
           <Navbar user={user} />
           <NotificationToastHost />
-          <main className="flex-1 overflow-y-auto bg-slate-950 p-6">{children}</main>
+          <main className="flex-1 overflow-y-auto overflow-x-hidden bg-slate-950 p-6">{children}</main>
         </NotificationProvider>
       </div>
     </div>

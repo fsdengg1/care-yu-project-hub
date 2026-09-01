@@ -76,6 +76,13 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'team_work'
   },
   {
+    name: 'Email Reports',
+    href: '/email-reports',
+    iconName: 'Mail',
+    category: 'team_work',
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'PROJECT_ENGINEER', 'TEAM_LEAD', 'SYSTEM_ADMIN']
+  },
+  {
     name: 'Escalations',
     href: '/dashboard/ceo/escalations',
     iconName: 'ShieldAlert',
@@ -206,7 +213,12 @@ export function canModerateForum(user: User | null | undefined): boolean {
 
 export function canCreateWorkTask(user: User | null | undefined): boolean {
   if (!user) return false;
-  return ['PROJECT_MANAGER', 'TEAM_LEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'TEAM_LEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function canEditDailySheet(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function canPerformPmOperations(user: User | null | undefined): boolean {

@@ -9,6 +9,7 @@ import { canCreateLead } from '@/lib/rbac';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
+import ManagementDashboard from '@/components/dashboards/ManagementDashboard';
 
 export default function EngineeringDashboard({ user }: { user: User }) {
   const [feasibilityCount, setFeasibilityCount] = useState(0);
@@ -94,6 +95,7 @@ export default function EngineeringDashboard({ user }: { user: User }) {
 
       <LeadPipelinePanel title="Lead pipeline" />
       <LeadWorkflowTimeline />
+      <ManagementDashboard user={user} />
       <ProjectGanttPanel user={user} />
     </div>
   );

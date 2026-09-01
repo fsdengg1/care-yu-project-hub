@@ -33,6 +33,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
     'create:lead',
     'edit:lead',
     'view:leads',
+    'create:task',
     'create:feasibility',
     'view:notifications',
     'view:daily-updates',

@@ -42,7 +42,7 @@ function statusLabel(item: NotificationItem) {
 }
 
 export default function NotificationsPage() {
-  const { notifications, markRead } = useNotifications();
+  const { notifications, markRead, markAllRead, unreadCount } = useNotifications();
   const user = StorageService.getCurrentUser();
   const isAdmin = user?.role_code === 'SYSTEM_ADMIN';
   const [tab, setTab] = React.useState<'INTERNAL' | 'CLIENT'>('INTERNAL');
@@ -68,7 +68,7 @@ export default function NotificationsPage() {
         <p className="text-xs text-slate-400 mt-1">
           Internal PMS alerts stay on the dashboard. Outlook email is sent only when someone clicks Send Email Notification or when a reminder is due. Client emails are listed separately.
         </p>
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setTab('INTERNAL')}
@@ -83,6 +83,15 @@ export default function NotificationsPage() {
           >
             Client / Customer
           </button>
+          {unreadCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void markAllRead()}
+              className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
+            >
+              Clear all unread
+            </button>
+          )}
         </div>
       </div>
 

@@ -32,50 +32,111 @@
     --color-cyan-100: #164e63;
     --color-cyan-200: #155e75;
     --color-cyan-300: #0e7490;
-    --color-cyan-400: #0891b2;
-    --color-cyan-500: #06b6d4;
-    --color-cyan-600: #22d3ee;
-    --color-cyan-700: #67e8f9;
-    --color-cyan-800: #a5f3fc;
-    --color-cyan-900: #cffafe;
+    --color-cyan-400: #0e7490;
+    --color-cyan-500: #0891b2;
+    --color-cyan-600: #0e7490;
+    --color-cyan-700: #155e75;
+    --color-cyan-800: #67e8f9;
+    --color-cyan-900: #a5f3fc;
     --color-cyan-950: #ecfeff;
 
+    --color-rose-200: #9f1239;
     --color-rose-300: #be123c;
     --color-rose-400: #e11d48;
-    --color-rose-800: #fecdd3;
-    --color-rose-900: #ffe4e6;
+    --color-rose-800: #fda4af;
+    --color-rose-900: #fecdd3;
     --color-rose-950: #fff1f2;
 
+    --color-amber-200: #92400e;
     --color-amber-300: #b45309;
     --color-amber-400: #d97706;
-    --color-amber-800: #fde68a;
-    --color-amber-900: #fef3c7;
+    --color-amber-800: #fcd34d;
+    --color-amber-900: #fde68a;
     --color-amber-950: #fffbeb;
 
+    --color-emerald-200: #065f46;
     --color-emerald-300: #047857;
     --color-emerald-400: #059669;
-    --color-emerald-800: #a7f3d0;
-    --color-emerald-900: #d1fae5;
-    --color-emerald-950: #ecfdf5;
+    --color-emerald-500: #047857;
+    --color-emerald-800: #6ee7b7;
+    --color-emerald-900: #a7f3d0;
+    --color-emerald-950: #d1fae5;
 
+    --color-blue-200: #1e40af;
     --color-blue-300: #1d4ed8;
     --color-blue-400: #2563eb;
-    --color-blue-800: #bfdbfe;
-    --color-blue-900: #dbeafe;
+    --color-blue-800: #93c5fd;
+    --color-blue-900: #bfdbfe;
     --color-blue-950: #eff6ff;
 
+    --color-indigo-200: #3730a3;
     --color-indigo-300: #4338ca;
     --color-indigo-400: #4f46e5;
-    --color-indigo-800: #c7d2fe;
-    --color-indigo-900: #e0e7ff;
+    --color-indigo-800: #a5b4fc;
+    --color-indigo-900: #c7d2fe;
     --color-indigo-950: #eef2ff;
 
+    --color-orange-200: #9a3412;
     --color-orange-300: #c2410c;
     --color-orange-400: #ea580c;
-    --color-orange-800: #fed7aa;
-    --color-orange-900: #ffedd5;
+    --color-orange-800: #fdba74;
+    --color-orange-900: #fed7aa;
     --color-orange-950: #fff7ed;
+
+    --color-violet-200: #5b21b6;
+    --color-violet-300: #6d28d9;
+    --color-violet-400: #7c3aed;
+    --color-violet-800: #c4b5fd;
+    --color-violet-900: #ddd6fe;
+    --color-violet-950: #f5f3ff;
+
+    --color-sky-200: #075985;
+    --color-sky-300: #0369a1;
+    --color-sky-400: #0284c7;
+    --color-sky-800: #7dd3fc;
+    --color-sky-900: #bae6fd;
+    --color-sky-950: #f0f9ff;
   }
+}
+
+/* Pale text tokens used on inverted dark-theme cards must stay dark in light mode. */
+html.light .theme-app :is(.text-cyan-100, .text-cyan-100\/80) {
+  color: #155e75;
+}
+html.light .theme-app .text-emerald-100 {
+  color: #047857;
+}
+html.light .theme-app .text-rose-100 {
+  color: #be123c;
+}
+html.light .theme-app .text-amber-100 {
+  color: #b45309;
+}
+html.light .theme-app .text-indigo-100 {
+  color: #4338ca;
+}
+html.light .theme-app .text-blue-100 {
+  color: #1d4ed8;
+}
+html.light .theme-app .text-violet-100 {
+  color: #6d28d9;
+}
+
+/* Light-first success/error copy uses *-800 as text; keep it dark while borders stay tinted. */
+html.light .theme-app .text-emerald-800 {
+  color: #065f46;
+}
+html.light .theme-app .text-rose-800 {
+  color: #9f1239;
+}
+html.light .theme-app .text-amber-800 {
+  color: #92400e;
+}
+html.light .theme-app .text-cyan-800 {
+  color: #155e75;
+}
+html.light .theme-app .text-blue-800 {
+  color: #1e40af;
 }
 
 /* Official Care Yu Automation lockup — full artwork, no cropped icon overlay */
@@ -162,4 +223,106 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #334155;
+}
+
+.daily-status-workspace {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 210px);
+  min-width: 0;
+}
+
+.daily-status-workspace-readonly {
+  min-height: 420px;
+}
+
+.daily-status-table-wrap {
+  flex: 1 1 auto;
+  min-height: 280px;
+  min-width: 0;
+  overflow: auto;
+}
+
+.daily-status-sheet {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.daily-status-sheet th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #facc15;
+  color: #0f172a;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  border: 1px solid #d4a017;
+  padding: 8px 7px;
+  white-space: nowrap;
+}
+
+.daily-status-sheet td {
+  border: 1px solid #d8dee6;
+  padding: 5px 7px;
+  vertical-align: middle;
+  font-size: 12px;
+  color: #0f172a;
+  background: #ffffff;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.daily-status-sheet tbody tr:nth-child(even) td:not(.tone-cell):not(.person-cell) {
+  background: #f8fafc;
+}
+
+.daily-status-sheet tbody tr:hover td:not(.tone-cell):not(.person-cell) {
+  background: #eef6ff;
+}
+
+.daily-status-sheet td.person-cell {
+  font-weight: 600;
+  text-align: center;
+  vertical-align: middle;
+  background: #fffef6;
+}
+
+.daily-status-sheet .sheet-input,
+.daily-status-sheet .sheet-textarea,
+.daily-status-sheet .sheet-select {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+  resize: none;
+  outline: none;
+}
+
+.daily-status-sheet .sheet-textarea {
+  min-height: 38px;
+  line-height: 1.35;
+}
+
+.sheet-dep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #cbd5e1;
+  background: #f1f5f9;
+  color: #0f172a;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
 }

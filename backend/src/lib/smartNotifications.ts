@@ -189,9 +189,23 @@ export function markNotificationsViewed(entityType: string, entityId: string, us
   let changed = 0;
   for (const item of notificationsForEntity(entityType, entityId)) {
     if (item.recipient_id !== userId) continue;
-    if (item.viewed_at || item.completed_at) continue;
+    if (item.completed_at) continue;
+    const alreadyViewed = Boolean(item.viewed_at);
+    const alreadyRead = Boolean(item.read_status);
+    if (alreadyViewed && alreadyRead) continue;
+    if (alreadyViewed && !alreadyRead) {
+      patchNotification(item.id, { read_status: true, read_at: item.read_at || now });
+      changed += 1;
+      continue;
+    }
     appendNotificationHistory(
-      { ...item, viewed_at: now, acted_at: item.acted_at || now },
+      {
+        ...item,
+        viewed_at: now,
+        acted_at: item.acted_at || now,
+        read_status: true,
+        read_at: now,
+      },
       'VIEWED',
       'Assigned person opened this item in the PMS dashboard.'
     );
@@ -229,6 +243,24 @@ export function markNotificationsOverdue(entityType: string, entityId: string) {
     );
     changed += 1;
   }
+  return changed;
+}
+
+export function markAllNotificationsRead(userId: string) {
+  const now = new Date().toISOString();
+  const notifications = store.getNotifications();
+  let changed = 0;
+  const next = notifications.map((item) => {
+    if (item.recipient_id !== userId || item.read_status) return item;
+    changed += 1;
+    return {
+      ...item,
+      read_status: true,
+      read_at: now,
+      viewed_at: item.viewed_at || now,
+    };
+  });
+  if (changed) store.saveNotifications(next);
   return changed;
 }
 

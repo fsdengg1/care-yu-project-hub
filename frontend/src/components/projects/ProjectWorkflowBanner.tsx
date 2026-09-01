@@ -28,7 +28,7 @@ export default function ProjectWorkflowBanner({
         </div>
       )}
       {message && (
-        <div className="flex items-start gap-3 rounded-xl border border-emerald-700 bg-emerald-950/70 px-4 py-3 text-sm text-emerald-100">
+        <div className="flex items-start gap-3 rounded-xl border border-emerald-700 bg-emerald-950/70 px-4 py-3 text-sm text-emerald-300">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-300" />
           <div>
             <div className="font-bold">{message}</div>
@@ -66,7 +66,7 @@ export default function ProjectWorkflowBanner({
                 key={item.key}
                 className={`rounded-lg border px-2 py-2 text-center ${
                   active
-                    ? 'border-cyan-500 bg-cyan-950 text-cyan-100'
+                    ? 'border-cyan-500 bg-cyan-950 text-cyan-300'
                     : done
                       ? 'border-emerald-900 bg-emerald-950/30 text-emerald-200'
                       : 'border-slate-800 bg-slate-950/40 text-slate-500'

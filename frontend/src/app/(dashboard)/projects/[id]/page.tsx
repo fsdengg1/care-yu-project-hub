@@ -17,11 +17,17 @@ import {
 } from '@/lib/format';
 import { StorageService } from '@/lib/storage';
 import { canOpenProjectGantt } from '@/lib/rbac';
+import { formatEmployeeDisplayName } from '@/lib/people';
+import { deadlineCellClass, deadlineTone, toSheetStatus } from '@/lib/dailyStatus';
 import { ProjectDetailPayload, ProjectStatus, Task, User } from '@/lib/types';
 import ProjectWorkflowBanner from '@/components/projects/ProjectWorkflowBanner';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
+import KPIStatCard from '@/components/work/KPIStatCard';
+import ModuleCard from '@/components/work/ModuleCard';
+import EmployeePerformanceCard from '@/components/work/EmployeePerformanceCard';
+import StatusBadge from '@/components/work/StatusBadge';
 
 function healthClass(health: string) {
   if (health === 'CRITICAL') return 'border-rose-800 bg-rose-950 text-rose-300';
@@ -124,6 +130,10 @@ export default function ProjectDetailPage() {
     assigned_to_ids: [] as string[],
     depends_on_id: '',
   });
+  const [employeeFilter, setEmployeeFilter] = useState('');
+  const [historyFilter, setHistoryFilter] = useState('');
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
 
   const load = async () => {
     const payload = await ProjectsApi.get(params.id);
@@ -160,6 +170,25 @@ export default function ProjectDetailPage() {
   const visibleTasks = memberOnly ? allTasks.filter((task) => task.assigned_to_id === user?.id) : allTasks;
   const doneCount = allTasks.filter((task) => task.status === 'DONE' && task.review_status !== 'PENDING_TL_REVIEW').length;
   const taskProgress = allTasks.length ? Math.round((doneCount / allTasks.length) * 100) : project.progress;
+  const inProgressCount = allTasks.filter((task) => task.status === 'IN_PROGRESS').length;
+  const waitingCount = allTasks.filter((task) => task.status === 'BLOCKED' || task.status === 'WAITING').length;
+  const holdCount = allTasks.filter((task) => task.status === 'HOLD').length;
+  const overdueCount = allTasks.filter((task) => task.due_date && task.due_date < new Date().toISOString().slice(0, 10) && task.status !== 'DONE').length;
+  const teamMemberCount = new Set(allTasks.map((task) => task.assigned_to_id).filter(Boolean)).size;
+  const filteredVisible = employeeFilter ? visibleTasks.filter((task) => task.assigned_to_id === employeeFilter) : visibleTasks;
+  const historyTasks = visibleTasks.filter((task) => {
+    if (historyFilter === 'Completed') return task.status === 'DONE';
+    if (historyFilter === 'In Progress') return task.status === 'IN_PROGRESS';
+    if (historyFilter === 'Waiting') return task.status === 'BLOCKED' || task.status === 'WAITING';
+    if (historyFilter === 'Hold') return task.status === 'HOLD';
+    if (historyFilter === 'Yet to Start') return task.status === 'TODO';
+    if (historyFilter === 'Overdue') return Boolean(task.due_date && task.due_date < new Date().toISOString().slice(0, 10) && task.status !== 'DONE');
+    return true;
+  }).filter((task) => {
+    const q = historyQuery.trim().toLowerCase();
+    if (!q) return true;
+    return [task.title, task.description, task.assigned_to].filter(Boolean).join(' ').toLowerCase().includes(q);
+  });
 
   const run = async (fn: () => Promise<void>) => {
     setError(null);
@@ -189,11 +218,11 @@ export default function ProjectDetailPage() {
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
               <Bot className="h-4 w-4" /> Project overview
             </div>
-            <h1 className="mt-1 text-xl font-bold text-slate-100">{project.customer_name} – {project.name}</h1>
+            <h1 className="mt-1 text-xl font-bold text-slate-100">{project.name}</h1>
             <p className="mt-1 text-slate-400">
-              {project.code}
+              Project No: {project.code}
               {project.lead_number ? ` · Lead ${project.lead_number}` : ''}
-              {detail.canManage ? ' · PM workspace' : ' · Read-only visibility'}
+              {` · ${formatLongDate(project.start_date)} → ${formatLongDate(project.target_completion)}`}
             </p>
             {canOpenProjectGantt(user, project) && (
               <Link href={`/projects/planning?project=${project.id}`} className="mt-2 inline-block text-cyan-400 hover:underline">
@@ -217,12 +246,32 @@ export default function ProjectDetailPage() {
           <ProjectGanttPanel user={user} projectId={project.id} />
         )}
 
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-7">
+        <KPIStatCard label="Total Tasks" value={allTasks.length} />
+        <KPIStatCard label="Completed" value={doneCount} tone="success" />
+        <KPIStatCard label="In Progress" value={inProgressCount} />
+        <KPIStatCard label="Waiting" value={waitingCount} tone="warning" />
+        <KPIStatCard label="Hold" value={holdCount} tone="warning" />
+        <KPIStatCard label="Overdue" value={overdueCount} tone="danger" />
+        <KPIStatCard label="Team Members" value={teamMemberCount} />
+      </div>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+        <h2 className="mb-3 text-sm font-bold text-slate-100">Overall Project Progress</h2>
+        <div className="mb-1 flex items-center justify-between text-slate-400">
+          <span>{taskProgress}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+          <div className={`h-full ${project.health === 'CRITICAL' ? 'bg-rose-500' : project.health === 'AT_RISK' ? 'bg-amber-400' : 'bg-emerald-500'}`} style={{ width: `${taskProgress}%` }} />
+        </div>
+      </section>
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Project ID" value={project.code} />
         <Field label="Lead ID" value={project.lead_number || project.lead_id || '—'} href={project.lead_id ? `/pre-sales/leads/${project.lead_id}` : undefined} />
-        <Field label="Project Manager" value={project.pm_name} />
-        <Field label="Team Lead" value={project.team_lead_name || '—'} />
-        <Field label="Assigned member" value={project.assigned_member_name || '—'} />
+        <Field label="Project Manager" value={formatEmployeeDisplayName(project.pm_name)} />
+        <Field label="Team Lead" value={formatEmployeeDisplayName(project.team_lead_name || '—')} />
+        <Field label="Assigned member" value={formatEmployeeDisplayName(project.assigned_member_name || '—')} />
         <Field label="Assigned by" value={project.assigned_by_name ? `${project.assigned_by_name} · ${formatDateTime(project.assigned_at)}` : '—'} />
         <Field label="Project value" value={formatInrCompact(project.value || 0)} />
         <Field label="Start date" value={formatLongDate(project.start_date)} />
@@ -552,12 +601,24 @@ export default function ProjectDetailPage() {
 
       <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-100">Tasks</h2>
+          <h2 className="text-sm font-bold text-slate-100">Project Modules</h2>
           <span className="text-slate-400">{doneCount}/{allTasks.length || 0} complete · {taskProgress}%</span>
         </div>
-        {visibleTasks.length === 0 && <p className="text-slate-500">No tasks assigned yet.</p>}
-        <div className="space-y-2">
-          {visibleTasks.map((task) => {
+        {filteredVisible.length === 0 && <p className="text-slate-500">No tasks assigned yet.</p>}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {filteredVisible.map((task) => (
+            <ModuleCard
+              key={task.id}
+              name={task.title}
+              assignee={task.assigned_to}
+              progress={task.progress_percent || 0}
+              status={TASK_STATUS_LABELS[task.status] || task.status}
+              onClick={() => setSelectedModuleId(selectedModuleId === task.id ? null : task.id)}
+            />
+          ))}
+        </div>
+        <div className="mt-4 space-y-2">
+          {visibleTasks.filter((task) => !selectedModuleId || task.id === selectedModuleId).slice(0, selectedModuleId ? 50 : 0).map((task) => {
             const isAssignee = user?.id === task.assigned_to_id;
             const busy = taskBusy === task.id;
             return (
@@ -571,7 +632,14 @@ export default function ProjectDetailPage() {
                       {task.priority ? ` · ${task.priority}` : ''}
                       {` · ${task.progress_percent || 0}%`}
                       {task.start_date ? ` · start ${formatLongDate(task.start_date)}` : ''}
-                      {task.due_date ? ` · due ${formatLongDate(task.due_date)}` : ''}
+                      {task.due_date ? (
+                        <>
+                          {' · due '}
+                          <span className={`rounded px-1.5 py-0.5 ${deadlineCellClass(deadlineTone(toSheetStatus(task.status), task.due_date))}`}>
+                            {formatLongDate(task.due_date)}
+                          </span>
+                        </>
+                      ) : ''}
                     </div>
                     {task.blocked_reason && <div className="mt-1 text-rose-300">Issue: {task.blocked_reason}</div>}
                     {(task.comments || []).slice(0, 2).map((comment) => (
@@ -687,14 +755,83 @@ export default function ProjectDetailPage() {
                 Workload {team.workload.open}/{team.workload.total || team.members.length} open
               </div>
               <div className="mt-2 space-y-1">
-                {team.members.map((member) => (
+                      {team.members.map((member) => (
                   <div key={member.id} className="flex justify-between text-slate-300">
-                    <span>{member.name} · {member.role_name}</span>
+                    <span>{formatEmployeeDisplayName(member.name)} · {member.role_name}</span>
                     <span className="text-slate-500">{member.open_tasks} open</span>
                   </div>
                 ))}
               </div>
             </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+        <h2 className="mb-3 text-sm font-bold text-slate-100">Team Performance</h2>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {[...new Map(allTasks.map((task) => [task.assigned_to_id, task.assigned_to])).entries()].map(([id, name]) => {
+            const mine = allTasks.filter((task) => task.assigned_to_id === id);
+            const completed = mine.filter((task) => task.status === 'DONE').length;
+            return (
+              <EmployeePerformanceCard
+                key={id}
+                name={formatEmployeeDisplayName(name)}
+                total={mine.length}
+                completed={completed}
+                inProgress={mine.filter((task) => task.status === 'IN_PROGRESS').length}
+                hold={mine.filter((task) => task.status === 'HOLD').length}
+                overdue={mine.filter((task) => task.due_date && task.due_date < new Date().toISOString().slice(0, 10) && task.status !== 'DONE').length}
+                progress={mine.length ? Math.round((completed / mine.length) * 100) : 0}
+                onClick={() => setEmployeeFilter(employeeFilter === id ? '' : id)}
+              />
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
+        <h2 className="text-sm font-bold text-slate-100">Task History</h2>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-400">
+          <span>{visibleTasks.length} Tasks</span>
+          <span>{doneCount} Completed</span>
+          <span>{inProgressCount} In Progress</span>
+          <span>{overdueCount} Overdue</span>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {['', 'Completed', 'In Progress', 'Waiting', 'Hold', 'Yet to Start', 'Overdue'].map((item) => (
+            <button
+              key={item || 'All'}
+              type="button"
+              onClick={() => setHistoryFilter(item)}
+              className={`rounded-full border px-3 py-1 text-[11px] font-bold ${historyFilter === item ? 'border-cyan-500 bg-cyan-950 text-cyan-200' : 'border-slate-700 text-slate-300'}`}
+            >
+              {item || 'All'}
+            </button>
+          ))}
+          <input
+            value={historyQuery}
+            onChange={(e) => setHistoryQuery(e.target.value)}
+            placeholder="Search"
+            className="rounded-md border border-slate-800 bg-slate-950 px-2 py-1 text-slate-200"
+          />
+        </div>
+        <div className="mt-3 space-y-2">
+          {historyTasks.map((task) => (
+            <button
+              key={task.id}
+              type="button"
+              onClick={() => setSelectedModuleId(task.id)}
+              className="w-full rounded-xl border border-slate-800 bg-slate-950/50 p-3 text-left hover:border-cyan-700"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-semibold text-slate-100">{formatEmployeeDisplayName(task.assigned_to)}</div>
+                  <div className="wrap-break-word text-slate-400">{task.title}</div>
+                </div>
+                <StatusBadge status={TASK_STATUS_LABELS[task.status] || task.status} />
+              </div>
+            </button>
           ))}
         </div>
       </section>

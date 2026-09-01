@@ -813,11 +813,12 @@ export interface Task {
   id: string;
   lead_id: string;
   project_id?: string;
+  project_name?: string;
   feasibility_team_assignment_id?: string;
   employee_allocation_id?: string;
   title: string;
   description?: string;
-  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED';
+  status: 'TODO' | 'IN_PROGRESS' | 'DONE' | 'BLOCKED' | 'WAITING' | 'HOLD';
   priority: PriorityLevel;
   due_date?: string;
   assigned_to: string;
@@ -834,6 +835,8 @@ export interface Task {
   start_date?: string;
   duration_days?: number;
   depends_on_id?: string;
+  depends_on_ids?: string[];
+  is_additional?: boolean;
   is_milestone?: boolean;
   remarks?: string;
   task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';

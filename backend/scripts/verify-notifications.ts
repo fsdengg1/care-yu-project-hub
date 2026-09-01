@@ -103,6 +103,15 @@ async function main() {
   markNotificationsViewed('LEAD', copy.id, other.id);
   const viewed = store.getNotifications().find((item) => item.id === created.notification!.id);
   assert(viewed?.viewed_at, 'Assigned person viewing the lead should mark the notification viewed');
+  assert(viewed?.read_status === true, 'Viewing the lead should clear the unread badge');
+
+  const leftover = store.getNotifications();
+  const leftoverIndex = leftover.findIndex((item) => item.id === created.notification!.id);
+  leftover[leftoverIndex] = { ...leftover[leftoverIndex], read_status: false, read_at: undefined };
+  store.saveNotifications(leftover);
+  markNotificationsViewed('LEAD', copy.id, other.id);
+  const cleared = store.getNotifications().find((item) => item.id === created.notification!.id);
+  assert(cleared?.read_status === true, 'Opening the same lead again must clear a leftover unread badge');
 
   const reminder = await notificationService.notifyReminder({
     entityType: 'LEAD',

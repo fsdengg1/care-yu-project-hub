@@ -6,18 +6,12 @@ import { Bot, Inbox, Plus, Search } from 'lucide-react';
 import { ProjectsApi } from '@/lib/projectsApi';
 import { Project, ProjectHealth, User } from '@/lib/types';
 import { StorageService } from '@/lib/storage';
-import { canCreateLead, canOpenProjectGantt, canPerformPmOperations, isCeoViewOnly } from '@/lib/rbac';
-import { formatLongDate } from '@/lib/format';
+import { canCreateLead, canPerformPmOperations, isCeoViewOnly } from '@/lib/rbac';
+import ProjectCard from '@/components/work/ProjectCard';
 
 type SortKey = 'progress' | 'health' | 'target' | 'updated';
 
 const HEALTH_ORDER: Record<string, number> = { CRITICAL: 0, AT_RISK: 1, ON_TRACK: 2 };
-
-function healthClass(health: string) {
-  if (health === 'CRITICAL') return 'border-rose-800 bg-rose-950 text-rose-300';
-  if (health === 'AT_RISK') return 'border-amber-800 bg-amber-950 text-amber-300';
-  return 'border-emerald-800 bg-emerald-950 text-emerald-300';
-}
 
 export default function ActiveProjectsPage() {
   const [user, setUser] = useState<User | null>(null);
@@ -222,91 +216,27 @@ export default function ActiveProjectsPage() {
         </select>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/90">
-        <table className="w-full text-left text-xs">
-          <thead className="border-b border-slate-800 bg-slate-950/80 text-[10px] uppercase tracking-wider text-slate-400">
-            <tr>
-              <th className="p-3">Project</th>
-              <th className="p-3">Customer</th>
-              <th className="p-3">PM</th>
-              <th className="p-3">Progress</th>
-              <th className="p-3">Health</th>
-              <th className="p-3">Issue</th>
-              <th className="p-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60 text-slate-300">
-            {filtered.map((project) => (
-              <tr
-                key={project.id}
-                className={
-                  createdId && (project.id === createdId || project.code === createdId)
-                    ? 'bg-cyan-950/40 hover:bg-slate-800/40'
-                    : 'hover:bg-slate-800/40'
-                }
-              >
-                <td className="p-3">
-                  <Link href={`/projects/${project.id}`} className="font-semibold text-slate-100 hover:text-cyan-300">
-                    {project.name}
-                  </Link>
-                  <div className="font-mono text-[10px] text-slate-500">{project.code}</div>
-                  {project.intake_status === 'SUBMITTED_TO_PM' && (
-                    <div className="mt-0.5 text-[10px] font-semibold text-cyan-300">Submitted to PM · PM Review</div>
-                  )}
-                  {project.intake_status === 'RETURNED_TO_CREATOR' && (
-                    <div className="mt-0.5 text-[10px] font-semibold text-amber-300">Returned to Creator</div>
-                  )}
-                </td>
-                <td className="p-3">{project.customer_name}</td>
-                <td className="p-3">{project.pm_name}</td>
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-16 overflow-hidden rounded bg-slate-800">
-                      <div
-                        className={`h-full ${project.health === 'CRITICAL' ? 'bg-rose-500' : project.health === 'AT_RISK' ? 'bg-amber-400' : 'bg-emerald-500'}`}
-                        style={{ width: `${project.progress}%` }}
-                      />
-                    </div>
-                    <span>{project.progress}%</span>
-                  </div>
-                </td>
-                <td className="p-3">
-                  <span className={`rounded border px-2 py-0.5 text-[10px] font-bold ${healthClass(project.health)}`}>
-                    {project.health.replace('_', ' ')}
-                  </span>
-                </td>
-                <td className="p-3 text-slate-400">{project.issue || '—'}</td>
-                <td className="p-3 text-right space-x-3">
-                  <Link href={`/projects/${project.id}`} className="text-cyan-400 hover:underline">
-                    Open
-                  </Link>
-                  {canOpenProjectGantt(user, project) && (
-                    <Link href={`/projects/planning?project=${project.id}`} className="text-slate-400 hover:text-cyan-300">
-                      Gantt
-                    </Link>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filtered.length === 0 && !error && (
-          <div className="space-y-2 p-10 text-center text-slate-500">
-            <Inbox className="mx-auto h-8 w-8 text-slate-600" />
-            <p>No active execution projects for your role.</p>
-            <p className="text-[11px]">
-              {canCreateLead(user)
-                ? 'Create a project and it will appear in this list. Converted orders also appear here after order conversion.'
-                : 'Converted orders appear here automatically after order conversion.'}
-            </p>
-            {canCreateLead(user) && (
-              <Link href="/projects/create" className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
-                <Plus className="h-3.5 w-3.5" /> Create Project
-              </Link>
-            )}
-          </div>
-        )}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {filtered.map((project) => (
+          <ProjectCard key={project.id} project={project} />
+        ))}
       </div>
+      {filtered.length === 0 && !error && (
+        <div className="space-y-2 rounded-xl border border-slate-800 p-10 text-center text-slate-500">
+          <Inbox className="mx-auto h-8 w-8 text-slate-600" />
+          <p>No project activity available.</p>
+          <p className="text-[11px]">
+            {canCreateLead(user)
+              ? 'Create a project and it will appear in this list. Converted orders also appear here after order conversion.'
+              : 'Converted orders appear here automatically after order conversion.'}
+          </p>
+          {canCreateLead(user) && (
+            <Link href="/projects/create" className="inline-flex items-center gap-1 text-cyan-400 hover:underline">
+              <Plus className="h-3.5 w-3.5" /> Create Project
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   );
 }

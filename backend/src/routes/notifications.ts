@@ -9,6 +9,7 @@ import {
   dispatchNotificationEmail,
   deriveNotificationStatus,
   isClientNotification,
+  markAllNotificationsRead,
   markNotificationsViewed,
   notificationsForEntity,
   pendingInternalEmails,
@@ -155,6 +156,11 @@ router.post('/client-email', requireAuth, async (req: AuthedRequest, res) => {
     return res.status(400).json({ message: 'Unable to send this customer email.' });
   }
   return res.json(result);
+});
+
+router.patch('/read-all', requireAuth, requirePermission('view:notifications'), (req: AuthedRequest, res) => {
+  const changed = markAllNotificationsRead(req.user!.id);
+  return res.json({ changed });
 });
 
 router.get('/:id', requireAuth, requirePermission('view:notifications'), (req: AuthedRequest, res) => {

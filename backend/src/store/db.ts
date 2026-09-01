@@ -86,6 +86,8 @@ interface SystemMetaRecord {
   id: string;
   demoOperationalPurgedAt?: string;
   usersLeadershipPrunedAt?: string;
+  payloadType?: string;
+  payload?: unknown;
 }
 
 const LIVE_META_ID = 'pms-live';
@@ -951,6 +953,21 @@ export const store = {
     const db = loadDb();
     db.outboundEmails = outboundEmails;
     markDirty('outboundEmails');
+    saveDb(db);
+  },
+  getSystemMeta() {
+    return loadDb().systemMeta ?? [];
+  },
+  saveSystemMeta(systemMeta: Array<{
+    id: string;
+    demoOperationalPurgedAt?: string;
+    usersLeadershipPrunedAt?: string;
+    payloadType?: string;
+    payload?: unknown;
+  }>) {
+    const db = loadDb();
+    db.systemMeta = systemMeta;
+    markDirty('systemMeta');
     saveDb(db);
   },
   getForumPosts(): ForumPost[] {

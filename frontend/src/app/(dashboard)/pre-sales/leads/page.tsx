@@ -24,27 +24,27 @@ import {
 
 const STATUS_BADGES: Record<LeadStatus, { label: string; style: string }> = {
   DRAFT: { label: 'Draft', style: 'bg-slate-800 text-slate-300 border-slate-700' },
-  SUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
-  UNDER_PM_REVIEW: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  SUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  UNDER_PM_REVIEW: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
   RETURNED_TO_SALES: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
   ADDITIONAL_INFORMATION_REQUIRED: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  RESUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
-  ACCEPTED_FOR_FEASIBILITY: { label: 'Approved', style: 'bg-emerald-950 text-emerald-200 border-emerald-700' },
+  RESUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  ACCEPTED_FOR_FEASIBILITY: { label: 'Approved', style: 'bg-emerald-950 text-emerald-300 border-emerald-700' },
   FEASIBILITY_IN_PROGRESS: { label: 'Feasibility', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
-  FEASIBILITY_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  FEASIBILITY_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
   FEASIBILITY_RETURNED: { label: 'Feasibility Correction', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  FEASIBILITY_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' },
+  FEASIBILITY_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' },
   COSTING_IN_PROGRESS: { label: 'Procurement', style: 'bg-violet-950 text-violet-300 border-violet-800' },
-  COSTING_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-200 border-cyan-700' },
+  COSTING_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
   COSTING_RETURNED: { label: 'Procurement Revision', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  COSTING_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' },
+  COSTING_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' },
   QUOTATION: { label: 'Quotation', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   NEGOTIATION: { label: 'Negotiation', style: 'bg-orange-950 text-orange-300 border-orange-800' },
   ORDER_CONVERTED: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   WON: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   LOST: { label: 'Lost', style: 'bg-rose-950 text-rose-300 border-rose-800' },
   ON_HOLD: { label: 'On Hold', style: 'bg-slate-800 text-slate-400 border-slate-700' },
-  CANCELLED: { label: 'Rejected', style: 'bg-rose-950 text-rose-200 border-rose-700' }
+  CANCELLED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' }
 };
 
 export default function LeadsListPage() {

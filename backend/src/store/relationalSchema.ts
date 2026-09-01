@@ -97,11 +97,15 @@ export const RELATIONAL_TABLES: TableDef[] = [
   {
     collection: 'systemMeta',
     table: 'system_meta',
-    fields: ts('demo_operational_purged_at', 'users_leadership_pruned_at').map((field, index) =>
-      index === 0
-        ? { ...field, key: 'demoOperationalPurgedAt' }
-        : { ...field, key: 'usersLeadershipPrunedAt' }
-    ),
+    fields: [
+      ...ts('demo_operational_purged_at', 'users_leadership_pruned_at').map((field, index) =>
+        index === 0
+          ? { ...field, key: 'demoOperationalPurgedAt' }
+          : { ...field, key: 'usersLeadershipPrunedAt' }
+      ),
+      f('payload_type', 'text', 'payloadType'),
+      f('payload', 'jsonb'),
+    ],
   },
   {
     collection: 'audits',
@@ -533,11 +537,14 @@ export const RELATIONAL_TABLES: TableDef[] = [
         'review_status',
         'responsible_user_id',
         'responsible_user_name',
-        'escalated_to_user_id'
+        'escalated_to_user_id',
+        'project_name'
       ),
+      f('depends_on_ids', 'text[]'),
       f('progress_percent', 'integer'),
       f('duration_days', 'integer'),
       f('is_milestone', 'boolean'),
+      f('is_additional', 'boolean'),
       f('pending_action', 'boolean'),
       f('reminder_count', 'integer'),
       f('comments', 'jsonb'),

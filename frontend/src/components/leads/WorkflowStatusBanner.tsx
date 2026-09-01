@@ -22,9 +22,9 @@ interface Props {
 }
 
 const FEEDBACK_STYLE: Record<WorkflowActionKind, string> = {
-  submit: 'border-cyan-700 bg-cyan-950/70 text-cyan-100',
-  approve: 'border-emerald-700 bg-emerald-950/70 text-emerald-100',
-  reject: 'border-rose-700 bg-rose-950/70 text-rose-100',
+  submit: 'border-cyan-700 bg-cyan-950/70 text-cyan-300',
+  approve: 'border-emerald-700 bg-emerald-950/70 text-emerald-300',
+  reject: 'border-rose-700 bg-rose-950/70 text-rose-300',
 };
 
 const FEEDBACK_ICON: Record<WorkflowActionKind, React.ReactNode> = {

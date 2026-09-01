@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Mail, History } from 'lucide-react';
 import { NotificationsApi } from '@/lib/notificationsApi';
+import { emitNotificationsChanged } from '@/lib/notificationPresentation';
 import { NotificationHistoryEntry, NotificationItem, NotificationLifecycleStatus } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/format';
 
@@ -20,7 +21,7 @@ const STATUS_CLASS: Record<NotificationLifecycleStatus, string> = {
   MANUALLY_SENT: 'border-emerald-800 bg-emerald-950 text-emerald-300',
   AUTOMATICALLY_SENT: 'border-cyan-800 bg-cyan-950 text-cyan-300',
   VIEWED: 'border-blue-800 bg-blue-950 text-blue-300',
-  COMPLETED: 'border-emerald-800 bg-emerald-950 text-emerald-200',
+  COMPLETED: 'border-emerald-800 bg-emerald-950 text-emerald-300',
   OVERDUE: 'border-rose-800 bg-rose-950 text-rose-300',
 };
 
@@ -54,7 +55,11 @@ export default function SmartEmailNotificationPanel({
 
   useEffect(() => {
     void load();
-    void NotificationsApi.markViewed(entityType, entityId);
+    void NotificationsApi.markViewed(entityType, entityId).then((result) => {
+      if (!result.ok) return;
+      emitNotificationsChanged();
+      void load();
+    });
   }, [entityType, entityId, load]);
 
   const internal = items.filter(
@@ -68,13 +73,13 @@ export default function SmartEmailNotificationPanel({
   const history: NotificationHistoryEntry[] = internal.flatMap((item) => item.notification_history || []);
 
   return (
-    <div className={`rounded-xl border border-slate-800 bg-slate-900/90 ${compact ? 'p-3' : 'p-4'}`}>
+    <div className={`rounded-xl border border-cyan-800 bg-slate-900 ${compact ? 'p-3' : 'p-4'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-cyan-400">
             <Mail className="h-3.5 w-3.5" /> Internal PMS notification
           </div>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-300">
             This item is already on the assigned person&apos;s dashboard. Outlook email is optional.
             {canSend ? ` If they do not view or act within ${hours} hours, PMS will send an automatic reminder.` : ''}
           </p>

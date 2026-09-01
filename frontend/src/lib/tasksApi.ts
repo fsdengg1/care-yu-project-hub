@@ -12,6 +12,10 @@ export interface CreateTaskPayload {
   due_date?: string;
   priority?: string;
   depends_on_id?: string;
+  depends_on_ids?: string[];
+  is_additional?: boolean;
+  status?: string;
+  project_name?: string;
 }
 
 export const TasksApi = {
@@ -32,6 +36,13 @@ export const TasksApi = {
     return apiRequest<{ task: Task }>(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    });
+  },
+
+  async bulkDelete(ids: string[]) {
+    return apiRequest<{ deleted: number; ids: string[]; message: string }>('/api/tasks/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
     });
   },
 

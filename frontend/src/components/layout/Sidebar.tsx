@@ -23,7 +23,8 @@ import {
   Network,
   MessageSquare,
   Settings,
-  ChevronRight
+  ChevronRight,
+  Mail
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -46,7 +47,8 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   History: <History className="w-4 h-4" />,
   Network: <Network className="w-4 h-4" />,
   MessageSquare: <MessageSquare className="w-4 h-4" />,
-  Settings: <Settings className="w-4 h-4" />
+  Settings: <Settings className="w-4 h-4" />,
+  Mail: <Mail className="w-4 h-4" />
 };
 
 export default function Sidebar({ user }: SidebarProps) {

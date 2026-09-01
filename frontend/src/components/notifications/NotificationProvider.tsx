@@ -17,6 +17,7 @@ interface NotificationContextValue {
   toasts: NotificationItem[];
   dismissToast: (id: string) => void;
   markRead: (id: string) => Promise<void>;
+  markAllRead: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -146,6 +147,15 @@ export function NotificationProvider({
     dismissToast(id);
   }, [dismissToast]);
 
+  const markAllRead = useCallback(async () => {
+    await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
+    const now = new Date().toISOString();
+    setNotifications((current) => current.map((item) => (item.read_status ? item : { ...item, read_status: true, read_at: now })));
+    setToasts([]);
+    queueRef.current = [];
+    syncLive([]);
+  }, [syncLive]);
+
   useEffect(() => {
     if (liveState.userId !== user.id) {
       liveState.userId = user.id;
@@ -201,9 +211,10 @@ export function NotificationProvider({
       toasts,
       dismissToast,
       markRead,
+      markAllRead,
       refresh,
     }),
-    [notifications, toasts, dismissToast, markRead, refresh]
+    [notifications, toasts, dismissToast, markRead, markAllRead, refresh]
   );
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

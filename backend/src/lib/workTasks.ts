@@ -13,6 +13,34 @@ export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
 }
 
+function resolveProjectFromBody(body: Record<string, unknown>) {
+  const requestedId = String(body.project_id || '').trim();
+  const typedName = String(body.project_name || '').trim();
+  const projects = store.getProjects();
+  const byId = requestedId ? projects.find((item) => item.id === requestedId) : undefined;
+  if (byId) return { project: byId, typedName: typedName || byId.name };
+  const needle = (typedName || requestedId).trim().toLowerCase();
+  if (!needle) return { project: undefined, typedName: '' };
+  const byName = projects.find(
+    (item) =>
+      item.name.trim().toLowerCase() === needle ||
+      String(item.code || '').trim().toLowerCase() === needle
+  );
+  return { project: byName, typedName: typedName || requestedId };
+}
+
+function taskStatusFromBody(value: unknown): Task['status'] {
+  const raw = String(value || '').trim();
+  if (!raw) return 'TODO';
+  const upper = raw.toUpperCase().replace(/\s+/g, '_');
+  if (raw === 'Completed' || upper === 'DONE' || upper === 'COMPLETED') return 'DONE';
+  if (raw === 'In Progress' || upper === 'IN_PROGRESS' || upper === 'WORK_IN_PROGRESS') return 'IN_PROGRESS';
+  if (raw === 'Hold' || upper === 'HOLD' || upper === 'ON_HOLD') return 'HOLD';
+  if (raw === 'Waiting' || upper === 'WAITING' || upper === 'BLOCKED') return 'WAITING';
+  if (raw === 'Yet to Start' || upper === 'TODO' || upper === 'YET_TO_START' || upper === 'NOT_STARTED') return 'TODO';
+  return 'TODO';
+}
+
 export function reviewerForTask(task: Task): User | undefined {
   if (task.project_id) {
     const project = store.getProjects().find((item) => item.id === task.project_id);
@@ -170,7 +198,7 @@ export function applyTaskLifecycle(
 export function canViewTask(user: User, task: Task) {
   if (task.assigned_to_id === user.id || task.created_by_id === user.id || task.assigned_by_id === user.id) return true;
   if (task.responsible_user_id === user.id) return true;
-  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
+  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
   if (user.role_code === 'PROJECT_MANAGER') {
     if (!task.project_id) return true;
     const project = store.getProjects().find((item) => item.id === task.project_id);
@@ -186,8 +214,14 @@ export function canViewTask(user: User, task: Task) {
 type CreateWorkTaskResult = { error: string; status?: number } | { task: Task; tasks: Task[] };
 
 export function createWorkTask(user: User, body: Record<string, unknown>): CreateWorkTaskResult {
-  if (!canCreateWorkTask(user)) {
+  const wantsAdditional = Boolean(body.is_additional);
+  const requestedAssignee = String(body.assigned_to_id || '').trim() || user.id;
+  const selfCreate = requestedAssignee === user.id;
+  if (!canCreateWorkTask(user) && !selfCreate) {
     return { error: 'You do not have permission to create a task.', status: 403 as const };
+  }
+  if (!canCreateWorkTask(user)) {
+    body = { ...body, assigned_to_id: user.id, is_additional: wantsAdditional };
   }
   const extraIds = Array.isArray(body.assigned_to_ids)
     ? (body.assigned_to_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
@@ -205,16 +239,10 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
   }
 
   const title = String(body.title || '').trim() || 'Untitled task';
-  const taskType =
-    body.task_type === 'NON_PROJECT_TASK' || (!body.task_type && !body.project_id)
-      ? 'NON_PROJECT_TASK'
-      : 'PROJECT_TASK';
-  const projectId = taskType === 'PROJECT_TASK' ? String(body.project_id || '').trim() : '';
-      if (taskType === 'PROJECT_TASK' && !projectId) {
-    return { error: 'Project is required for a project task.' };
-  }
-  const project = projectId ? store.getProjects().find((item) => item.id === projectId) : undefined;
-  if (taskType === 'PROJECT_TASK' && !project) return { error: 'Project not found.' };
+  const resolved = resolveProjectFromBody(body);
+  const project = resolved.project;
+  const typedProjectName = resolved.typedName;
+  const taskType = project || typedProjectName ? 'PROJECT_TASK' : 'NON_PROJECT_TASK';
   if (project && ['AWAITING_ASSIGNMENT', 'PENDING_TL_REVIEW', 'RETURNED', 'DRAFT', 'SUBMITTED_TO_PM', 'RETURNED_TO_CREATOR'].includes(intakeStatusOf(project))) {
     return { error: 'Assign and accept the project before creating execution tasks.' };
   }
@@ -223,6 +251,9 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
   }
   if (project && user.role_code === 'TEAM_LEAD' && project.team_lead_id !== user.id && !(project.team_ids || []).includes(user.team_id || '')) {
     return { error: 'You can only create tasks for projects assigned to your team.', status: 403 as const };
+  }
+  if (project && !canCreateWorkTask(user) && !canViewProject(user, project)) {
+    return { error: 'You can only create tasks for projects assigned to you.', status: 403 as const };
   }
 
   const assigneeId = String(body.assigned_to_id || user.id);
@@ -233,16 +264,21 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
   }
 
   const now = new Date().toISOString();
+  const initialStatus = taskStatusFromBody(body.status);
+  const initialProgress =
+    Number(body.progress_percent || 0) ||
+    (initialStatus === 'DONE' ? 100 : initialStatus === 'IN_PROGRESS' ? 10 : 0);
   const task: Task = {
     id: newId('task'),
     lead_id: project?.lead_id || '',
     project_id: project?.id,
+    project_name: project?.name || typedProjectName || undefined,
     title,
     description: String(body.description || '').trim() || undefined,
-    status: 'TODO',
+    status: initialStatus,
     priority: (body.priority as Task['priority']) || 'Medium',
     due_date: body.due_date ? String(body.due_date) : undefined,
-    start_date: body.start_date ? String(body.start_date) : undefined,
+    start_date: body.start_date ? String(body.start_date) : now.slice(0, 10),
     assigned_to: assignee.name,
     assigned_to_id: assignee.id,
     assigned_by: user.name,
@@ -252,12 +288,18 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     responsible_user_id: assignee.id,
     responsible_user_name: assignee.name,
     ...reminderScheduleFields(true),
-    progress_percent: Number(body.progress_percent || 0) || 0,
+    progress_percent: initialProgress,
     team_id: assignee.team_id,
     team_name: assignee.team_name,
     remarks: body.remarks ? String(body.remarks) : undefined,
     task_type: taskType,
+    is_additional: Boolean(body.is_additional),
     depends_on_id: body.depends_on_id ? String(body.depends_on_id) : undefined,
+    depends_on_ids: Array.isArray(body.depends_on_ids)
+      ? [...new Set((body.depends_on_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean))]
+      : body.depends_on_id
+        ? [String(body.depends_on_id)]
+        : undefined,
     review_status: 'NONE',
     comments: [],
     created_at: now,
@@ -318,10 +360,11 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     current.created_by_id === user.id ||
     current.assigned_by_id === user.id ||
     hasPermission(user, 'create:task') ||
-    ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+    ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
+  const ownAdditional = Boolean(current.is_additional) && current.assigned_to_id === user.id;
   const project = current.project_id ? store.getProjects().find((item) => item.id === current.project_id) : undefined;
   const isProjectTeamLead = user.role_code === 'TEAM_LEAD' && Boolean(project && project.team_lead_id === user.id);
-  const canExecute = current.assigned_to_id === user.id || canManage || isProjectTeamLead;
+  const canExecute = current.assigned_to_id === user.id || canManage || isProjectTeamLead || ownAdditional;
   if (!canExecute) return { error: 'forbidden' as const };
   if (
     current.review_status === 'PENDING_TL_REVIEW' &&
@@ -333,7 +376,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   }
   if (
     current.status === 'BLOCKED' &&
-    !['TEAM_LEAD', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)
+    !['TEAM_LEAD', 'PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)
   ) {
     const resumeAttempt =
       (body.status && String(body.status) !== 'BLOCKED') ||
@@ -345,12 +388,28 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   }
 
   const next: Task = { ...current, updated_at: new Date().toISOString() };
-  if (canManage) {
+  if (canManage || ownAdditional) {
     if (body.title) next.title = String(body.title).trim();
     if (body.description !== undefined) next.description = String(body.description);
-    if (body.priority) next.priority = body.priority as Task['priority'];
     if (body.due_date !== undefined) next.due_date = String(body.due_date || '') || undefined;
+  }
+  if (canManage) {
+    if (body.priority) next.priority = body.priority as Task['priority'];
     if (body.start_date !== undefined) next.start_date = String(body.start_date || '') || undefined;
+    if (body.project_id !== undefined) {
+      const projectId = String(body.project_id || '').trim();
+      if (!projectId) {
+        next.project_id = undefined;
+        next.task_type = 'NON_PROJECT_TASK';
+      } else {
+        const nextProject = store.getProjects().find((item) => item.id === projectId);
+        if (nextProject) {
+          next.project_id = nextProject.id;
+          next.lead_id = nextProject.lead_id || next.lead_id;
+          next.task_type = 'PROJECT_TASK';
+        }
+      }
+    }
     if (body.assigned_to_id) {
       const assignee = store.findUserById(String(body.assigned_to_id));
       if (assignee && assignee.id !== current.assigned_to_id) {
@@ -374,14 +433,14 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
       }
     }
   }
-  if (body.status && ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED'].includes(String(body.status))) {
+  if (body.status && ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'WAITING', 'HOLD'].includes(String(body.status))) {
     next.status = body.status as Task['status'];
   }
   if (
     current.status === 'BLOCKED' &&
     next.status === 'IN_PROGRESS' &&
     user.role_code !== 'TEAM_LEAD' &&
-    !['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)
+    !['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)
   ) {
     return { error: 'Only the Team Lead can clear a blocked task.', status: 403 as const };
   }
@@ -389,6 +448,13 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     next.progress_percent = Math.max(0, Math.min(100, Number(body.progress_percent) || 0));
     next.last_update_at = new Date().toISOString();
     if (next.status === 'TODO' && next.progress_percent > 0) next.status = 'IN_PROGRESS';
+  }
+  if ((canManage || ownAdditional) && body.depends_on_ids !== undefined) {
+    const ids = Array.isArray(body.depends_on_ids)
+      ? [...new Set((body.depends_on_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean))]
+      : [];
+    next.depends_on_ids = ids;
+    next.depends_on_id = ids[0];
   }
   if (body.blocked_reason !== undefined) next.blocked_reason = String(body.blocked_reason);
   if (canExecute && body.remarks !== undefined) next.remarks = String(body.remarks);
@@ -499,4 +565,42 @@ export function addTaskComment(user: User, id: string, text: string) {
   tasks[index] = task;
   store.saveTasks(tasks);
   return { task, comment: entry };
+}
+
+export function deleteWorkTasks(user: User, ids: string[]) {
+  const uniqueIds = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!uniqueIds.length) return { error: 'No tasks selected.', status: 400 as const };
+  const canManage = hasPermission(user, 'create:task') || ['PROJECT_MANAGER', 'SYSTEM_ADMIN', 'TEAM_LEAD'].includes(user.role_code);
+  if (!canManage) return { error: 'You do not have permission to delete tasks.', status: 403 as const };
+  const tasks = store.getTasks();
+  const selected = tasks.filter((task) => uniqueIds.includes(task.id) && canViewTask(user, task));
+  if (!selected.length) return { error: 'No matching tasks were found.', status: 404 as const };
+  const removedIds = new Set(selected.map((task) => task.id));
+  const next = tasks
+    .filter((task) => !removedIds.has(task.id))
+    .map((task) => {
+      let updated = task;
+      if (task.parent_task_id && removedIds.has(task.parent_task_id)) updated = { ...updated, parent_task_id: undefined };
+      if (task.depends_on_id && removedIds.has(task.depends_on_id)) updated = { ...updated, depends_on_id: undefined };
+      if (task.depends_on_ids?.some((id) => removedIds.has(id))) {
+        updated = { ...updated, depends_on_ids: task.depends_on_ids.filter((id) => !removedIds.has(id)) };
+      }
+      return updated;
+    });
+  store.saveTasks(next);
+  const projectIds = [...new Set(selected.map((task) => task.project_id).filter(Boolean))] as string[];
+  for (const projectId of projectIds) persistComputedProgress(projectId);
+  for (const removed of selected) {
+    store.appendAudit({
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role_name,
+      entity_type: 'TASK',
+      entity_id: removed.id,
+      entity_name: removed.title,
+      action: 'TASK_DELETED',
+      description: `${user.name} deleted task "${removed.title}".`,
+    });
+  }
+  return { deleted: selected.length, ids: [...removedIds] };
 }

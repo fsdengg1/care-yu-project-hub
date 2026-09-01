@@ -29,7 +29,7 @@ export default function Navbar({ user }: NavbarProps) {
   const { logout } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const { notifications, unreadCount, markRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -83,9 +83,20 @@ export default function Navbar({ user }: NavbarProps) {
             <div className="absolute right-0 mt-2 w-80 bg-slate-900 border border-slate-800 rounded-lg shadow-xl p-3 z-50">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
                 <span className="text-xs font-bold text-slate-200">Notifications ({notifications.length})</span>
-                <Link href="/notifications" className="text-[11px] text-cyan-400 hover:underline">
-                  View all
-                </Link>
+                <div className="flex items-center gap-2">
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void markAllRead()}
+                      className="text-[11px] font-bold text-slate-300 hover:text-slate-100"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                  <Link href="/notifications" className="text-[11px] text-cyan-400 hover:underline">
+                    View all
+                  </Link>
+                </div>
               </div>
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {notifications.length === 0 ? (
@@ -101,7 +112,7 @@ export default function Navbar({ user }: NavbarProps) {
                       className={`block w-full text-left p-2 rounded bg-slate-950/50 border text-xs ${n.read_status ? 'border-slate-800' : 'border-cyan-800'}`}
                     >
                       <div className="font-semibold text-cyan-300">{n.title}</div>
-                      <div className="text-slate-400 mt-0.5">{n.message}</div>
+                      <div className="text-slate-300 mt-0.5">{n.message}</div>
                       <div className="text-[10px] text-slate-500 mt-1">{formatRelativeTime(n.created_at)}</div>
                     </Link>
                   ))

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { store } from '../store/db.js';
-import { addTaskComment, canViewTask, createWorkTask, updateWorkTask } from '../lib/workTasks.js';
+import { addTaskComment, canViewTask, createWorkTask, deleteWorkTasks, updateWorkTask } from '../lib/workTasks.js';
 import { listAssignmentsForUser } from '../lib/dailyUpdates.js';
 
 const router = Router();
@@ -25,6 +25,13 @@ router.post('/', requireAuth, (req: AuthedRequest, res) => {
   const result = createWorkTask(req.user!, req.body || {});
   if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
   return res.status(201).json({ task: result.task, tasks: result.tasks || [result.task] });
+});
+
+router.post('/bulk-delete', requireAuth, (req: AuthedRequest, res) => {
+  const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((id: unknown) => String(id)) : [];
+  const result = deleteWorkTasks(req.user!, ids);
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.json({ message: `${result.deleted} selected task${result.deleted === 1 ? '' : 's'} deleted.`, ...result });
 });
 
 router.get('/:id', requireAuth, (req: AuthedRequest, res) => {
