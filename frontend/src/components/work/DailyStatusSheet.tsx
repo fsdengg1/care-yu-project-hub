@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Download, Filter, Search, Trash2 } from 'lucide-react';
 import {
   DailyStatusPerson,
@@ -32,6 +32,41 @@ function todayIso() {
 
 function isoToInput(value?: string) {
   return parseSheetDate(value) || '';
+}
+
+function resizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${Math.max(38, el.scrollHeight)}px`;
+}
+
+function AutoResizeTextarea({
+  className,
+  defaultValue,
+  onBlur,
+  placeholder,
+}: {
+  className?: string;
+  defaultValue?: string;
+  placeholder?: string;
+  onBlur?: React.FocusEventHandler<HTMLTextAreaElement>;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    resizeTextarea(ref.current);
+  }, [defaultValue]);
+
+  return (
+    <textarea
+      ref={ref}
+      defaultValue={defaultValue}
+      className={className}
+      placeholder={placeholder}
+      onInput={(event) => resizeTextarea(event.currentTarget)}
+      onBlur={onBlur}
+    />
+  );
 }
 
 type PatchBody = Record<string, unknown>;
@@ -269,7 +304,7 @@ export default function DailyStatusSheet({
                   </td>
                   <td>
                     {editable ? (
-                      <textarea
+                      <AutoResizeTextarea
                         key={row.taskDescription}
                         defaultValue={row.taskDescription}
                         className="sheet-textarea"
@@ -281,7 +316,7 @@ export default function DailyStatusSheet({
                         }}
                       />
                     ) : (
-                      row.taskDescription
+                      <span className="sheet-text">{row.taskDescription}</span>
                     )}
                   </td>
                   <td>
@@ -322,7 +357,7 @@ export default function DailyStatusSheet({
                   </td>
                   <td>
                     {editable ? (
-                      <textarea
+                      <AutoResizeTextarea
                         key={row.reasonForDelay}
                         defaultValue={row.reasonForDelay === '—' ? '' : row.reasonForDelay}
                         className="sheet-textarea"
@@ -333,7 +368,7 @@ export default function DailyStatusSheet({
                         }}
                       />
                     ) : (
-                      row.reasonForDelay
+                      <span className="sheet-text">{row.reasonForDelay}</span>
                     )}
                     </td>
                   </tr>

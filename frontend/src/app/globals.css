@@ -273,7 +273,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 .daily-status-sheet td {
   border: 1px solid #d8dee6;
   padding: 5px 7px;
-  vertical-align: middle;
+  vertical-align: top;
   font-size: 12px;
   color: #0f172a;
   background: #ffffff;
@@ -310,6 +310,14 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet .sheet-textarea {
   min-height: 38px;
+  line-height: 1.35;
+  overflow: hidden;
+  field-sizing: content;
+}
+
+.daily-status-sheet .sheet-text {
+  display: block;
+  white-space: pre-wrap;
   line-height: 1.35;
 }
 

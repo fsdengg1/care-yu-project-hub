@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { DailySheetStatus, SHEET_STATUSES, sheetStatusClass } from '@/lib/dailyStatus';
+import { placeDropdown } from '@/lib/dropdownPlacement';
 
 export default function StatusDropdown({
   value,
@@ -17,7 +18,7 @@ export default function StatusDropdown({
   variant?: 'default' | 'sheet';
 }) {
   const [open, setOpen] = useState(false);
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 160 });
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 160, maxHeight: 240 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +27,8 @@ export default function StatusDropdown({
     const place = () => {
       const box = buttonRef.current?.getBoundingClientRect();
       if (!box) return;
-      setCoords({ top: box.bottom + 6, left: box.left, width: Math.max(box.width, 160) });
+      const next = placeDropdown(box, { minWidth: 160, preferredHeight: 240 });
+      setCoords(next);
     };
     place();
     const onDoc = (event: MouseEvent) => {
@@ -40,10 +42,12 @@ export default function StatusDropdown({
     document.addEventListener('mousedown', onDoc);
     document.addEventListener('keydown', onKey);
     window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
     return () => {
       document.removeEventListener('mousedown', onDoc);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
     };
   }, [open]);
 
@@ -63,8 +67,8 @@ export default function StatusDropdown({
         createPortal(
           <div
             ref={panelRef}
-            style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width, zIndex: 80 }}
-            className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl"
+            style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width, maxHeight: coords.maxHeight, zIndex: 9999 }}
+            className="overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-1 shadow-xl"
           >
             {SHEET_STATUSES.map((status) => (
               <button

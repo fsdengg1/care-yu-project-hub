@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { dedupeByStableId } from '@/lib/people';
 import { DailyStatusPerson } from '@/lib/dailyStatus';
+import { placeDropdown } from '@/lib/dropdownPlacement';
 
 export default function DependencyMultiSelect({
   people,
@@ -21,7 +22,7 @@ export default function DependencyMultiSelect({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 320 });
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 320, maxHeight: 256 });
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const unique = useMemo(() => dedupeByStableId(people, (item) => item.id), [people]);
@@ -35,7 +36,8 @@ export default function DependencyMultiSelect({
     const place = () => {
       const box = buttonRef.current?.getBoundingClientRect();
       if (!box) return;
-      setCoords({ top: box.bottom + 6, left: box.left, width: Math.max(box.width, 320) });
+      const next = placeDropdown(box, { minWidth: 320, preferredHeight: 256, headerHeight: 48 });
+      setCoords(next);
     };
     place();
     const onDoc = (event: MouseEvent) => {
@@ -101,10 +103,10 @@ export default function DependencyMultiSelect({
         createPortal(
           <div
             ref={panelRef}
-            style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width, zIndex: 80 }}
-            className="overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-xl"
+            style={{ position: 'fixed', top: coords.top, left: coords.left, width: coords.width, zIndex: 9999 }}
+            className="flex max-h-[min(300px,90vh)] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 shadow-xl"
           >
-            <div className="relative border-b border-slate-800 p-2">
+            <div className="relative shrink-0 border-b border-slate-800 p-2">
               <Search className="absolute left-4 top-3.5 h-3.5 w-3.5 text-slate-500" />
               <input
                 autoFocus
@@ -114,7 +116,7 @@ export default function DependencyMultiSelect({
                 className="w-full rounded-md border border-slate-800 bg-slate-950 py-1.5 pl-7 pr-2 text-xs text-slate-100 placeholder-slate-500"
               />
             </div>
-            <div className="max-h-64 overflow-y-auto p-1">
+            <div className="overflow-y-auto p-1" style={{ maxHeight: coords.maxHeight }}>
               {filtered.map((person) => {
                 const checked = value.includes(person.id);
                 return (
