@@ -3,6 +3,15 @@ export type SnapshotPeriod = 'morning' | 'evening';
 
 export type DeadlineTone = 'completed' | 'hold' | 'delay-1' | 'delay-2plus' | 'normal';
 
+export interface DailyStatusSubtask {
+  id: string;
+  title: string;
+  status: DailySheetStatus;
+  progressPercent: number;
+  deadline: string;
+  assignedTo: string;
+}
+
 export interface DailyStatusRow {
   id: string;
   personId: string;
@@ -27,6 +36,8 @@ export interface DailyStatusRow {
   latestUpdateAt?: string;
   morningStatus?: DailySheetStatus;
   eveningStatus?: DailySheetStatus;
+  subtasks?: DailyStatusSubtask[];
+  hasSubtasks?: boolean;
 }
 
 export interface DailyStatusKpis {
@@ -144,6 +155,12 @@ export interface CompareItem {
   eveningDeadline?: string;
   morningDependencies?: string;
   eveningDependencies?: string;
+  currentUpdate?: string;
+  onTimeDelay?: string;
+  progressPercent?: number;
+  reasonForDelay?: string;
+  loggedHours?: string;
+  hoursWorked?: number;
   kinds: CompareKind[];
 }
 

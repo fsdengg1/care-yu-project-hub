@@ -15,6 +15,7 @@ import {
   saveDailyStatusSnapshot,
   sendDailyStatusReport,
   SnapshotPeriod,
+  upsertLoggedHoursForTask,
   visibleProjects,
 } from '../lib/dailyStatus.js';
 import { formatEmployeeDisplayName } from '../lib/people.js';
@@ -294,6 +295,25 @@ router.patch(
     ) {
       body.status = fromSheetStatus(body.status);
     }
+
+    if (body.hours_worked !== undefined) {
+      const hoursResult = upsertLoggedHoursForTask(req.user!, String(req.params.id), Number(body.hours_worked));
+      if (!hoursResult.ok) {
+        return res.status(hoursResult.status || 400).json({
+          message:
+            hoursResult.error === 'forbidden'
+              ? 'You do not have permission to update logged hours.'
+              : hoursResult.error === 'not_found'
+                ? 'Task not found.'
+                : hoursResult.error,
+        });
+      }
+      delete body.hours_worked;
+      if (Object.keys(body).length === 0) {
+        return res.json({ update: hoursResult.update, rows: buildDailyStatusRows(req.user!) });
+      }
+    }
+
     const result = updateWorkTask(req.user!, String(req.params.id), body);
     if ('error' in result && result.error === 'not_found') {
       return res.status(404).json({ message: 'Task not found.' });

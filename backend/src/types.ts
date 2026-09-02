@@ -853,6 +853,12 @@ export interface Task {
   next_reminder_at?: string;
   escalated_at?: string;
   escalated_to_user_id?: string;
+  /** Dependency / assignment acceptance gate. Undefined = no gate (legacy active tasks). */
+  acceptance_status?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  requested_by_id?: string;
+  requested_by_name?: string;
+  requested_from_task_id?: string;
+  progress_manual_override?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -915,6 +921,7 @@ export interface Project {
   status: ProjectStatus;
   issue?: string;
   lead_id?: string;
+  lead_number?: string;
   team_ids?: string[];
   value?: number;
   start_date?: string;
@@ -1054,6 +1061,8 @@ export interface DailyUpdate {
   submission_status: DailyUpdateSubmissionStatus;
   submitted_at?: string;
   summary?: string;
+  /** Morning/evening discriminator for sheet-logged hours history. */
+  period?: 'morning' | 'evening';
   pm_comments?: DailyUpdateComment[];
   created_at: string;
   updated_at: string;
@@ -1098,6 +1107,11 @@ export interface WorkAssignment {
   remarks?: string;
   next_plan?: string;
   dependency?: string;
+  acceptance_status?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  requested_by_id?: string;
+  requested_by_name?: string;
+  parent_task_id?: string;
+  requested_from_task_id?: string;
 }
 
 export interface ProjectActivityItem {

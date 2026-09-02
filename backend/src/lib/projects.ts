@@ -337,7 +337,17 @@ export function listVisibleProjects(user: User, status: ProjectStatus | 'ALL' = 
     if (status === 'ACTIVE') return project.status === 'ACTIVE' || project.status === 'HANDOVER';
     return project.status === status;
   });
-  return projects.filter((project) => canViewProject(user, project));
+  const leads = store.getLeads();
+  return projects
+    .filter((project) => canViewProject(user, project))
+    .map((project) => {
+      const lead = project.lead_id ? leads.find((item) => item.id === project.lead_id) : undefined;
+      return {
+        ...project,
+        lead_number: project.lead_number || lead?.lead_number,
+        customer_name: project.customer_name || lead?.customer_name || project.customer_name,
+      };
+    });
 }
 
 export function buildProjectDetail(user: User, projectId: string) {

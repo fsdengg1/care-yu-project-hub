@@ -1,7 +1,16 @@
 import { Router } from 'express';
 import { AuthedRequest, requireAuth } from '../middleware/auth.js';
 import { store } from '../store/db.js';
-import { addTaskComment, canViewTask, createWorkTask, deleteWorkTasks, updateWorkTask } from '../lib/workTasks.js';
+import {
+  acceptWorkTask,
+  addTaskComment,
+  canViewTask,
+  createDependencyRequest,
+  createWorkTask,
+  deleteWorkTasks,
+  rejectWorkTask,
+  updateWorkTask,
+} from '../lib/workTasks.js';
 import { listAssignmentsForUser } from '../lib/dailyUpdates.js';
 
 const router = Router();
@@ -27,6 +36,19 @@ router.post('/', requireAuth, (req: AuthedRequest, res) => {
   return res.status(201).json({ task: result.task, tasks: result.tasks || [result.task] });
 });
 
+router.post('/dependency-request', requireAuth, (req: AuthedRequest, res) => {
+  const body = req.body || {};
+  const result = createDependencyRequest(req.user!, {
+    from_task_id: String(body.from_task_id || ''),
+    assigned_to_id: String(body.assigned_to_id || ''),
+    title: String(body.title || ''),
+    description: body.description ? String(body.description) : undefined,
+    due_date: body.due_date ? String(body.due_date) : undefined,
+  });
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.status(201).json({ task: result.task });
+});
+
 router.post('/bulk-delete', requireAuth, (req: AuthedRequest, res) => {
   const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((id: unknown) => String(id)) : [];
   const result = deleteWorkTasks(req.user!, ids);
@@ -47,9 +69,25 @@ router.patch('/:id', requireAuth, (req: AuthedRequest, res) => {
   const result = updateWorkTask(req.user!, paramId(req), req.body || {});
   if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'Task not found.' });
   if ('error' in result) {
-    return res.status(result.status || 403).json({ message: result.error === 'forbidden' ? 'You do not have permission to update this task.' : result.error });
+    return res
+      .status(result.status || 403)
+      .json({ message: result.error === 'forbidden' ? 'You do not have permission to update this task.' : result.error });
   }
   return res.json({ task: result.task });
+});
+
+router.post('/:id/accept', requireAuth, (req: AuthedRequest, res) => {
+  const result = acceptWorkTask(req.user!, paramId(req));
+  if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'Task not found.' });
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.json({ task: result.task, message: 'Task accepted.' });
+});
+
+router.post('/:id/reject', requireAuth, (req: AuthedRequest, res) => {
+  const result = rejectWorkTask(req.user!, paramId(req), String(req.body?.reason || ''));
+  if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'Task not found.' });
+  if ('error' in result) return res.status(result.status || 400).json({ message: result.error });
+  return res.json({ task: result.task, message: 'Task rejected.' });
 });
 
 router.post('/:id/comments', requireAuth, (req: AuthedRequest, res) => {

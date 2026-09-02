@@ -477,6 +477,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
         'status',
         'issue',
         'lead_id',
+        'lead_number',
         'start_date',
         'target_completion',
         'current_phase',
@@ -538,7 +539,11 @@ export const RELATIONAL_TABLES: TableDef[] = [
         'responsible_user_id',
         'responsible_user_name',
         'escalated_to_user_id',
-        'project_name'
+        'project_name',
+        'acceptance_status',
+        'requested_by_id',
+        'requested_by_name',
+        'requested_from_task_id'
       ),
       f('depends_on_ids', 'text[]'),
       f('progress_percent', 'integer'),
@@ -546,6 +551,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
       f('is_milestone', 'boolean'),
       f('is_additional', 'boolean'),
       f('pending_action', 'boolean'),
+      f('progress_manual_override', 'boolean'),
       f('reminder_count', 'integer'),
       f('comments', 'jsonb'),
       ...ts(
@@ -592,6 +598,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
       f('attachments', 'text[]'),
       f('progress_percent', 'integer'),
       f('hours_worked', 'numeric'),
+      f('period', 'text'),
       f('pm_comments', 'jsonb'),
       ...ts('submitted_at', 'created_at', 'updated_at'),
     ],

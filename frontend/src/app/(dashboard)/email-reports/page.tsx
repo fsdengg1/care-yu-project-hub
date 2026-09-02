@@ -7,9 +7,8 @@ import {
   EmailReportHistoryEntry,
   EmailReportScheduleConfig,
 } from '@/lib/dailyStatusApi';
-import { DailyStatusPerson, DailyStatusRow, SnapshotPeriod, inferDefaultEmailPeriod } from '@/lib/dailyStatus';
+import { SnapshotPeriod, inferDefaultEmailPeriod } from '@/lib/dailyStatus';
 import { StorageService } from '@/lib/storage';
-import DailyStatusSheet from '@/components/work/DailyStatusSheet';
 
 function friendlyError(message?: string) {
   if (!message || /axios|sql|undefined|json/i.test(message)) return 'Unable to load the email report.';
@@ -52,10 +51,6 @@ export default function EmailReportsPage() {
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [html, setHtml] = useState('');
   const [subject, setSubject] = useState('');
-  const [rows, setRows] = useState<DailyStatusRow[]>([]);
-  const [people, setPeople] = useState<DailyStatusPerson[]>([]);
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
-  const [userId, setUserId] = useState('');
   const [available, setAvailable] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -64,17 +59,6 @@ export default function EmailReportsPage() {
   const [schedule, setSchedule] = useState<EmailReportScheduleConfig>(emptyScheduleConfig);
   const [history, setHistory] = useState<EmailReportHistoryEntry[]>([]);
   const [scheduleBusy, setScheduleBusy] = useState(false);
-
-  const loadSheet = useCallback(async () => {
-    const sheet = await DailyStatusApi.sheet();
-    if (!sheet.ok) {
-      setError(friendlyError(sheet.message));
-      return;
-    }
-    setRows(sheet.rows);
-    setPeople(sheet.people);
-    setProjects(sheet.projects);
-  }, []);
 
   const loadPreview = useCallback(async (nextPeriod: SnapshotPeriod, showBusy = false) => {
     if (showBusy) setBusy(true);
@@ -105,16 +89,13 @@ export default function EmailReportsPage() {
   }, []);
 
   useEffect(() => {
-    const current = StorageService.getCurrentUser();
-    if (current) setUserId(current.id);
-    void loadSheet();
     void loadPreview(period, true);
     void loadScheduleAndHistory();
-  }, [period, loadSheet, loadPreview, loadScheduleAndHistory]);
+  }, [period, loadPreview, loadScheduleAndHistory]);
 
   useEffect(() => {
     const refresh = () => {
-      void loadSheet();
+      void loadPreview(period);
       void loadScheduleAndHistory();
     };
     window.addEventListener('focus', refresh);
@@ -123,46 +104,7 @@ export default function EmailReportsPage() {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [loadSheet, loadScheduleAndHistory]);
-
-  const exportCsv = (visibleRows: DailyStatusRow[]) => {
-    const header = [
-      'PERSON',
-      'PROJECT',
-      'TASK DESCRIPTION',
-      'DEPENDENCIES',
-      'STATUS',
-      'CURRENT DATE',
-      'TASK DEADLINE',
-      'LOGGED HOURS',
-      'REASON FOR DELAY',
-    ];
-    const lines = [
-      header.join(','),
-      ...visibleRows.map((row) =>
-        [
-          row.person,
-          row.project,
-          row.taskDescription,
-          row.dependencies,
-          row.status,
-          row.currentDate,
-          row.deadline,
-          row.loggedHours || '0h 00m',
-          row.reasonForDelay,
-        ]
-          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-          .join(',')
-      ),
-    ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `daily-status-${period}-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  }, [period, loadPreview, loadScheduleAndHistory]);
 
   const saveSchedule = async () => {
     setScheduleBusy(true);
@@ -323,7 +265,6 @@ export default function EmailReportsPage() {
                   ? `${result.data.message} Sent to ${result.data.toEmail}.`
                   : result.data.message
               );
-              void loadSheet();
               void loadScheduleAndHistory();
             }}
             className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-2 font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
@@ -502,25 +443,6 @@ export default function EmailReportsPage() {
           </table>
         </div>
       </section>
-
-      <div className="space-y-2">
-        <h2 className="text-sm font-bold text-slate-100">Live Daily Work Updates</h2>
-        <DailyStatusSheet
-          readOnly
-          rows={rows}
-          people={people}
-          projects={projects}
-          userId={userId}
-          canEditAll={false}
-          canDelete={false}
-          saved={false}
-          selectedIds={[]}
-          onSelectedIds={() => undefined}
-          onPatch={async () => undefined}
-          onExport={exportCsv}
-          onDelete={() => undefined}
-        />
-      </div>
 
       {available && html && (
         <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">

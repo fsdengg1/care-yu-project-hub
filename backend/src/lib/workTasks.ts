@@ -255,7 +255,6 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
       (!canCreateWorkTask(user) && !canViewProject(user, project));
     if (notAllowed) project = undefined;
   }
-  const taskType = project || typedProjectName ? 'PROJECT_TASK' : 'NON_PROJECT_TASK';
 
   const assigneeId = String(body.assigned_to_id || user.id);
   const assignee = store.findUserById(assigneeId);
@@ -264,11 +263,35 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     return { error: 'Team Leads can only assign tasks to members of their own team.' };
   }
 
+  let parentTaskId = body.parent_task_id ? String(body.parent_task_id).trim() : '';
+  if (parentTaskId) {
+    const parent = store.getTasks().find((item) => item.id === parentTaskId);
+    if (!parent) return { error: 'Parent task was not found.' };
+    if (parent.parent_task_id) return { error: 'Subtasks cannot be nested more than one level.' };
+    if (!canViewTask(user, parent) && parent.assigned_to_id !== user.id) {
+      return { error: 'You do not have permission to add a subtask to this parent.', status: 403 as const };
+    }
+    if (!project && parent.project_id) {
+      project = store.getProjects().find((item) => item.id === parent.project_id);
+    }
+  } else {
+    parentTaskId = '';
+  }
+
+  const taskType = project || typedProjectName ? 'PROJECT_TASK' : 'NON_PROJECT_TASK';
+
   const now = new Date().toISOString();
   const initialStatus = taskStatusFromBody(body.status);
   const initialProgress =
     Number(body.progress_percent || 0) ||
     (initialStatus === 'DONE' ? 100 : initialStatus === 'IN_PROGRESS' ? 10 : 0);
+
+  const acceptanceRaw = String(body.acceptance_status || '').toUpperCase();
+  const acceptanceStatus =
+    acceptanceRaw === 'REQUESTED' || acceptanceRaw === 'ACCEPTED' || acceptanceRaw === 'REJECTED'
+      ? (acceptanceRaw as Task['acceptance_status'])
+      : undefined;
+
   const task: Task = {
     id: newId('task'),
     lead_id: project?.lead_id || '',
@@ -295,12 +318,22 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     remarks: body.remarks ? String(body.remarks) : undefined,
     task_type: taskType,
     is_additional: Boolean(body.is_additional),
+    parent_task_id: parentTaskId || undefined,
     depends_on_id: body.depends_on_id ? String(body.depends_on_id) : undefined,
     depends_on_ids: Array.isArray(body.depends_on_ids)
       ? [...new Set((body.depends_on_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean))]
       : body.depends_on_id
         ? [String(body.depends_on_id)]
         : undefined,
+    acceptance_status: acceptanceStatus,
+    requested_by_id: body.requested_by_id ? String(body.requested_by_id) : acceptanceStatus === 'REQUESTED' ? user.id : undefined,
+    requested_by_name:
+      body.requested_by_name
+        ? String(body.requested_by_name)
+        : acceptanceStatus === 'REQUESTED'
+          ? user.name
+          : undefined,
+    requested_from_task_id: body.requested_from_task_id ? String(body.requested_from_task_id) : undefined,
     review_status: 'NONE',
     comments: [],
     created_at: now,
@@ -460,6 +493,22 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     next.depends_on_ids = ids;
     next.depends_on_id = ids[0];
   }
+  if ((canManage || ownAdditional || current.assigned_to_id === user.id) && body.parent_task_id !== undefined) {
+    const parentId = String(body.parent_task_id || '').trim();
+    if (!parentId) {
+      next.parent_task_id = undefined;
+    } else if (parentId === current.id) {
+      return { error: 'A task cannot be its own parent.', status: 400 as const };
+    } else {
+      const parent = tasks.find((item) => item.id === parentId);
+      if (!parent) return { error: 'Parent task was not found.', status: 400 as const };
+      if (parent.parent_task_id) return { error: 'Subtasks cannot be nested more than one level.', status: 400 as const };
+      next.parent_task_id = parentId;
+    }
+  }
+  if (body.progress_manual_override !== undefined) {
+    next.progress_manual_override = Boolean(body.progress_manual_override);
+  }
   if (body.blocked_reason !== undefined) next.blocked_reason = String(body.blocked_reason);
   if (canExecute && body.remarks !== undefined) next.remarks = String(body.remarks);
   if (next.status === 'IN_PROGRESS' && current.status === 'BLOCKED') {
@@ -607,4 +656,109 @@ export function deleteWorkTasks(user: User, ids: string[]) {
     });
   }
   return { deleted: selected.length, ids: [...removedIds] };
+}
+
+export function createDependencyRequest(
+  user: User,
+  body: {
+    from_task_id: string;
+    assigned_to_id: string;
+    title: string;
+    description?: string;
+    due_date?: string;
+  }
+): CreateWorkTaskResult {
+  const fromTask = store.getTasks().find((item) => item.id === body.from_task_id);
+  if (!fromTask) return { error: 'Source task was not found.' };
+  if (!canViewTask(user, fromTask) && fromTask.assigned_to_id !== user.id) {
+    return { error: 'You do not have permission to request a dependency on this task.', status: 403 as const };
+  }
+  const title = String(body.title || '').trim();
+  if (!title) return { error: 'Dependency title is required.' };
+  return createWorkTask(user, {
+    title,
+    description: body.description || `Dependency requested from "${fromTask.title}"`,
+    assigned_to_id: body.assigned_to_id,
+    project_id: fromTask.project_id,
+    project_name: fromTask.project_name,
+    due_date: body.due_date || fromTask.due_date,
+    status: 'TODO',
+    acceptance_status: 'REQUESTED',
+    requested_from_task_id: fromTask.id,
+    depends_on_ids: [fromTask.id],
+  });
+}
+
+export function acceptWorkTask(user: User, id: string) {
+  const tasks = store.getTasks();
+  const index = tasks.findIndex((item) => item.id === id);
+  if (index === -1) return { error: 'not_found' as const };
+  const current = tasks[index];
+  if (current.assigned_to_id !== user.id) {
+    return { error: 'Only the assigned employee can accept this task.', status: 403 as const };
+  }
+  if (current.acceptance_status && current.acceptance_status !== 'REQUESTED') {
+    return { error: 'This task is not awaiting acceptance.', status: 400 as const };
+  }
+  const next: Task = {
+    ...current,
+    acceptance_status: 'ACCEPTED',
+    status: current.status === 'TODO' ? 'IN_PROGRESS' : current.status,
+    progress_percent: current.progress_percent || 10,
+    updated_at: new Date().toISOString(),
+  };
+  tasks[index] = next;
+  store.saveTasks(tasks);
+  if (next.project_id) persistComputedProgress(next.project_id);
+  if (current.requested_by_id) {
+    emitWorkflowEvent({
+      event: 'TASK_ASSIGNED',
+      actor: user,
+      entityType: 'TASK',
+      entityId: next.id,
+      entityName: next.title,
+      recipientIds: [current.requested_by_id],
+      status: 'Dependency Accepted',
+      message: `${user.name} accepted dependency "${next.title}".`,
+      actionUrl: `/my-work?task=${encodeURIComponent(next.id)}`,
+      eventKey: `TASK_ACCEPTED:${next.id}:${user.id}:${next.updated_at}`,
+    });
+  }
+  return { task: next };
+}
+
+export function rejectWorkTask(user: User, id: string, reason?: string) {
+  const tasks = store.getTasks();
+  const index = tasks.findIndex((item) => item.id === id);
+  if (index === -1) return { error: 'not_found' as const };
+  const current = tasks[index];
+  if (current.assigned_to_id !== user.id) {
+    return { error: 'Only the assigned employee can reject this task.', status: 403 as const };
+  }
+  if (current.acceptance_status !== 'REQUESTED') {
+    return { error: 'This task is not awaiting acceptance.', status: 400 as const };
+  }
+  const next: Task = {
+    ...current,
+    acceptance_status: 'REJECTED',
+    remarks: reason?.trim() || current.remarks,
+    updated_at: new Date().toISOString(),
+  };
+  tasks[index] = next;
+  store.saveTasks(tasks);
+  if (current.requested_by_id) {
+    emitWorkflowEvent({
+      event: 'TASK_ASSIGNED',
+      actor: user,
+      entityType: 'TASK',
+      entityId: next.id,
+      entityName: next.title,
+      recipientIds: [current.requested_by_id],
+      status: 'Dependency Rejected',
+      message: `${user.name} rejected dependency "${next.title}".`,
+      actionUrl: `/my-work?task=${encodeURIComponent(next.id)}`,
+      eventKey: `TASK_REJECTED:${next.id}:${user.id}:${next.updated_at}`,
+    });
+  }
+  return { task: next };
 }

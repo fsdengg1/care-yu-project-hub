@@ -1,8 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
-import { ArrowDown } from 'lucide-react';
-import StatusBadge from './StatusBadge';
+import React from 'react';
 import { CompareItem } from '@/lib/dailyStatus';
 
 export default function CompareView({
@@ -14,7 +12,6 @@ export default function CompareView({
   available: boolean;
   date?: string;
 }) {
-  const [openId, setOpenId] = useState<string | null>(null);
   if (!available) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900 p-8 text-center text-sm text-slate-400">
@@ -31,55 +28,41 @@ export default function CompareView({
   }
   return (
     <div className="space-y-3">
-      <div className="text-xs text-slate-400">Comparison for {date}</div>
-      {items.map((item) => {
-        const open = openId === item.id;
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setOpenId(open ? null : item.id)}
-            className="w-full rounded-xl border border-slate-800 bg-slate-900 p-4 text-left hover:border-cyan-700"
-          >
-            <div className="text-sm font-semibold text-slate-100">{item.taskDescription}</div>
-            <div className="mt-1 text-xs text-slate-400">
-              {item.person} · {item.project}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
-              <div>
-                <div className="text-[10px] uppercase text-slate-500">Morning</div>
-                <StatusBadge status={item.morningStatus} />
-              </div>
-              <ArrowDown className="h-4 w-4 text-slate-500" />
-              <div>
-                <div className="text-[10px] uppercase text-slate-500">Evening</div>
-                <StatusBadge status={item.eveningStatus} />
-              </div>
-              <div className="ml-auto flex flex-wrap gap-1">
-                {(() => {
-                  const kinds =
-                    item.kinds.includes('Improved') && item.kinds.includes('Completed')
-                      ? ['✓ Improved / Completed', ...item.kinds.filter((kind) => kind !== 'Improved' && kind !== 'Completed')]
-                      : item.kinds.map((kind) => (kind === 'Improved' ? '✓ Improved' : kind));
-                  return kinds.map((kind) => (
-                    <span key={kind} className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] font-bold text-slate-200">
-                      {kind}
-                    </span>
-                  ));
-                })()}
-              </div>
-            </div>
-            {open && (
-              <div className="mt-3 grid gap-2 rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300 sm:grid-cols-2">
-                <div>Morning deadline: {item.morningDeadline || '—'}</div>
-                <div>Evening deadline: {item.eveningDeadline || '—'}</div>
-                <div>Morning dependencies: {item.morningDependencies || '—'}</div>
-                <div>Evening dependencies: {item.eveningDependencies || '—'}</div>
-              </div>
-            )}
-          </button>
-        );
-      })}
+      <div className="text-xs text-slate-400">Comparison for {date} (Yesterday AM / PM vs current)</div>
+      <div className="overflow-x-auto rounded-xl border border-slate-800">
+        <table className="w-full min-w-[960px] border-collapse text-left text-[11px]">
+          <thead className="bg-slate-950 text-[10px] uppercase tracking-wider text-slate-400">
+            <tr>
+              <th className="border-b border-slate-800 px-2 py-2">Person</th>
+              <th className="border-b border-slate-800 px-2 py-2">Project</th>
+              <th className="border-b border-slate-800 px-2 py-2">Task</th>
+              <th className="border-b border-slate-800 px-2 py-2">Yesterday AM</th>
+              <th className="border-b border-slate-800 px-2 py-2">Yesterday PM</th>
+              <th className="border-b border-slate-800 px-2 py-2">Current Update</th>
+              <th className="border-b border-slate-800 px-2 py-2">On-Time/Delay</th>
+              <th className="border-b border-slate-800 px-2 py-2">Progress</th>
+              <th className="border-b border-slate-800 px-2 py-2">Reason</th>
+              <th className="border-b border-slate-800 px-2 py-2">Logged Hours</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-800/80 text-slate-300">
+            {items.map((item) => (
+              <tr key={item.id} className="align-top hover:bg-slate-950/40">
+                <td className="px-2 py-2 font-semibold text-slate-100">{item.person}</td>
+                <td className="px-2 py-2">{item.project}</td>
+                <td className="px-2 py-2 text-slate-100">{item.taskDescription}</td>
+                <td className="px-2 py-2">{item.morningStatus}</td>
+                <td className="px-2 py-2">{item.eveningStatus}</td>
+                <td className="px-2 py-2">{item.currentUpdate || '—'}</td>
+                <td className="px-2 py-2">{item.onTimeDelay || '—'}</td>
+                <td className="px-2 py-2">{item.progressPercent ?? 0}%</td>
+                <td className="px-2 py-2">{item.reasonForDelay || '—'}</td>
+                <td className="px-2 py-2 whitespace-nowrap">{item.loggedHours || '0h 00m'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

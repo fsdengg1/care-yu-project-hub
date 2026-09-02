@@ -8,6 +8,15 @@ import { sendEmail } from './email.js';
 export type DailySheetStatus = 'Yet to Start' | 'In Progress' | 'Waiting' | 'Completed' | 'Hold';
 export type SnapshotPeriod = 'morning' | 'evening';
 
+export interface DailyStatusSubtask {
+  id: string;
+  title: string;
+  status: DailySheetStatus;
+  progressPercent: number;
+  deadline: string;
+  assignedTo: string;
+}
+
 export interface DailyStatusRow {
   id: string;
   personId: string;
@@ -34,6 +43,8 @@ export interface DailyStatusRow {
   latestUpdateAt?: string;
   morningStatus?: DailySheetStatus;
   eveningStatus?: DailySheetStatus;
+  subtasks?: DailyStatusSubtask[];
+  hasSubtasks?: boolean;
 }
 
 export interface DailyStatusKpis {
@@ -187,11 +198,19 @@ function formatLoggedHours(hours?: number): string {
 }
 
 function latestUpdateForTask(task: Task, updates: DailyUpdate[]): DailyUpdate | undefined {
-  return updates.find(
+  const forTask = updates.filter(
     (item) =>
       item.task_id === task.id ||
       item.assignment_id === task.id ||
       (item.user_id === task.assigned_to_id && item.project_id === task.project_id && item.task_title === task.title)
+  );
+  if (!forTask.length) return undefined;
+  const today = todayIso();
+  const period = inferDefaultEmailPeriod();
+  return (
+    forTask.find((item) => item.work_date === today && item.period === period) ||
+    forTask.find((item) => item.work_date === today) ||
+    forTask[0]
   );
 }
 
@@ -219,19 +238,48 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
     .filter((item) => item.submission_status === 'SUBMITTED')
     .slice()
     .sort((a, b) => (b.submitted_at || b.updated_at).localeCompare(a.submitted_at || a.updated_at));
-  const tasks = store.getTasks().filter((task) => {
+  const visibleTasks = store.getTasks().filter((task) => {
     if (task.is_milestone) return false;
+    if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') return false;
     if (canSeeAllDailyStatusRows(user)) return canViewTask(user, task);
     return task.assigned_to_id === user.id;
   });
+  const childrenByParent = new Map<string, Task[]>();
+  for (const task of visibleTasks) {
+    if (!task.parent_task_id) continue;
+    const list = childrenByParent.get(task.parent_task_id) || [];
+    list.push(task);
+    childrenByParent.set(task.parent_task_id, list);
+  }
 
-  return tasks
+  return visibleTasks
+    .filter((task) => !task.parent_task_id)
     .map((task) => {
       const project = task.project_id ? projects.find((item) => item.id === task.project_id) : undefined;
       const assignee = users.find((item) => item.id === task.assigned_to_id);
       const update = latestUpdateForTask(task, updates);
       const deps = dependencyIdsOf(task);
       const status = toSheetStatus(task.status === 'BLOCKED' ? 'WAITING' : task.status);
+      const children = (childrenByParent.get(task.id) || []).slice().sort((a, b) => a.title.localeCompare(b.title));
+      const subtasks: DailyStatusSubtask[] = children.map((child) => ({
+        id: child.id,
+        title: child.title,
+        status: toSheetStatus(child.status === 'BLOCKED' ? 'WAITING' : child.status),
+        progressPercent: child.progress_percent || 0,
+        deadline: formatSheetDate(child.due_date),
+        assignedTo: formatEmployeeDisplayName(
+          users.find((item) => item.id === child.assigned_to_id) || child.assigned_to
+        ),
+      }));
+      let progressPercent = task.progress_percent || 0;
+      if (children.length && !task.progress_manual_override) {
+        const doneWeight = children.reduce((sum, child) => {
+          if (child.status === 'DONE') return sum + 1;
+          if (child.status === 'IN_PROGRESS') return sum + 0.5;
+          return sum;
+        }, 0);
+        progressPercent = Math.round((doneWeight / children.length) * 100);
+      }
       return {
         id: task.id,
         personId: task.assigned_to_id,
@@ -249,11 +297,13 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         isAdditional: Boolean(task.is_additional),
         blocked: task.status === 'BLOCKED' || task.status === ('WAITING' as Task['status']),
         overdue: isOverdue(task),
-        progressPercent: task.progress_percent || 0,
+        progressPercent,
         hoursWorked: Math.max(0, Number(update?.hours_worked) || 0),
         loggedHours: formatLoggedHours(update?.hours_worked),
         workDate: update?.work_date,
         latestUpdateAt: update?.submitted_at || update?.updated_at || task.last_update_at,
+        subtasks,
+        hasSubtasks: subtasks.length > 0,
       } satisfies DailyStatusRow;
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
@@ -337,7 +387,21 @@ export interface CompareItem {
   eveningDeadline?: string;
   morningDependencies?: string;
   eveningDependencies?: string;
+  currentUpdate?: string;
+  onTimeDelay?: string;
+  progressPercent?: number;
+  reasonForDelay?: string;
+  loggedHours?: string;
+  hoursWorked?: number;
   kinds: CompareKind[];
+}
+
+function delayLabel(row?: DailyStatusRow): string {
+  if (!row) return '—';
+  if (row.status === 'Completed') return 'On Time';
+  if (row.status === 'Hold') return 'Hold';
+  if (row.overdue) return 'Delay';
+  return 'On Time';
 }
 
 function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): CompareKind[] {
@@ -364,11 +428,13 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
   }
   const morning = scopedDailyStatusRows(user, morningRaw);
   const evening = scopedDailyStatusRows(user, eveningRaw);
-  const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id)]);
+  const live = buildDailyStatusRows(user);
+  const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id), ...live.map((row) => row.id)]);
   const items: CompareItem[] = [...ids].map((id) => {
     const am = morning.find((row) => row.id === id);
     const pm = evening.find((row) => row.id === id);
-    const base = pm || am!;
+    const current = live.find((row) => row.id === id);
+    const base = current || pm || am!;
     return {
       id,
       person: base.person,
@@ -380,10 +446,91 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
       eveningDeadline: pm?.deadline,
       morningDependencies: am?.dependencies,
       eveningDependencies: pm?.dependencies,
+      currentUpdate: current?.status || current?.taskDescription || '—',
+      onTimeDelay: delayLabel(current || pm || am),
+      progressPercent: current?.progressPercent ?? pm?.progressPercent ?? am?.progressPercent ?? 0,
+      reasonForDelay: current?.reasonForDelay || pm?.reasonForDelay || am?.reasonForDelay || '—',
+      loggedHours: current?.loggedHours || pm?.loggedHours || am?.loggedHours || formatLoggedHours(0),
+      hoursWorked: current?.hoursWorked ?? pm?.hoursWorked ?? am?.hoursWorked ?? 0,
       kinds: compareKinds(am, pm),
     };
   });
   return { items, available: true, date };
+}
+
+/** Upsert today's morning/evening DailyUpdate hours for a task from the sheet. */
+export function upsertLoggedHoursForTask(
+  actor: User,
+  taskId: string,
+  hoursWorked: number
+): { ok: true; update: DailyUpdate } | { ok: false; error: string; status?: number } {
+  const task = store.getTasks().find((item) => item.id === taskId);
+  if (!task) return { ok: false, error: 'not_found', status: 404 };
+  if (!canViewTask(actor, task) && task.assigned_to_id !== actor.id) {
+    return { ok: false, error: 'forbidden', status: 403 };
+  }
+  const period: SnapshotPeriod = inferDefaultEmailPeriod();
+  const workDate = todayIso();
+  const hours = Math.max(0, Number(hoursWorked) || 0);
+  const now = new Date().toISOString();
+  const updates = store.getDailyUpdates();
+  const existing = updates.find(
+    (item) =>
+      item.task_id === taskId &&
+      item.work_date === workDate &&
+      item.period === period &&
+      item.user_id === (task.assigned_to_id || actor.id)
+  );
+  if (existing) {
+    const next = { ...existing, hours_worked: hours, updated_at: now, period };
+    const index = updates.findIndex((item) => item.id === existing.id);
+    updates[index] = next;
+    store.saveDailyUpdates(updates);
+    return { ok: true, update: next };
+  }
+  const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
+  const assignee = store.findUserById(task.assigned_to_id) || actor;
+  const created: DailyUpdate = {
+    id: `upd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    user_id: assignee.id,
+    user_name: assignee.name,
+    user_role: assignee.role_name,
+    team_id: assignee.team_id,
+    team_name: assignee.team_name,
+    assignment_id: task.id,
+    assignment_source: 'TASK',
+    task_id: task.id,
+    lead_id: task.lead_id || project?.lead_id,
+    lead_number: project?.lead_number,
+    project_id: project?.id,
+    project_code: project?.code,
+    project_name: project?.name || task.project_name || '—',
+    customer_name: project?.customer_name || '',
+    task_title: task.title,
+    work_date: workDate,
+    work_completed: task.description || task.title,
+    progress_percent: task.progress_percent ?? 0,
+    hours_worked: hours,
+    work_status:
+      task.status === 'DONE'
+        ? 'COMPLETED'
+        : task.status === 'IN_PROGRESS'
+          ? 'IN_PROGRESS'
+          : task.status === 'BLOCKED' || task.status === 'WAITING' || task.status === 'HOLD'
+            ? 'BLOCKED'
+            : 'NOT_STARTED',
+    next_plan: '—',
+    attachments: [],
+    submission_status: 'SUBMITTED',
+    submitted_at: now,
+    summary: `Logged ${formatLoggedHours(hours)} via Daily Work Updates (${period}).`,
+    period,
+    created_at: now,
+    updated_at: now,
+  };
+  updates.unshift(created);
+  store.saveDailyUpdates(updates);
+  return { ok: true, update: created };
 }
 
 function statusBadgeStyle(status: DailySheetStatus): { bg: string; color: string } {
@@ -444,7 +591,7 @@ export function renderDailyStatusEmailHtml(params: {
     'padding:10px 8px;background:#facc15;color:#0f172a;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.02em;border:1px solid #d4a017;text-align:center;white-space:nowrap;vertical-align:middle;height:40px;';
   const cell =
     'padding:10px 8px;border:1px solid #d8dee6;font-size:12px;line-height:1.4;color:#0f172a;vertical-align:top;word-wrap:break-word;overflow-wrap:break-word;';
-  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;white-space:nowrap;vertical-align:top;`;
+  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;white-space:nowrap;vertical-align:middle;`;
   const statusCell = `${cell}text-align:center;white-space:nowrap;`;
   const dateCell = `${cell}text-align:center;white-space:nowrap;`;
   const hoursCell = `${cell}text-align:center;white-space:nowrap;`;

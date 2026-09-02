@@ -173,10 +173,15 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     description: task.description,
     assigned_by: task.assigned_by,
     team_lead_name: project?.team_lead_name,
-    depends_on_title: dependencyNames || dependsOn?.title,
+    depends_on_title: dependsOn?.title || dependencyNames || undefined,
     remarks: task.remarks,
     next_plan: latest?.next_plan,
-    dependency: latest?.dependency,
+    dependency: latest?.dependency || dependencyNames || undefined,
+    acceptance_status: task.acceptance_status,
+    requested_by_id: task.requested_by_id,
+    requested_by_name: task.requested_by_name,
+    parent_task_id: task.parent_task_id,
+    requested_from_task_id: task.requested_from_task_id,
   };
 }
 

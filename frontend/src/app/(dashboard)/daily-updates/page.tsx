@@ -63,6 +63,20 @@ function DailyWorkUpdatesInner() {
     void loadSheet().catch((err) => setError(friendlyError(err, 'Unable to load daily work updates.')));
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => {
+      void loadSheet().catch(() => undefined);
+    };
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(refresh, 12000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [user]);
+
   const refreshSheet = async () => {
     await loadSheet();
     setSelectedIds([]);
@@ -220,7 +234,7 @@ function DailyWorkUpdatesInner() {
       {compareOpen && compare && (
         <div className="fixed inset-0 z-[85] flex justify-end overflow-x-hidden bg-slate-950/60" onClick={() => setCompareOpen(false)}>
           <div
-            className="flex h-full w-full max-w-xl flex-col overflow-hidden border-l border-slate-800 bg-slate-900 shadow-2xl"
+            className="flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-slate-800 bg-slate-900 shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">

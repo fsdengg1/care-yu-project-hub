@@ -102,7 +102,12 @@ export default function DailyStatusSheet({
 }) {
   const [query, setQuery] = useState('');
   const [chip, setChip] = useState<SheetChip>('all');
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const today = todayIso();
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
+  };
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -315,21 +320,49 @@ export default function DailyStatusSheet({
                     )}
                   </td>
                   <td className="task-desc-cell">
-                    {editable ? (
-                      <AutoResizeTextarea
-                        key={row.taskDescription}
-                        defaultValue={row.taskDescription}
-                        className="sheet-textarea sheet-task-field"
-                        onBlur={(event) => {
-                          const value = event.target.value.trim();
-                          if (value && value !== row.taskDescription) {
-                            void onPatch(row.id, { description: value, title: value.slice(0, 120) });
-                          }
-                        }}
-                      />
-                    ) : (
-                      <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
-                    )}
+                    <div className="flex items-start gap-1.5">
+                      {(row.hasSubtasks || (row.subtasks && row.subtasks.length > 0)) && (
+                        <button
+                          type="button"
+                          onClick={() => toggleExpand(row.id)}
+                          className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#cbd5e1] bg-white text-[11px] font-bold text-[#0f172a] hover:border-[#0f172a]"
+                          title={expandedIds.includes(row.id) ? 'Collapse subtasks' : 'Expand subtasks'}
+                          aria-label={expandedIds.includes(row.id) ? 'Collapse subtasks' : 'Expand subtasks'}
+                        >
+                          {expandedIds.includes(row.id) ? '−' : '+'}
+                        </button>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        {editable ? (
+                          <AutoResizeTextarea
+                            key={row.taskDescription}
+                            defaultValue={row.taskDescription}
+                            className="sheet-textarea sheet-task-field"
+                            onBlur={(event) => {
+                              const value = event.target.value.trim();
+                              if (value && value !== row.taskDescription) {
+                                void onPatch(row.id, { description: value, title: value.slice(0, 120) });
+                              }
+                            }}
+                          />
+                        ) : (
+                          <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
+                        )}
+                        {expandedIds.includes(row.id) && (row.subtasks || []).length > 0 && (
+                          <ul className="mt-1.5 space-y-1 border-l-2 border-[#cbd5e1] pl-2">
+                            {(row.subtasks || []).map((sub) => (
+                              <li key={sub.id} className="text-[11px] text-[#334155]">
+                                <span className="font-semibold text-[#0f172a]">{sub.title}</span>
+                                <span className="ml-1.5 rounded border border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-0.5 text-[10px] font-bold">
+                                  {sub.status}
+                                </span>
+                                <span className="ml-1 text-[#64748b]">{sub.progressPercent}%</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
                   </td>
                   <td className="deps-cell">
                     {editable ? (
@@ -368,7 +401,25 @@ export default function DailyStatusSheet({
                     )}
                   </td>
                   <td className="hours-cell">
-                    <span className="sheet-text">{row.loggedHours || '0h 00m'}</span>
+                    {editable ? (
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.25}
+                        className="sheet-input sheet-hours-input w-full text-center"
+                        defaultValue={row.hoursWorked ?? 0}
+                        key={`${row.id}-hours-${row.hoursWorked ?? 0}`}
+                        onBlur={(event) => {
+                          const next = Math.max(0, Number(event.target.value) || 0);
+                          if (next !== (row.hoursWorked ?? 0)) {
+                            void onPatch(row.id, { hours_worked: next });
+                          }
+                        }}
+                        title="Logged hours (decimal, e.g. 6.5)"
+                      />
+                    ) : (
+                      <span className="sheet-text">{row.loggedHours || '0h 00m'}</span>
+                    )}
                   </td>
                   <td className="delay-cell">
                     {editable ? (

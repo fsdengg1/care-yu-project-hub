@@ -16,6 +16,9 @@ export interface CreateTaskPayload {
   is_additional?: boolean;
   status?: string;
   project_name?: string;
+  parent_task_id?: string;
+  acceptance_status?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  requested_from_task_id?: string;
 }
 
 export const TasksApi = {
@@ -50,6 +53,30 @@ export const TasksApi = {
     return apiRequest<{ task: Task; comment: TaskComment }>(`/api/tasks/${id}/comments`, {
       method: 'POST',
       body: JSON.stringify({ comment }),
+    });
+  },
+
+  async accept(id: string) {
+    return apiRequest<{ task: Task; message: string }>(`/api/tasks/${id}/accept`, { method: 'POST', body: '{}' });
+  },
+
+  async reject(id: string, reason?: string) {
+    return apiRequest<{ task: Task; message: string }>(`/api/tasks/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async requestDependency(body: {
+    from_task_id: string;
+    assigned_to_id: string;
+    title: string;
+    description?: string;
+    due_date?: string;
+  }) {
+    return apiRequest<{ task: Task }>('/api/tasks/dependency-request', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 };

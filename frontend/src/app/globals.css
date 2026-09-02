@@ -361,7 +361,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 .daily-status-sheet td.person-cell {
   font-weight: 600;
   text-align: center;
-  vertical-align: top;
+  vertical-align: middle;
   background: #fffef6;
   padding-inline: 6px;
 }

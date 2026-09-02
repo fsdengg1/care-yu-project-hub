@@ -9,10 +9,12 @@ import { TasksApi } from '@/lib/tasksApi';
 import { StorageService } from '@/lib/storage';
 import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
 import { LEAD_STATUS_LABELS } from '@/lib/format';
-import { deadlineCellClass, deadlineTone, DailyStatusPerson, formatSheetDate, sheetStatusClass, toSheetStatus } from '@/lib/dailyStatus';
+import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus } from '@/lib/dailyStatus';
 import { canCreateLead, canSubmitDailyUpdate } from '@/lib/rbac';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
+import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import RequestDependencyForm from '@/components/work/RequestDependencyForm';
 import {
   CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
 } from 'lucide-react';
@@ -82,12 +84,24 @@ export default function MyAssignedWorkPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [additionalOpen, setAdditionalOpen] = useState(false);
+  const [subtaskOpen, setSubtaskOpen] = useState(false);
+  const [dependencyFor, setDependencyFor] = useState<{ id: string; label: string } | null>(null);
   const [sheetPeople, setSheetPeople] = useState<DailyStatusPerson[]>([]);
   const [sheetProjects, setSheetProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [sheetRows, setSheetRows] = useState<DailyStatusRow[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
   const loadAssignments = async () => {
     setAssignments(await DailyUpdatesApi.assignments(true));
+  };
+
+  const loadSheetMeta = async () => {
+    const sheet = await DailyStatusApi.sheet();
+    if (sheet.ok) {
+      setSheetPeople(sheet.people);
+      setSheetProjects(sheet.projects);
+      setSheetRows(sheet.rows);
+    }
   };
 
   useEffect(() => {
@@ -100,17 +114,39 @@ export default function MyAssignedWorkPage() {
       setGroups(result.groups);
       setItems(result.items);
       await loadAssignments();
-      const sheet = await DailyStatusApi.sheet();
-      if (sheet.ok) {
-        setSheetPeople(sheet.people);
-        setSheetProjects(sheet.projects);
-      }
+      await loadSheetMeta();
     })();
   }, []);
 
+  useEffect(() => {
+    if (!currentUser) return;
+    const refresh = () => {
+      void loadAssignments();
+      void loadSheetMeta();
+    };
+    const onFocus = () => refresh();
+    window.addEventListener('focus', onFocus);
+    const timer = window.setInterval(refresh, 12000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [currentUser]);
+
   const visibleAssignments = useMemo(
-    () => assignments.filter((item) => matchesFilter(item, filter)),
+    () =>
+      assignments.filter(
+        (item) =>
+          item.acceptance_status !== 'REJECTED' &&
+          item.acceptance_status !== 'REQUESTED' &&
+          matchesFilter(item, filter)
+      ),
     [assignments, filter]
+  );
+
+  const pendingRequests = useMemo(
+    () => assignments.filter((item) => item.acceptance_status === 'REQUESTED' && item.assigned_to_id === currentUser?.id),
+    [assignments, currentUser]
   );
 
   const refreshWork = async () => {
@@ -118,6 +154,7 @@ export default function MyAssignedWorkPage() {
     setGroups(result.groups);
     setItems(result.items);
     await loadAssignments();
+    await loadSheetMeta();
   };
 
   const updateTask = async (
@@ -130,6 +167,23 @@ export default function MyAssignedWorkPage() {
     await TasksApi.update(taskId, body);
     await refreshWork();
     setTaskBusy(null);
+  };
+
+  const acceptOrReject = async (assignment: WorkAssignment, action: 'accept' | 'reject') => {
+    const taskId = assignment.task_id || (assignment.source === 'TASK' ? assignment.id : '');
+    if (!taskId) return;
+    setTaskBusy(taskId);
+    const result =
+      action === 'accept'
+        ? await TasksApi.accept(taskId)
+        : await TasksApi.reject(taskId, window.prompt('Reason for reject (optional)') || undefined);
+    setTaskBusy(null);
+    if (!result.ok) {
+      setNotice(result.message || 'Unable to update dependency request.');
+      return;
+    }
+    setNotice(result.data.message || (action === 'accept' ? 'Dependency accepted.' : 'Dependency rejected.'));
+    await refreshWork();
   };
 
   if (!currentUser) return null;
@@ -156,6 +210,9 @@ export default function MyAssignedWorkPage() {
           <div className="flex flex-col gap-3 border-b border-slate-800 pb-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-bold text-slate-100">Assigned execution work</h2>
             <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => setSubtaskOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600">
+                <Plus className="h-3 w-3" /> Add Subtask
+              </button>
               <button onClick={() => setAdditionalOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600">
                 <Plus className="h-3 w-3" /> Additional Task
               </button>
@@ -165,6 +222,46 @@ export default function MyAssignedWorkPage() {
               <Link href="/daily-updates" className="text-cyan-400 hover:underline">Daily Work Updates</Link>
             </div>
           </div>
+          {pendingRequests.length > 0 && (
+            <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-3">
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                Dependency requests awaiting your response ({pendingRequests.length})
+              </div>
+              <div className="space-y-2">
+                {pendingRequests.map((item) => {
+                  const taskId = item.task_id || item.id;
+                  const busy = taskBusy === taskId;
+                  return (
+                    <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+                      <div>
+                        <div className="font-semibold text-slate-100">{item.description || item.task_title}</div>
+                        <div className="text-[11px] text-slate-400">
+                          {item.project_name || '—'}
+                          {item.requested_by_name ? ` · from ${item.requested_by_name}` : ''}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          disabled={busy}
+                          onClick={() => void acceptOrReject(item, 'accept')}
+                          className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => void acceptOrReject(item, 'reject')}
+                          className="rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex flex-wrap gap-1">
             {([
               ['ALL', 'All'],
@@ -222,7 +319,19 @@ export default function MyAssignedWorkPage() {
                       {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
                       {assignmentType(item) === 'NON_PROJECT_TASK' ? '—' : item.project_name || '—'}
                     </td>
-                    <td className="p-2 font-semibold text-slate-100">{item.description || item.task_title}</td>
+                    <td className="p-2 font-semibold text-slate-100">
+                      {item.description || item.task_title}
+                      {item.acceptance_status === 'REQUESTED' && (
+                        <span className="ml-2 rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                          Dependency request
+                        </span>
+                      )}
+                      {item.parent_task_id && (
+                        <span className="ml-2 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+                          Subtask
+                        </span>
+                      )}
+                    </td>
                     <td className="p-2">{item.depends_on_title || item.dependency || '—'}</td>
                     <td className="p-2">
                       <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${sheetStatusClass(sheetStatus)}`}>
@@ -241,7 +350,39 @@ export default function MyAssignedWorkPage() {
                     </td>
                     <td className="p-2 text-right">
                       <div className="flex flex-wrap justify-end gap-1">
-                        {taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && (
+                        {taskId && isAssignee && item.acceptance_status === 'REQUESTED' && (
+                          <>
+                            <button
+                              disabled={busy}
+                              onClick={() => void acceptOrReject(item, 'accept')}
+                              className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              disabled={busy}
+                              onClick={() => void acceptOrReject(item, 'reject')}
+                              className="rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        {taskId && isAssignee && item.acceptance_status !== 'REQUESTED' && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDependencyFor({
+                                id: taskId,
+                                label: item.description || item.task_title || 'Task',
+                              })
+                            }
+                            className="rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700"
+                          >
+                            Request Dependency
+                          </button>
+                        )}
+                        {taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && item.acceptance_status !== 'REQUESTED' && (
                           <button
                             disabled={busy}
                             onClick={() => void updateTask(item, { status: 'IN_PROGRESS' })}
@@ -297,7 +438,7 @@ export default function MyAssignedWorkPage() {
                             </button>
                           </>
                         )}
-                        {currentUser && canSubmitDailyUpdate(currentUser) && (
+                        {currentUser && canSubmitDailyUpdate(currentUser) && item.acceptance_status !== 'REQUESTED' && (
                           <Link
                             href={`/daily-updates/new?assignment=${encodeURIComponent(item.id)}`}
                             className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500"
@@ -419,6 +560,32 @@ export default function MyAssignedWorkPage() {
           void refreshWork();
         }}
       />
+      {subtaskOpen && (
+        <AddSubtaskForm
+          parents={sheetRows}
+          people={sheetPeople}
+          currentUserId={currentUser.id}
+          onCancel={() => setSubtaskOpen(false)}
+          onCreated={(message) => {
+            setNotice(message);
+            setSubtaskOpen(false);
+            void refreshWork();
+          }}
+        />
+      )}
+      {dependencyFor && (
+        <RequestDependencyForm
+          fromTaskId={dependencyFor.id}
+          fromTaskLabel={dependencyFor.label}
+          people={sheetPeople.filter((person) => person.id !== currentUser.id)}
+          onCancel={() => setDependencyFor(null)}
+          onCreated={(message) => {
+            setNotice(message);
+            setDependencyFor(null);
+            void refreshWork();
+          }}
+        />
+      )}
     </div>
   );
 }
