@@ -13,7 +13,7 @@ export function validateUpload(fileName: string, sizeBytes?: number, mimeType?: 
 
 export function canAccessEntity(user: User, entityType: EntityDocument['entity_type'], entityId: string) {
   if (user.role_code === 'SYSTEM_ADMIN' && entityType !== 'CONVERSATION') return true;
-  if (entityType === 'LEAD' || entityType === 'ADDITIONAL_INPUT') {
+  if (entityType === 'LEAD' || entityType === 'ADDITIONAL_INPUT' || entityType === 'FEASIBILITY') {
     const lead = store.getLeads().find((item) => item.id === entityId);
     if (!lead) return false;
     if (['CEO', 'CTO', 'PROJECT_MANAGER', 'BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return true;

@@ -1248,7 +1248,7 @@ export interface EntityDocument {
   uploaded_by: string;
   uploaded_by_id: string;
   uploaded_at: string;
-  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
+  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'FEASIBILITY' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
   entity_id: string;
   created_at: string;
   updated_at: string;

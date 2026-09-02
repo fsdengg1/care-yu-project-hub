@@ -70,6 +70,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const canCost = canPrepareCosting(currentUser);
   const canViewCosting = canCost || isPM || isOwner || isCeoViewOnly(currentUser) || ['CTO', 'ENG_DIRECTOR'].includes(currentUser.role_code);
   const approvedFeasibility = lead.feasibility_study?.status === 'APPROVED';
+  const canEditFeasibilityDocs =
+    canFeasibility && !approvedFeasibility && ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status);
   const approvedCosting = lead.costing?.status === 'APPROVED';
 
   const [busy, setBusy] = useState(false);
@@ -81,7 +83,6 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const [returnReason, setReturnReason] = useState('');
 
   const [study, setStudy] = useState<FeasibilityStudy>(() => emptyStudy(lead));
-  const [feasibilityDoc, setFeasibilityDoc] = useState('');
   const [costing, setCosting] = useState<CostingRecord>(() => emptyCost(lead));
   const [quote, setQuote] = useState({
     quotation_value: String(lead.quotation?.quotation_value || lead.expected_value || ''),
@@ -358,6 +359,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           </div>
           {field('Technical assumptions', study.technical_assumptions, (v) => setStudy({ ...study, technical_assumptions: v }), 2, approvedFeasibility)}
           {field('Team remarks', study.team_remarks, (v) => setStudy({ ...study, team_remarks: v }), 2, approvedFeasibility)}
+          <EntityDocumentUpload
+            title="Feasibility documents"
+            entityType="FEASIBILITY"
+            entityId={lead.id}
+            canEdit={canEditFeasibilityDocs}
+            ensureEntity={async () => lead.id}
+            compact
+          />
           {canFeasibility && !approvedFeasibility && ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_RETURNED'].includes(lead.status) && (
             <div className="flex flex-wrap items-center gap-2">
               {!study.started_at && lead.status === 'FEASIBILITY_IN_PROGRESS' && (
@@ -369,22 +378,16 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
                   Start Feasibility
                 </button>
               )}
-              <input
-                value={feasibilityDoc}
-                onChange={(e) => setFeasibilityDoc(e.target.value)}
-                placeholder="Feasibility document name"
-                className="flex-1 rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
-              />
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, false))}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false))}
                 className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 font-medium text-slate-200"
               >
                 Save Draft
               </button>
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, { ...study, documents: feasibilityDoc ? [...(study.documents || []), feasibilityDoc] : study.documents }, true), 'Unable to submit feasibility.', 'submit')}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, true), 'Unable to submit feasibility.', 'submit')}
                 className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
                 <Send className="h-4 w-4" /> Submit Feasibility
@@ -397,6 +400,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       {isPM && lead.status === 'FEASIBILITY_SUBMITTED' && (
         <div className="space-y-3 rounded-xl border border-emerald-800/80 bg-emerald-950/30 p-5">
           <div className="font-bold text-emerald-300">PM Approval — Feasibility</div>
+          <EntityDocumentUpload
+            title="Submitted feasibility documents"
+            entityType="FEASIBILITY"
+            entityId={lead.id}
+            canEdit={false}
+            ensureEntity={async () => lead.id}
+            compact
+          />
           <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewFeasibility(lead.id, 'approve'), 'Unable to approve feasibility.', 'approve')} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>

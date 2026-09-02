@@ -23,6 +23,7 @@ const ENTITY_TYPES: EntityDocument['entity_type'][] = [
   'PROJECT',
   'TASK',
   'ADDITIONAL_INPUT',
+  'FEASIBILITY',
   'CONVERSATION',
   'FORUM_POST',
   'FORUM_COMMENT',
