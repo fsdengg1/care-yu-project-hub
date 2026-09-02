@@ -92,11 +92,11 @@ function DailyWorkUpdatesInner() {
   };
 
   const exportCsv = (visibleRows: DailyStatusRow[]) => {
-    const header = ['PERSON', 'PROJECT', 'TASK DESCRIPTION', 'DEPENDENCIES', 'STATUS', 'CURRENT DATE', 'TASK DEADLINE', 'REASON FOR DELAY'];
+    const header = ['PERSON', 'PROJECT', 'TASK DESCRIPTION', 'DEPENDENCIES', 'STATUS', 'CURRENT DATE', 'TASK DEADLINE', 'LOGGED HOURS', 'REASON FOR DELAY'];
     const lines = [
       header.join(','),
       ...visibleRows.map((row) =>
-        [row.person, row.project, row.taskDescription, row.dependencies, row.status, row.currentDate, row.deadline, row.reasonForDelay]
+        [row.person, row.project, row.taskDescription, row.dependencies, row.status, row.currentDate, row.deadline, row.loggedHours || '0h 00m', row.reasonForDelay]
           .map((value) => `"${String(value).replace(/"/g, '""')}"`)
           .join(',')
       ),

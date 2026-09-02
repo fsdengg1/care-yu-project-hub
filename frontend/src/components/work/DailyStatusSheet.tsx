@@ -225,6 +225,7 @@ export default function DailyStatusSheet({
             <col className="col-status" />
             <col className="col-date" />
             <col className="col-deadline" />
+            <col className="col-hours" />
             <col className="col-delay" />
           </colgroup>
           <thead>
@@ -246,13 +247,14 @@ export default function DailyStatusSheet({
               <th>Status</th>
               <th>Current Date</th>
               <th>Task Deadline</th>
+              <th>Logged Hours</th>
               <th>Reason For Delay</th>
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={showSelect ? 9 : 8} className="py-10 text-center text-[#64748b]">
+                <td colSpan={showSelect ? 10 : 9} className="py-10 text-center text-[#64748b]">
                   No tasks found.
                 </td>
               </tr>
@@ -364,6 +366,9 @@ export default function DailyStatusSheet({
                     ) : (
                       row.deadline
                     )}
+                  </td>
+                  <td className="hours-cell">
+                    <span className="sheet-text">{row.loggedHours || '0h 00m'}</span>
                   </td>
                   <td className="delay-cell">
                     {editable ? (

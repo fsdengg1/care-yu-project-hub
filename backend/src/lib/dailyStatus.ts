@@ -26,6 +26,10 @@ export interface DailyStatusRow {
   blocked?: boolean;
   overdue?: boolean;
   progressPercent: number;
+  /** Decimal hours from latest submitted daily update (e.g. 6.5). */
+  hoursWorked: number;
+  /** Display label e.g. "6h 30m". */
+  loggedHours: string;
   workDate?: string;
   latestUpdateAt?: string;
   morningStatus?: DailySheetStatus;
@@ -175,6 +179,13 @@ function parseLegacyDependency(value?: string): string {
     .join(', ');
 }
 
+function formatLoggedHours(hours?: number): string {
+  const value = Math.max(0, Number(hours) || 0);
+  const whole = Math.floor(value);
+  const mins = Math.min(59, Math.round((value - whole) * 60));
+  return `${whole}h ${String(mins).padStart(2, '0')}m`;
+}
+
 function latestUpdateForTask(task: Task, updates: DailyUpdate[]): DailyUpdate | undefined {
   return updates.find(
     (item) =>
@@ -239,6 +250,8 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         blocked: task.status === 'BLOCKED' || task.status === ('WAITING' as Task['status']),
         overdue: isOverdue(task),
         progressPercent: task.progress_percent || 0,
+        hoursWorked: Math.max(0, Number(update?.hours_worked) || 0),
+        loggedHours: formatLoggedHours(update?.hours_worked),
         workDate: update?.work_date,
         latestUpdateAt: update?.submitted_at || update?.updated_at || task.last_update_at,
       } satisfies DailyStatusRow;
@@ -431,14 +444,21 @@ export function renderDailyStatusEmailHtml(params: {
     'padding:10px 8px;background:#facc15;color:#0f172a;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.02em;border:1px solid #d4a017;text-align:center;white-space:nowrap;vertical-align:middle;height:40px;';
   const cell =
     'padding:10px 8px;border:1px solid #d8dee6;font-size:12px;line-height:1.4;color:#0f172a;vertical-align:top;word-wrap:break-word;overflow-wrap:break-word;';
-  const personCell = `${cell}font-weight:700;text-align:left;background:#fffef6;white-space:nowrap;`;
+  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;white-space:nowrap;vertical-align:top;`;
   const statusCell = `${cell}text-align:center;white-space:nowrap;`;
   const dateCell = `${cell}text-align:center;white-space:nowrap;`;
+  const hoursCell = `${cell}text-align:center;white-space:nowrap;`;
   const depsCell = `${cell}`;
   const delayCell = `${cell}text-align:center;white-space:nowrap;`;
   const sorted = [...params.rows].sort(
     (a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project) || a.id.localeCompare(b.id)
   );
+  const groups: Array<{ person: string; personId: string; rows: DailyStatusRow[] }> = [];
+  for (const row of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last.personId === row.personId) last.rows.push(row);
+    else groups.push({ person: row.person, personId: row.personId, rows: [row] });
+  }
   const formatDepsHtml = (value: string) => {
     const parts = value
       .split(/[,;]+/)
@@ -447,28 +467,38 @@ export function renderDailyStatusEmailHtml(params: {
     if (!parts.length || parts[0] === '—') return '—';
     return parts.map((part) => escapeHtml(part)).join('<br />');
   };
-  const rowsHtml = sorted
-    .map((row) => {
-      const badge = statusBadgeStyle(row.status);
-      const deadlineStyle = deadlineInlineStyle(
-        deadlineTone(row.status, row.deadlineIso || row.deadline, today)
-      );
-      const statusLabel = escapeHtml(row.status).replace(/ /g, '&nbsp;');
-      const currentDate = escapeHtml(row.currentDate).replace(/-/g, '&#8209;');
-      const deadline = escapeHtml(row.deadline).replace(/-/g, '&#8209;');
-      return `<tr>
-        <td width="110" style="${personCell}">${escapeHtml(row.person)}</td>
-        <td width="150" style="${cell}">${escapeHtml(row.project)}</td>
-        <td width="280" style="${cell}">${escapeHtml(row.taskDescription)}</td>
-        <td width="140" style="${depsCell}">${formatDepsHtml(row.dependencies)}</td>
-        <td width="110" style="${statusCell}"><span style="display:inline-block;padding:4px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
-        <td width="100" style="${dateCell}">${currentDate}</td>
-        <td width="100" style="${dateCell}${deadlineStyle}">${deadline}</td>
-        <td width="160" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
+  const rowsHtml = groups
+    .map((group) =>
+      group.rows
+        .map((row, index) => {
+          const badge = statusBadgeStyle(row.status);
+          const personTd =
+            index === 0
+              ? `<td width="110" style="${personCell}" rowspan="${group.rows.length}">${escapeHtml(group.person)}</td>`
+              : '';
+          const deadlineStyle = deadlineInlineStyle(
+            deadlineTone(row.status, row.deadlineIso || row.deadline, today)
+          );
+          const statusLabel = escapeHtml(row.status).replace(/ /g, '&nbsp;');
+          const currentDate = escapeHtml(row.currentDate).replace(/-/g, '&#8209;');
+          const deadline = escapeHtml(row.deadline).replace(/-/g, '&#8209;');
+          const hours = escapeHtml(row.loggedHours || formatLoggedHours(row.hoursWorked));
+          return `<tr>
+        ${personTd}
+        <td width="140" style="${cell}">${escapeHtml(row.project)}</td>
+        <td width="260" style="${cell}">${escapeHtml(row.taskDescription)}</td>
+        <td width="130" style="${depsCell}">${formatDepsHtml(row.dependencies)}</td>
+        <td width="100" style="${statusCell}"><span style="display:inline-block;padding:4px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
+        <td width="95" style="${dateCell}">${currentDate}</td>
+        <td width="95" style="${dateCell}${deadlineStyle}">${deadline}</td>
+        <td width="90" style="${hoursCell}">${hours}</td>
+        <td width="150" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
-    })
+        })
+        .join('')
+    )
     .join('');
-  const empty = `<tr><td colspan="8" style="${cell}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
+  const empty = `<tr><td colspan="9" style="${cell}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8" /><title>${escapeHtml(subject)}</title></head>
@@ -496,13 +526,14 @@ export function renderDailyStatusEmailHtml(params: {
                 <thead>
                   <tr>
                     <th width="110" style="${headerCell}">Person</th>
-                    <th width="150" style="${headerCell}">Project</th>
-                    <th width="280" style="${headerCell}">Task Description</th>
-                    <th width="140" style="${headerCell}">Dependencies</th>
-                    <th width="110" style="${headerCell}">Status</th>
-                    <th width="100" style="${headerCell}">Current Date</th>
-                    <th width="100" style="${headerCell}">Task Deadline</th>
-                    <th width="160" style="${headerCell}">Reason For Delay</th>
+                    <th width="140" style="${headerCell}">Project</th>
+                    <th width="260" style="${headerCell}">Task Description</th>
+                    <th width="130" style="${headerCell}">Dependencies</th>
+                    <th width="100" style="${headerCell}">Status</th>
+                    <th width="95" style="${headerCell}">Current Date</th>
+                    <th width="95" style="${headerCell}">Task Deadline</th>
+                    <th width="90" style="${headerCell}">Logged Hours</th>
+                    <th width="150" style="${headerCell}">Reason For Delay</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -532,7 +563,7 @@ export function renderDailyStatusEmailHtml(params: {
     '',
     ...sorted.map(
       (row) =>
-        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.currentDate} | ${row.deadline} | ${row.reasonForDelay}`
+        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.currentDate} | ${row.deadline} | ${row.loggedHours || formatLoggedHours(row.hoursWorked)} | ${row.reasonForDelay}`
     ),
     '',
     'Regards,',

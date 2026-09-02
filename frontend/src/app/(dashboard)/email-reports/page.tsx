@@ -134,6 +134,7 @@ export default function EmailReportsPage() {
       'STATUS',
       'CURRENT DATE',
       'TASK DEADLINE',
+      'LOGGED HOURS',
       'REASON FOR DELAY',
     ];
     const lines = [
@@ -147,6 +148,7 @@ export default function EmailReportsPage() {
           row.status,
           row.currentDate,
           row.deadline,
+          row.loggedHours || '0h 00m',
           row.reasonForDelay,
         ]
           .map((value) => `"${String(value).replace(/"/g, '""')}"`)

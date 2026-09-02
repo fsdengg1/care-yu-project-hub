@@ -21,6 +21,8 @@ export interface DailyStatusRow {
   blocked?: boolean;
   overdue?: boolean;
   progressPercent: number;
+  hoursWorked?: number;
+  loggedHours?: string;
   workDate?: string;
   latestUpdateAt?: string;
   morningStatus?: DailySheetStatus;
