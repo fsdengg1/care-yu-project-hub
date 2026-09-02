@@ -144,3 +144,7 @@ export interface CompareItem {
   eveningDependencies?: string;
   kinds: CompareKind[];
 }
+
+export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
+  return now.getHours() >= 14 ? 'evening' : 'morning';
+}

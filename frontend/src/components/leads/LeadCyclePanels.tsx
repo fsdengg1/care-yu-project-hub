@@ -173,7 +173,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         readOnly={readOnly}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={`w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100 ${readOnly ? 'cursor-not-allowed text-slate-400' : ''}`}
+        className="form-control"
       />
     </div>
   );
@@ -215,7 +215,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             value={returnReason}
             onChange={(e) => setReturnReason(e.target.value)}
             placeholder="Required for send back or reject"
-            className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100"
+            className="form-control"
           />
           <div className="flex flex-wrap gap-2">
             <button
@@ -282,7 +282,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
                       <select
                         value={assigneesByTeam[team.id] || team.team_lead_id || ''}
                         onChange={(e) => setAssigneesByTeam((map) => ({ ...map, [team.id]: e.target.value }))}
-                        className="mt-2 w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
+                        className="form-control mt-2"
                       >
                         <option value={team.team_lead_id || ''}>Team Lead — {team.team_lead_name || 'Not assigned'}</option>
                         {users
@@ -330,7 +330,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         <div className="space-y-3 rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-5">
           <div className="font-bold text-cyan-300">Team Lead Review</div>
           <p className="text-slate-300">Review requirements, scope, documents, timeline, and PM instructions. Accept to start feasibility, or return to the PM.</p>
-          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Comments (required if returning to PM)" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Comments (required if returning to PM)" className="form-control" />
           <div className="flex flex-wrap gap-2">
             <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'accept', returnReason))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Accept Project</button>
             <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Return to PM</button>
@@ -408,7 +408,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             ensureEntity={async () => lead.id}
             compact
           />
-          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if sending back to the team" className="form-control" />
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewFeasibility(lead.id, 'approve'), 'Unable to approve feasibility.', 'approve')} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Feasibility</button>
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewFeasibility(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
@@ -444,7 +444,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
                   readOnly={approvedCosting || !canCost}
                   value={Number(costing[key as keyof CostingRecord] || 0)}
                   onChange={(e) => setCosting({ ...costing, [key]: Number(e.target.value) })}
-                  className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100"
+                  className="form-control"
                 />
               </div>
             ))}
@@ -465,7 +465,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       {isPM && lead.status === 'COSTING_SUBMITTED' && (
         <div className="space-y-3 rounded-xl border border-emerald-800/80 bg-emerald-950/30 p-5">
           <div className="font-bold text-emerald-300">PM Approval — Costing</div>
-          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if revision is required" className="w-full rounded border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Return reason if revision is required" className="form-control" />
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={() => void run(() => LeadApi.reviewCosting(lead.id, 'approve'), 'Unable to approve procurement.', 'approve')} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Approve Procurement</button>
             <button type="button" disabled={busy} onClick={() => requireReason(() => LeadApi.reviewCosting(lead.id, 'return', returnReason.trim()))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Send Back</button>
@@ -499,23 +499,23 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Quotation value</label>
-              <input value={quote.quotation_value} onChange={(e) => setQuote({ ...quote, quotation_value: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <input value={quote.quotation_value} onChange={(e) => setQuote({ ...quote, quotation_value: e.target.value })} className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Validity</label>
-              <input value={quote.validity} onChange={(e) => setQuote({ ...quote, validity: e.target.value })} placeholder="e.g. 30 days" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <input value={quote.validity} onChange={(e) => setQuote({ ...quote, validity: e.target.value })} placeholder="e.g. 30 days" className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Payment terms</label>
-              <input value={quote.payment_terms} onChange={(e) => setQuote({ ...quote, payment_terms: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <input value={quote.payment_terms} onChange={(e) => setQuote({ ...quote, payment_terms: e.target.value })} className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Delivery terms</label>
-              <input value={quote.delivery_terms} onChange={(e) => setQuote({ ...quote, delivery_terms: e.target.value })} className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+              <input value={quote.delivery_terms} onChange={(e) => setQuote({ ...quote, delivery_terms: e.target.value })} className="form-control" />
             </div>
           </div>
           {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }))}
-          <input value={quote.document_name} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="w-full rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+          <input value={quote.document_name} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="form-control" />
           {lead.status === 'QUOTATION' && (
             <div className="space-y-2">
               <p className="text-[11px] text-slate-400">
@@ -540,9 +540,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           {field('Customer requests', nego.customer_requests, (v) => setNego({ ...nego, customer_requests: v }))}
           {field('Commercial changes', nego.commercial_changes, (v) => setNego({ ...nego, commercial_changes: v }))}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <input value={nego.revised_value} onChange={(e) => setNego({ ...nego, revised_value: e.target.value })} placeholder="Revised quotation value" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-            <input type="date" value={nego.follow_up_date} onChange={(e) => setNego({ ...nego, follow_up_date: e.target.value })} className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
-            <input value={nego.document_name} onChange={(e) => setNego({ ...nego, document_name: e.target.value })} placeholder="Supporting document" className="rounded border border-slate-800 bg-slate-950 p-2 text-slate-100" />
+            <input value={nego.revised_value} onChange={(e) => setNego({ ...nego, revised_value: e.target.value })} placeholder="Revised quotation value" className="form-control" />
+            <input type="date" value={nego.follow_up_date} onChange={(e) => setNego({ ...nego, follow_up_date: e.target.value })} className="form-control" />
+            <input value={nego.document_name} onChange={(e) => setNego({ ...nego, document_name: e.target.value })} placeholder="Supporting document" className="form-control" />
           </div>
           {(lead.negotiation_history || []).length > 0 && (
             <div className="space-y-2">

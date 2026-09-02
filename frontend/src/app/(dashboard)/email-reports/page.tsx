@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Mail, Monitor, Smartphone, Sun, Moon, RotateCcw, Send } from 'lucide-react';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
-import { DailyStatusPerson, DailyStatusRow, SnapshotPeriod } from '@/lib/dailyStatus';
+import { DailyStatusPerson, DailyStatusRow, SnapshotPeriod, inferDefaultEmailPeriod } from '@/lib/dailyStatus';
 import { StorageService } from '@/lib/storage';
 import DailyStatusSheet from '@/components/work/DailyStatusSheet';
 
@@ -13,7 +13,7 @@ function friendlyError(message?: string) {
 }
 
 export default function EmailReportsPage() {
-  const [period, setPeriod] = useState<SnapshotPeriod>('morning');
+  const [period, setPeriod] = useState<SnapshotPeriod>(() => inferDefaultEmailPeriod());
   const [mode, setMode] = useState<'desktop' | 'mobile'>('desktop');
   const [html, setHtml] = useState('');
   const [subject, setSubject] = useState('');
@@ -97,7 +97,7 @@ export default function EmailReportsPage() {
         </div>
         <h1 className="mt-1 text-xl font-bold text-slate-100">Daily Status email</h1>
         <p className="mt-1 text-slate-400">
-          This uses the same live Daily Work Updates sheet. Morning and evening send the matching snapshot when it has been captured.
+          Morning or evening greetings and report title update automatically. After 2:00 PM the page defaults to Evening Status Report.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <button
