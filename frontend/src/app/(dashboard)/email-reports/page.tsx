@@ -18,10 +18,10 @@ function friendlyError(message?: string) {
 
 function emptyScheduleConfig(): EmailReportScheduleConfig {
   return {
-    fromEmail: '',
-    fromName: '',
-    toEmail: '',
-    cc: '',
+    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromName: 'CareYu Automation',
+    toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
+    cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',
     bcc: '',
     subject: 'Daily Work Report',
     contentTemplate: '',
@@ -214,17 +214,17 @@ export default function EmailReportsPage() {
               type="email"
               value={schedule.fromEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, fromEmail: e.target.value }))}
-              placeholder="reports@company.com"
+              placeholder="aicareyuautomation1@gmail.com"
               className={fieldClass}
             />
           </label>
           <label className="block text-slate-200">
             To Email
             <input
-              type="email"
+              type="text"
               value={schedule.toEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, toEmail: e.target.value }))}
-              placeholder="manager@company.com"
+              placeholder="engg.director@careyu.ai, robotlead1@careyu.ai"
               className={fieldClass}
             />
           </label>
@@ -353,7 +353,7 @@ export default function EmailReportsPage() {
               type="email"
               value={schedule.fromEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, fromEmail: e.target.value }))}
-              placeholder="reports@company.com"
+              placeholder="aicareyuautomation1@gmail.com"
               className={fieldClass}
             />
           </label>
@@ -363,17 +363,17 @@ export default function EmailReportsPage() {
               type="text"
               value={schedule.fromName}
               onChange={(e) => setSchedule((prev) => ({ ...prev, fromName: e.target.value }))}
-              placeholder="CareYu Reports"
+              placeholder="CareYu Automation"
               className={fieldClass}
             />
           </label>
           <label className="block text-slate-300">
             To Email
             <input
-              type="email"
+              type="text"
               value={schedule.toEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, toEmail: e.target.value }))}
-              placeholder="manager@company.com"
+              placeholder="engg.director@careyu.ai, robotlead1@careyu.ai"
               className={fieldClass}
             />
           </label>
@@ -383,7 +383,7 @@ export default function EmailReportsPage() {
               type="text"
               value={schedule.cc}
               onChange={(e) => setSchedule((prev) => ({ ...prev, cc: e.target.value }))}
-              placeholder="optional, comma-separated"
+              placeholder="ceo@careyu.ai, cto@careyu.ai, …"
               className={fieldClass}
             />
           </label>

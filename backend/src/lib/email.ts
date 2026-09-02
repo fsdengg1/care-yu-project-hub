@@ -18,6 +18,8 @@ export type OutboundEmailInput = {
   /** Override default env sender for this message (must be verified in Elastic Email). */
   fromEmail?: string;
   fromName?: string;
+  /** Additional To recipients (same message, not CC). */
+  toEmails?: string[];
   ccEmails?: string[];
   bccEmails?: string[];
 };
@@ -80,19 +82,29 @@ async function deliverViaElasticEmail(input: OutboundEmailInput): Promise<EmailD
 
   const from = senderEmail;
   const recipient = input.toEmail.trim().toLowerCase();
-  const ccEmails = parseAddressList(input.ccEmails).filter((email) => email !== recipient);
+  const extraTo = parseAddressList(input.toEmails).filter((email) => email !== recipient);
+  const toEmails = [recipient, ...extraTo];
+  const ccEmails = parseAddressList(input.ccEmails).filter((email) => !toEmails.includes(email));
   const bccEmails = parseAddressList(input.bccEmails).filter(
-    (email) => email !== recipient && !ccEmails.includes(email)
+    (email) => !toEmails.includes(email) && !ccEmails.includes(email)
   );
-  emailDebugLog('Triggered', { recipient, subject: input.subject, sender: from, cc: ccEmails.length, bcc: bccEmails.length });
+  emailDebugLog('Triggered', {
+    recipient,
+    toCount: toEmails.length,
+    subject: input.subject,
+    sender: from,
+    cc: ccEmails.length,
+    bcc: bccEmails.length,
+  });
   emailDebugLog('Calling Elastic Email');
 
   const recipients = [
-    { Email: recipient },
+    ...toEmails.map((email) => ({ Email: email })),
     ...ccEmails.map((email) => ({ Email: email })),
     ...bccEmails.map((email) => ({ Email: email })),
   ];
   const headers: Record<string, string> = {};
+  if (toEmails.length > 1) headers.To = toEmails.join(', ');
   if (ccEmails.length) headers.Cc = ccEmails.join(', ');
   if (bccEmails.length) headers.Bcc = bccEmails.join(', ');
 
@@ -315,10 +327,13 @@ export async function sendEmail(input: {
   notificationId?: string;
   fromEmail?: string;
   fromName?: string;
+  toEmails?: string[];
   ccEmails?: string[];
   bccEmails?: string[];
 }): Promise<EmailDeliveryResult> {
-  const toEmail = input.toEmail.trim().toLowerCase();
+  const toList = parseAddressList([input.toEmail, ...(input.toEmails || [])]);
+  const toEmail = toList[0] || '';
+  const extraTo = toList.slice(1);
   const subject = input.subject.trim();
   const htmlContent = input.htmlContent.trim();
   if (!isValidRecipient(toEmail)) {
@@ -346,6 +361,7 @@ export async function sendEmail(input: {
     notificationId: input.notificationId,
     fromEmail: input.fromEmail,
     fromName: input.fromName,
+    toEmails: extraTo,
     ccEmails: input.ccEmails,
     bccEmails: input.bccEmails,
   });

@@ -427,9 +427,11 @@ export function renderDailyStatusEmailHtml(params: {
     (params.subjectOverride || '').trim() || `${copy.reportTitle} - ${formatSubjectDate(today)}`;
   const reportDate = formatSheetDate(today);
   const headerCell =
-    'padding:8px 10px;background:#facc15;color:#0f172a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #eab308;text-align:left;';
+    'padding:8px 10px;background:#facc15;color:#0f172a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #eab308;text-align:left;white-space:nowrap;';
   const cell = 'padding:8px 10px;border:1px solid #d8dee6;font-size:12px;color:#0f172a;vertical-align:middle;';
-  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;`;
+  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;white-space:nowrap;`;
+  const statusCell = `${cell}text-align:center;white-space:nowrap;`;
+  const dateCell = `${cell}text-align:center;white-space:nowrap;`;
   const sorted = [...params.rows].sort(
     (a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project) || a.id.localeCompare(b.id)
   );
@@ -448,14 +450,17 @@ export function renderDailyStatusEmailHtml(params: {
             index === 0
               ? `<td style="${personCell}" rowspan="${group.rows.length}">${escapeHtml(group.person)}</td>`
               : '';
+          const deadlineStyle = deadlineInlineStyle(
+            deadlineTone(row.status, row.deadlineIso || row.deadline, today)
+          );
           return `<tr>
         ${personTd}
         <td style="${cell}">${escapeHtml(row.project)}</td>
         <td style="${cell}">${escapeHtml(row.taskDescription)}</td>
-        <td style="${cell}">${escapeHtml(row.dependencies)}</td>
-        <td style="${cell}"><span style="display:inline-block;padding:3px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;">${escapeHtml(row.status)}</span></td>
-        <td style="${cell}">${escapeHtml(row.currentDate)}</td>
-        <td style="${cell}${deadlineInlineStyle(deadlineTone(row.status, row.deadlineIso || row.deadline, today))}">${escapeHtml(row.deadline)}</td>
+        <td style="${cell}white-space:nowrap;">${escapeHtml(row.dependencies)}</td>
+        <td style="${statusCell}"><span style="display:inline-block;padding:4px 10px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${escapeHtml(row.status)}</span></td>
+        <td style="${dateCell}">${escapeHtml(row.currentDate)}</td>
+        <td style="${dateCell}${deadlineStyle}">${escapeHtml(row.deadline)}</td>
         <td style="${cell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
         })
@@ -470,7 +475,7 @@ export function renderDailyStatusEmailHtml(params: {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F7FB;padding:24px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:960px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:1100px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <tr>
             <td style="background:#0B1F3A;padding:18px 22px;color:#ffffff;">
               <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#facc15;">CareYu Automation</div>
@@ -486,16 +491,27 @@ export function renderDailyStatusEmailHtml(params: {
           </tr>
           <tr>
             <td style="padding:8px 12px 24px;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;">
+              <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:980px;table-layout:fixed;">
+                <colgroup>
+                  <col style="width:110px;" />
+                  <col style="width:160px;" />
+                  <col style="width:280px;" />
+                  <col style="width:120px;" />
+                  <col style="width:120px;" />
+                  <col style="width:110px;" />
+                  <col style="width:110px;" />
+                  <col style="width:110px;" />
+                </colgroup>
                 <thead>
                   <tr>
                     <th style="${headerCell}">Person</th>
                     <th style="${headerCell}">Project</th>
                     <th style="${headerCell}">Task Description</th>
                     <th style="${headerCell}">Dependencies</th>
-                    <th style="${headerCell}">Status</th>
-                    <th style="${headerCell}">Current Date</th>
-                    <th style="${headerCell}">Task Deadline</th>
+                    <th style="${headerCell}text-align:center;">Status</th>
+                    <th style="${headerCell}text-align:center;">Current Date</th>
+                    <th style="${headerCell}text-align:center;">Task Deadline</th>
                     <th style="${headerCell}">Reason For Delay</th>
                   </tr>
                 </thead>
@@ -503,6 +519,7 @@ export function renderDailyStatusEmailHtml(params: {
                   ${sorted.length ? rowsHtml : empty}
                 </tbody>
               </table>
+              </div>
             </td>
           </tr>
           <tr>

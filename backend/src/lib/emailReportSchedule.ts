@@ -83,10 +83,10 @@ function parseAddressList(raw: string): string[] {
 
 export function defaultEmailReportScheduleConfig(): EmailReportScheduleConfig {
   return {
-    fromEmail: '',
-    fromName: '',
-    toEmail: '',
-    cc: '',
+    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromName: 'CareYu Automation',
+    toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
+    cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',
     bcc: '',
     subject: 'Daily Work Report',
     contentTemplate: '',
@@ -101,12 +101,12 @@ export function getEmailReportScheduleConfig(): EmailReportScheduleConfig {
   const payload = (record?.payload || {}) as Partial<EmailReportScheduleConfig>;
   const defaults = defaultEmailReportScheduleConfig();
   return {
-    fromEmail: String(payload.fromEmail ?? defaults.fromEmail).trim(),
-    fromName: String(payload.fromName ?? defaults.fromName).trim(),
-    toEmail: String(payload.toEmail ?? defaults.toEmail).trim(),
-    cc: String(payload.cc ?? defaults.cc).trim(),
-    bcc: String(payload.bcc ?? defaults.bcc).trim(),
-    subject: String(payload.subject ?? defaults.subject).trim() || defaults.subject,
+    fromEmail: String(payload.fromEmail ?? '').trim() || defaults.fromEmail,
+    fromName: String(payload.fromName ?? '').trim() || defaults.fromName,
+    toEmail: String(payload.toEmail ?? '').trim() || defaults.toEmail,
+    cc: String(payload.cc ?? '').trim() || defaults.cc,
+    bcc: String(payload.bcc ?? '').trim(),
+    subject: String(payload.subject ?? '').trim() || defaults.subject,
     contentTemplate: String(payload.contentTemplate ?? defaults.contentTemplate),
     sendAtNoon: payload.sendAtNoon !== false,
     sendAtEvening: payload.sendAtEvening !== false,
@@ -124,9 +124,21 @@ export function saveEmailReportScheduleConfig(
   const next: EmailReportScheduleConfig = {
     fromEmail: String(input.fromEmail ?? current.fromEmail).trim().toLowerCase(),
     fromName: String(input.fromName ?? current.fromName).trim(),
-    toEmail: String(input.toEmail ?? current.toEmail).trim().toLowerCase(),
-    cc: String(input.cc ?? current.cc).trim().toLowerCase(),
-    bcc: String(input.bcc ?? current.bcc).trim().toLowerCase(),
+    toEmail: String(input.toEmail ?? current.toEmail)
+      .split(/[,;]+/)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean)
+      .join(', '),
+    cc: String(input.cc ?? current.cc)
+      .split(/[,;]+/)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean)
+      .join(', '),
+    bcc: String(input.bcc ?? current.bcc)
+      .split(/[,;]+/)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean)
+      .join(', '),
     subject: String(input.subject ?? current.subject).trim() || 'Daily Work Report',
     contentTemplate: String(input.contentTemplate ?? current.contentTemplate),
     sendAtNoon: Boolean(input.sendAtNoon ?? current.sendAtNoon),
@@ -139,8 +151,12 @@ export function saveEmailReportScheduleConfig(
   if (next.fromEmail && !isValidEmail(next.fromEmail)) {
     return { config: current, error: 'From Email is invalid.' };
   }
-  if (next.toEmail && !isValidEmail(next.toEmail)) {
+  const toList = parseAddressList(next.toEmail);
+  if (next.toEmail && toList.length === 0) {
     return { config: current, error: 'To Email is invalid.' };
+  }
+  for (const email of toList) {
+    if (!isValidEmail(email)) return { config: current, error: 'To Email contains an invalid address.' };
   }
   for (const email of parseAddressList(next.cc)) {
     if (!isValidEmail(email)) return { config: current, error: 'CC contains an invalid email.' };
@@ -332,7 +348,9 @@ export async function sendConfiguredEmailReport(params: {
   }
 
   const fromEmail = config.fromEmail.trim().toLowerCase();
-  const toEmail = config.toEmail.trim().toLowerCase();
+  const toList = parseAddressList(config.toEmail);
+  const toEmail = toList[0] || '';
+  const extraTo = toList.slice(1);
   if (!fromEmail || !isValidEmail(fromEmail)) {
     const entry: EmailReportHistoryEntry = {
       id,
@@ -340,7 +358,7 @@ export async function sendConfiguredEmailReport(params: {
       time: meta.timeLabel,
       slot: params.slot,
       fromEmail,
-      toEmail,
+      toEmail: config.toEmail,
       subject: config.subject,
       status: 'Failed',
       error: 'From Email is not configured.',
@@ -358,7 +376,7 @@ export async function sendConfiguredEmailReport(params: {
       time: meta.timeLabel,
       slot: params.slot,
       fromEmail,
-      toEmail,
+      toEmail: config.toEmail,
       subject: config.subject,
       status: 'Failed',
       error: 'To Email is not configured.',
@@ -396,7 +414,7 @@ export async function sendConfiguredEmailReport(params: {
     time: meta.timeLabel,
     slot: params.slot,
     fromEmail,
-    toEmail,
+    toEmail: toList.join(', '),
     subject: config.subject,
     status: 'Pending',
     createdAt: existing?.createdAt || new Date().toISOString(),
@@ -421,6 +439,7 @@ export async function sendConfiguredEmailReport(params: {
     toEmail,
     toName: toEmail,
     toUserId: store.findUserByEmail(toEmail)?.id,
+    toEmails: extraTo,
     fromEmail,
     fromName: config.fromName || undefined,
     ccEmails: parseAddressList(config.cc),
@@ -443,7 +462,7 @@ export async function sendConfiguredEmailReport(params: {
   writeHistoryEntry(entry);
 
   if (result.status === 'SENT') {
-    console.info(`[email-report] ${meta.reportLabel} sent to ${toEmail} (${date})`);
+    console.info(`[email-report] ${meta.reportLabel} sent to ${toList.join(', ')} (${date})`);
     return {
       ok: true,
       entry,

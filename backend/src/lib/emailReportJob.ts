@@ -1,6 +1,10 @@
 import cron from 'node-cron';
 import { env } from '../config/env.js';
-import { sendConfiguredEmailReport } from './emailReportSchedule.js';
+import {
+  getEmailReportScheduleConfig,
+  saveEmailReportScheduleConfig,
+  sendConfiguredEmailReport,
+} from './emailReportSchedule.js';
 
 let started = false;
 
@@ -21,10 +25,33 @@ async function runSlot(slot: 'noon' | 'evening') {
   }
 }
 
+function ensureDefaultScheduleConfig() {
+  // Official CareYu Daily Work Updates distribution (From / To / CC).
+  const current = getEmailReportScheduleConfig();
+  const saved = saveEmailReportScheduleConfig({
+    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromName: 'CareYu Automation',
+    toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
+    cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',
+    bcc: current.bcc || '',
+    subject: current.subject || 'Daily Work Report',
+    contentTemplate: current.contentTemplate || '',
+    sendAtNoon: current.sendAtNoon !== false,
+    sendAtEvening: current.sendAtEvening !== false,
+    timezone: current.timezone || env.appTimezone || 'Asia/Kolkata',
+  });
+  if (!saved.error) {
+    console.info(
+      `[email-report-scheduler] distribution set from=${saved.config.fromEmail} to=${saved.config.toEmail}`
+    );
+  }
+}
+
 export function startEmailReportScheduler() {
   if (started || !env.schedulerEnabled) return;
   started = true;
   const timezone = env.appTimezone || 'Asia/Kolkata';
+  ensureDefaultScheduleConfig();
 
   cron.schedule(
     '0 12 * * *',
