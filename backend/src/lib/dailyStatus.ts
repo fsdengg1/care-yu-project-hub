@@ -389,11 +389,6 @@ function escapeHtml(value: string) {
     .replace(/"/g, '&quot;');
 }
 
-function formatReportDateSlash(value?: string): string {
-  const formatted = formatSheetDate(value);
-  return formatted === '—' ? formatted : formatted.replace(/-/g, '/');
-}
-
 function formatSubjectDate(value?: string): string {
   if (!value) return '—';
   const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
@@ -410,45 +405,8 @@ function emailPeriodCopy(period: SnapshotPeriod, reportLabel?: string) {
     reportTitle,
     periodWord: isMorning ? 'morning' : 'evening',
     greeting: 'Dear Team,',
-    intro: `Please find the ${reportTitle} below.`,
+    intro: `Please find the ${reportTitle} below. This table uses the same Daily Work Updates records as the hub.`,
   };
-}
-
-function moduleLabel(taskDescription: string): string {
-  const trimmed = taskDescription.trim();
-  if (!trimmed) return '—';
-  const first = trimmed.split(/[.\n–—]/)[0]?.trim() || trimmed;
-  return first.length > 52 ? `${first.slice(0, 49)}…` : first;
-}
-
-function blockerText(row: DailyStatusRow): string {
-  if (row.status === 'Waiting' || row.status === 'Hold' || row.blocked) {
-    const reason = (row.reasonForDelay || '').trim();
-    if (reason && reason !== '—' && reason.toLowerCase() !== 'no delay') return reason;
-    return row.status === 'Waiting' ? 'Blocked / waiting' : 'On hold';
-  }
-  const reason = (row.reasonForDelay || '').trim();
-  if (reason && reason !== '—' && reason.toLowerCase() !== 'no delay') return reason;
-  return '—';
-}
-
-function deadlineMeta(row: DailyStatusRow, today: string): { label: string; color: string } {
-  const iso = row.deadlineIso || parseSheetDate(row.deadline);
-  const tone = deadlineTone(row.status, iso || row.deadline, today);
-  if (tone === 'completed') return { label: 'Completed', color: '#166534' };
-  if (iso === today) return { label: 'Due Today', color: '#c2410c' };
-  if (tone === 'delay-1' || tone === 'delay-2plus') return { label: 'Overdue', color: '#dc2626' };
-  return { label: 'On Time', color: '#15803d' };
-}
-
-function progressBarHtml(percent: number): string {
-  const value = Math.max(0, Math.min(100, Number(percent) || 0));
-  return `<div style="min-width:72px;">
-    <div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;">
-      <div style="width:${value}%;height:8px;background:#2563eb;border-radius:999px;"></div>
-    </div>
-    <div style="font-size:11px;color:#334155;margin-top:4px;font-weight:700;">${value}%</div>
-  </div>`;
 }
 
 export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
@@ -467,37 +425,44 @@ export function renderDailyStatusEmailHtml(params: {
   const today = params.date || todayIso();
   const subject =
     (params.subjectOverride || '').trim() || `${copy.reportTitle} - ${formatSubjectDate(today)}`;
-  const reportDate = formatReportDateSlash(today);
-  const th =
-    'padding:10px 8px;background:#0B1F3A;color:#ffffff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #1e293b;text-align:left;white-space:nowrap;';
-  const td = 'padding:8px 8px;border:1px solid #dbe3ee;font-size:11px;color:#0f172a;vertical-align:top;background:#ffffff;';
+  const reportDate = formatSheetDate(today);
+  const headerCell =
+    'padding:8px 10px;background:#facc15;color:#0f172a;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #eab308;text-align:left;';
+  const cell = 'padding:8px 10px;border:1px solid #d8dee6;font-size:12px;color:#0f172a;vertical-align:middle;';
+  const personCell = `${cell}font-weight:700;text-align:center;background:#fffef6;`;
   const sorted = [...params.rows].sort(
     (a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project) || a.id.localeCompare(b.id)
   );
-  const rowsHtml = sorted
-    .map((row, index) => {
-      const badge = statusBadgeStyle(row.status);
-      const deadline = deadlineMeta(row, today);
-      return `<tr>
-        <td style="${td}text-align:center;color:#64748b;">${index + 1}</td>
-        <td style="${td}font-weight:700;white-space:nowrap;">${escapeHtml(row.person)}</td>
-        <td style="${td}">${escapeHtml(row.project)}</td>
-        <td style="${td}">${escapeHtml(moduleLabel(row.taskDescription))}</td>
-        <td style="${td}">${escapeHtml(row.taskDescription)}</td>
-        <td style="${td}">${escapeHtml(row.dependencies)}</td>
-        <td style="${td}">${escapeHtml(blockerText(row))}</td>
-        <td style="${td}"><span style="display:inline-block;padding:4px 10px;border-radius:999px;border:1px solid ${badge.color};background:${badge.bg};color:${badge.color};font-size:10px;font-weight:700;white-space:nowrap;">${escapeHtml(row.status)}</span></td>
-        <td style="${td}">${progressBarHtml(row.progressPercent)}</td>
-        <td style="${td}white-space:nowrap;">0h 00m</td>
-        <td style="${td}white-space:nowrap;">${escapeHtml(formatSheetDate(row.workDate || row.currentDate))}</td>
-        <td style="${td}white-space:nowrap;">
-          <div>${escapeHtml(row.deadline)}</div>
-          <div style="font-size:10px;font-weight:700;color:${deadline.color};margin-top:4px;">${escapeHtml(deadline.label)}</div>
-        </td>
+  const groups: Array<{ person: string; personId: string; rows: DailyStatusRow[] }> = [];
+  for (const row of sorted) {
+    const last = groups[groups.length - 1];
+    if (last && last.personId === row.personId) last.rows.push(row);
+    else groups.push({ person: row.person, personId: row.personId, rows: [row] });
+  }
+  const rowsHtml = groups
+    .map((group) =>
+      group.rows
+        .map((row, index) => {
+          const badge = statusBadgeStyle(row.status);
+          const personTd =
+            index === 0
+              ? `<td style="${personCell}" rowspan="${group.rows.length}">${escapeHtml(group.person)}</td>`
+              : '';
+          return `<tr>
+        ${personTd}
+        <td style="${cell}">${escapeHtml(row.project)}</td>
+        <td style="${cell}">${escapeHtml(row.taskDescription)}</td>
+        <td style="${cell}">${escapeHtml(row.dependencies)}</td>
+        <td style="${cell}"><span style="display:inline-block;padding:3px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;">${escapeHtml(row.status)}</span></td>
+        <td style="${cell}">${escapeHtml(row.currentDate)}</td>
+        <td style="${cell}${deadlineInlineStyle(deadlineTone(row.status, row.deadlineIso || row.deadline, today))}">${escapeHtml(row.deadline)}</td>
+        <td style="${cell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
-    })
+        })
+        .join('')
+    )
     .join('');
-  const empty = `<tr><td colspan="12" style="${td}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
+  const empty = `<tr><td colspan="8" style="${cell}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8" /><title>${escapeHtml(subject)}</title></head>
@@ -505,56 +470,45 @@ export function renderDailyStatusEmailHtml(params: {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F7FB;padding:24px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:1180px;background:#ffffff;border:1px solid #dbe3ee;border-radius:8px;overflow:hidden;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:960px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;">
           <tr>
-            <td style="background:#2563eb;padding:22px 24px;color:#ffffff;">
-              <div style="font-size:11px;letter-spacing:0.14em;text-transform:uppercase;font-weight:700;">CAREYU AUTOMATION PVT. LTD.</div>
-              <div style="font-size:24px;font-weight:700;margin-top:8px;line-height:1.2;">${escapeHtml(copy.reportTitle)}</div>
-              <div style="font-size:13px;color:#dbeafe;margin-top:6px;">Report date: ${escapeHtml(reportDate)}</div>
+            <td style="background:#0B1F3A;padding:18px 22px;color:#ffffff;">
+              <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#facc15;">CareYu Automation</div>
+              <div style="font-size:20px;font-weight:700;margin-top:4px;">${escapeHtml(copy.reportTitle)}</div>
+              <div style="font-size:13px;color:#cbd5e1;margin-top:4px;">Report date: ${escapeHtml(reportDate)} · Hello ${escapeHtml(params.recipientName)}</div>
             </td>
           </tr>
           <tr>
-            <td style="padding:22px 24px 8px;font-size:14px;line-height:1.6;color:#0f172a;">
+            <td style="padding:18px 22px 8px;font-size:14px;line-height:1.6;color:#0f172a;">
               <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(copy.greeting)}</div>
               <div>${escapeHtml(copy.intro)}</div>
             </td>
           </tr>
           <tr>
             <td style="padding:8px 12px 24px;">
-              <div style="overflow-x:auto;">
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;min-width:980px;">
-                  <thead>
-                    <tr>
-                      <th style="${th}">#</th>
-                      <th style="${th}">Name</th>
-                      <th style="${th}">Project</th>
-                      <th style="${th}">Module</th>
-                      <th style="${th}">Today&apos;s Work</th>
-                      <th style="${th}">Dependencies</th>
-                      <th style="${th}">Blockers</th>
-                      <th style="${th}">Status</th>
-                      <th style="${th}">Progress</th>
-                      <th style="${th}">Logged Hours</th>
-                      <th style="${th}">Start Date</th>
-                      <th style="${th}">Deadline</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${sorted.length ? rowsHtml : empty}
-                  </tbody>
-                </table>
-              </div>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;">
+                <thead>
+                  <tr>
+                    <th style="${headerCell}">Person</th>
+                    <th style="${headerCell}">Project</th>
+                    <th style="${headerCell}">Task Description</th>
+                    <th style="${headerCell}">Dependencies</th>
+                    <th style="${headerCell}">Status</th>
+                    <th style="${headerCell}">Current Date</th>
+                    <th style="${headerCell}">Task Deadline</th>
+                    <th style="${headerCell}">Reason For Delay</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sorted.length ? rowsHtml : empty}
+                </tbody>
+              </table>
             </td>
           </tr>
           <tr>
-            <td style="padding:0 24px 20px;font-size:14px;line-height:1.6;color:#0f172a;">
+            <td style="padding:0 22px 20px;font-size:14px;line-height:1.6;color:#0f172a;">
               <div>Regards,</div>
               <div style="font-weight:700;margin-top:4px;">Automation Team</div>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding:14px 24px 20px;border-top:1px solid #e2e8f0;font-size:11px;line-height:1.5;color:#64748b;">
-              This internal Daily Status Report is sent by CareYu Automation Pvt. Ltd. to project stakeholders.
             </td>
           </tr>
         </table>
@@ -571,8 +525,8 @@ export function renderDailyStatusEmailHtml(params: {
     copy.intro,
     '',
     ...sorted.map(
-      (row, index) =>
-        `${index + 1}. ${row.person} | ${row.project} | ${moduleLabel(row.taskDescription)} | ${row.taskDescription} | ${row.dependencies} | ${blockerText(row)} | ${row.status} | ${row.progressPercent}% | ${row.deadline}`
+      (row) =>
+        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.currentDate} | ${row.deadline} | ${row.reasonForDelay}`
     ),
     '',
     'Regards,',

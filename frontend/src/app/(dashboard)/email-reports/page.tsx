@@ -200,11 +200,11 @@ export default function EmailReportsPage() {
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-cyan-400">
           <Mail className="h-4 w-4" /> Email Reports
         </div>
-        <h1 className="mt-1 text-xl font-bold text-slate-100">Daily Status email</h1>
+        <h1 className="mt-1 text-xl font-bold text-slate-100">Daily Work Updates email</h1>
         <p className="mt-1 text-slate-400">
-          Morning or evening greetings and report title update automatically. After 2:00 PM the page defaults to
-          Evening Status Report. Automatic sends run on the server at 12:00 PM and 7:15 PM (
-          {schedule.timezone || 'Asia/Kolkata'}).
+          Mail reports use the same Daily Work Updates sheet (Person, Project, Task Description, and related
+          columns). Morning or evening titles update automatically; after 2:00 PM the page defaults to Evening.
+          Automatic sends run on the server at 12:00 PM and 7:15 PM ({schedule.timezone || 'Asia/Kolkata'}).
         </p>
 
         <div className="mt-4 grid gap-3 rounded-xl border border-cyan-800/60 bg-slate-950/70 p-4 md:grid-cols-2">
@@ -413,7 +413,7 @@ export default function EmailReportsPage() {
           <textarea
             value={schedule.contentTemplate}
             onChange={(e) => setSchedule((prev) => ({ ...prev, contentTemplate: e.target.value }))}
-            placeholder="Optional intro text. Leave blank to use the generated Daily Status report. Use {{report}} to wrap the generated HTML."
+            placeholder="Optional intro text. Leave blank to use the generated Daily Work Updates report. Use {{report}} to wrap the generated HTML."
             rows={4}
             className={`${fieldClass} min-h-[96px] resize-y`}
           />
