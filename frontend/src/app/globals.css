@@ -248,6 +248,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet {
   width: 100%;
+  min-width: 1120px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #ffffff;
@@ -294,6 +295,15 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   text-align: center;
   vertical-align: middle;
   background: #fffef6;
+}
+
+.daily-status-sheet td.project-cell {
+  min-width: 170px;
+}
+
+.daily-status-sheet .sheet-project-field {
+  min-height: 24px;
+  font-weight: 600;
 }
 
 .daily-status-sheet .sheet-input,

@@ -208,14 +208,14 @@ export default function DailyStatusSheet({
         <table className="daily-status-sheet">
           <colgroup>
             {showSelect && <col style={{ width: '36px' }} />}
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '12%' }} />
-            <col style={{ width: '24%' }} />
-            <col style={{ width: '14%' }} />
+            <col style={{ width: '10%' }} />
+            <col className="col-project" style={{ width: '16%' }} />
+            <col style={{ width: '22%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '9%' }} />
             <col style={{ width: '11%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '12%' }} />
           </colgroup>
           <thead>
             <tr>
@@ -286,12 +286,12 @@ export default function DailyStatusSheet({
                         )}
                       </td>
                     )}
-                    <td>
+                    <td className="project-cell">
                     {editable ? (
-                      <input
+                      <AutoResizeTextarea
                         key={`${row.id}-${row.project}`}
-                        className="sheet-input"
                         defaultValue={row.project === '—' ? '' : row.project}
+                        className="sheet-textarea sheet-project-field"
                         onBlur={(event) => {
                           const value = event.target.value.trim();
                           const current = row.project === '—' ? '' : row.project;
@@ -299,7 +299,7 @@ export default function DailyStatusSheet({
                         }}
                       />
                     ) : (
-                      row.project || '—'
+                      <span className="sheet-text">{row.project || '—'}</span>
                     )}
                   </td>
                   <td>
