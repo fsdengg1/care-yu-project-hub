@@ -4,16 +4,18 @@ import React from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import Navbar from '@/components/layout/Navbar';
 import CareyuLogo from '@/components/brand/CareyuLogo';
+import { SidebarProvider, useSidebar } from '@/components/layout/SidebarContext';
 import { NotificationProvider } from '@/components/notifications/NotificationProvider';
 import NotificationToastHost from '@/components/notifications/NotificationToastHost';
 import { AuthProvider, useAuth } from '@/components/auth/AuthProvider';
 
 function DashboardShell({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const { mobileOpen, closeMobile, isDesktop } = useSidebar();
 
   if (loading || !user) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 text-xs text-slate-400 theme-app">
+      <div className="theme-app flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-950 text-xs text-slate-400">
         <CareyuLogo />
         Loading Care Yu Automation Project Hub...
       </div>
@@ -22,8 +24,16 @@ function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="theme-app flex min-h-screen bg-slate-950 text-slate-100">
+      {!isDesktop && mobileOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-[1px] lg:hidden"
+          onClick={closeMobile}
+        />
+      )}
       <Sidebar user={user} />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden transition-[margin] duration-250 ease-in-out">
         <NotificationProvider user={user}>
           <Navbar user={user} />
           <NotificationToastHost />
@@ -41,7 +51,9 @@ export default function DashboardLayout({
 }) {
   return (
     <AuthProvider>
-      <DashboardShell>{children}</DashboardShell>
+      <SidebarProvider>
+        <DashboardShell>{children}</DashboardShell>
+      </SidebarProvider>
     </AuthProvider>
   );
 }

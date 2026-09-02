@@ -194,6 +194,36 @@ html.light .theme-app .text-blue-800 {
   max-width: 186px;
 }
 
+.app-sidebar {
+  width: 310px;
+  transition: width 250ms ease-in-out;
+  z-index: 50;
+}
+
+.app-sidebar--collapsed {
+  width: 68px;
+}
+
+.sidebar-logo-mark .careyu-logo-img {
+  height: 1.65rem;
+  max-width: 44px;
+}
+
+@media (max-width: 1023px) {
+  .app-sidebar--mobile {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    width: 310px;
+    transition: transform 250ms ease-in-out;
+  }
+
+  .app-sidebar--mobile.app-sidebar--mobile-open {
+    transform: translateX(0);
+  }
+}
+
 html.light .theme-app ::-webkit-scrollbar-track {
   background: #eef2f7;
 }

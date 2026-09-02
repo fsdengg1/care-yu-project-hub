@@ -3,10 +3,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { User } from '@/lib/types';
 import { formatRelativeTime } from '@/lib/format';
-import { Bell, Search, LogOut, ChevronDown, Settings, UserRound } from 'lucide-react';
+import { Bell, Search, LogOut, ChevronDown, Settings, UserRound, Menu } from 'lucide-react';
 import Link from 'next/link';
 import AppearanceToggle from '@/components/theme/AppearanceToggle';
 import CareyuLogo from '@/components/brand/CareyuLogo';
+import { useSidebar } from '@/components/layout/SidebarContext';
 import { notificationHref } from '@/lib/notificationHref';
 import { useNotifications } from '@/components/notifications/NotificationProvider';
 import { useAuth } from '@/components/auth/AuthProvider';
@@ -27,6 +28,7 @@ function initials(name: string) {
 
 export default function Navbar({ user }: NavbarProps) {
   const { logout } = useAuth();
+  const { openMobile, isDesktop } = useSidebar();
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
@@ -46,6 +48,16 @@ export default function Navbar({ user }: NavbarProps) {
   return (
     <header className="h-14 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-40">
       <div className="flex items-center gap-3">
+        {!isDesktop && (
+          <button
+            type="button"
+            onClick={openMobile}
+            aria-label="Toggle sidebar"
+            className="inline-flex items-center justify-center rounded-md border border-slate-700 p-2 text-slate-300 hover:border-cyan-700 hover:bg-slate-800 hover:text-cyan-300 lg:hidden"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        )}
         <div className="hidden sm:block lg:hidden">
           <CareyuLogo compact />
         </div>

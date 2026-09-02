@@ -37,6 +37,13 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'pre_sales'
   },
   {
+    name: 'Active Projects',
+    href: '/projects/active',
+    iconName: 'Bot',
+    category: 'projects',
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'PROJECT_ENGINEER', 'TEAM_LEAD', 'EMPLOYEE', 'EXECUTION', 'SYSTEM_ADMIN']
+  },
+  {
     name: 'Project Gantt & Planning',
     href: '/projects/planning',
     iconName: 'GanttChartSquare',
