@@ -29,7 +29,7 @@ function ensureDefaultScheduleConfig() {
   // Official CareYu Daily Work Updates distribution (From / To / CC).
   const current = getEmailReportScheduleConfig();
   const saved = saveEmailReportScheduleConfig({
-    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromEmail: 'aicareyuautomation@gmail.com',
     fromName: 'CareYu Automation',
     toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
     cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',

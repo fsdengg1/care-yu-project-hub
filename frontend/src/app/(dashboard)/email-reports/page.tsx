@@ -18,7 +18,7 @@ function friendlyError(message?: string) {
 
 function emptyScheduleConfig(): EmailReportScheduleConfig {
   return {
-    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromEmail: 'aicareyuautomation@gmail.com',
     fromName: 'CareYu Automation',
     toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
     cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',
@@ -214,7 +214,7 @@ export default function EmailReportsPage() {
               type="email"
               value={schedule.fromEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, fromEmail: e.target.value }))}
-              placeholder="aicareyuautomation1@gmail.com"
+              placeholder="aicareyuautomation@gmail.com"
               className={fieldClass}
             />
           </label>
@@ -344,7 +344,8 @@ export default function EmailReportsPage() {
           <Clock className="h-4 w-4" /> Email Schedule
         </div>
         <p className="mt-1 text-slate-400">
-          Configure From/To addresses in the UI. The Elastic Email API key stays on the backend only.
+          Configure From/To addresses in the UI. From must be the Elastic Email verified sender (
+          aicareyuautomation@gmail.com). The API key stays on the backend only.
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="block text-slate-300">
@@ -353,7 +354,7 @@ export default function EmailReportsPage() {
               type="email"
               value={schedule.fromEmail}
               onChange={(e) => setSchedule((prev) => ({ ...prev, fromEmail: e.target.value }))}
-              placeholder="aicareyuautomation1@gmail.com"
+              placeholder="aicareyuautomation@gmail.com"
               className={fieldClass}
             />
           </label>
@@ -526,9 +527,13 @@ export default function EmailReportsPage() {
             <span className="text-slate-500">{subject}</span>
           </div>
           <div
-            className={`mx-auto overflow-hidden rounded-xl border border-slate-800 bg-white ${mode === 'mobile' ? 'max-w-[390px]' : 'w-full'}`}
+            className={`mx-auto rounded-xl border border-slate-800 bg-white ${mode === 'mobile' ? 'max-w-[390px] overflow-hidden' : 'w-full overflow-x-auto'}`}
           >
-            <iframe title="Email preview" srcDoc={html} className="h-[720px] w-full border-0 bg-white" />
+            <iframe
+              title="Email preview"
+              srcDoc={html}
+              className={`h-[720px] border-0 bg-white ${mode === 'mobile' ? 'w-full' : 'min-w-[1280px] w-full'}`}
+            />
           </div>
         </section>
       )}

@@ -83,7 +83,7 @@ function parseAddressList(raw: string): string[] {
 
 export function defaultEmailReportScheduleConfig(): EmailReportScheduleConfig {
   return {
-    fromEmail: 'aicareyuautomation1@gmail.com',
+    fromEmail: 'aicareyuautomation@gmail.com',
     fromName: 'CareYu Automation',
     toEmail: 'engg.director@careyu.ai, robotlead1@careyu.ai',
     cc: 'ceo@careyu.ai, cto@careyu.ai, robottech@careyu.ai, fsdengg1@careyu.ai, fsdlead1@careyu.ai, projects@careyu.ai',
@@ -347,7 +347,13 @@ export async function sendConfiguredEmailReport(params: {
     }
   }
 
-  const fromEmail = config.fromEmail.trim().toLowerCase();
+  const configuredFrom = config.fromEmail.trim().toLowerCase();
+  const verifiedFrom = (env.emailFrom || '').trim().toLowerCase();
+  // Elastic Email only accepts verified senders; fall back to env From when UI value is not allowed.
+  const fromEmail =
+    configuredFrom && configuredFrom === verifiedFrom
+      ? configuredFrom
+      : verifiedFrom || configuredFrom;
   const toList = parseAddressList(config.toEmail);
   const toEmail = toList[0] || '';
   const extraTo = toList.slice(1);
@@ -357,17 +363,22 @@ export async function sendConfiguredEmailReport(params: {
       date,
       time: meta.timeLabel,
       slot: params.slot,
-      fromEmail,
+      fromEmail: configuredFrom,
       toEmail: config.toEmail,
       subject: config.subject,
       status: 'Failed',
-      error: 'From Email is not configured.',
+      error: 'From Email is not configured. Set a verified Elastic Email sender in ELASTIC_EMAIL_FROM_EMAIL.',
       createdAt: existing?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       source: params.source,
     };
     if (params.source === 'schedule') writeHistoryEntry(entry);
     return { ok: false, entry, message: entry.error! };
+  }
+  if (configuredFrom && configuredFrom !== fromEmail) {
+    console.warn(
+      `[email-report] From "${configuredFrom}" is not the verified sender; using "${fromEmail}" instead.`
+    );
   }
   if (!toEmail || !isValidEmail(toEmail)) {
     const entry: EmailReportHistoryEntry = {
