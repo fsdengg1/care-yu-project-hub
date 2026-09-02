@@ -500,3 +500,14 @@ html.light .theme-app .form-control:-webkit-autofill:focus {
   -webkit-text-fill-color: #0f172a;
   box-shadow: 0 0 0 1000px #ffffff inset;
 }
+
+.theme-app .auto-grow-textarea {
+  overflow-x: hidden;
+  overflow-y: hidden;
+  resize: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  transition: height 0.18s ease;
+  box-sizing: border-box;
+}

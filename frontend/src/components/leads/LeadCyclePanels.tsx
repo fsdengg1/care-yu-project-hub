@@ -7,6 +7,7 @@ import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
 import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS, workflowStatusPresentation } from '@/lib/format';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
+import AutoGrowTextarea, { AUTO_GROW_COMPACT_HEIGHT, AUTO_GROW_DEFAULT_HEIGHT } from '@/components/ui/AutoGrowTextarea';
 import {
   AlertTriangle, Check, CheckCircle2, RotateCcw, Send, Calculator, FileText, Handshake, Building2
 } from 'lucide-react';
@@ -84,6 +85,10 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
   const [study, setStudy] = useState<FeasibilityStudy>(() => emptyStudy(lead));
   const [costing, setCosting] = useState<CostingRecord>(() => emptyCost(lead));
+  const [feasibilityGrowReset, setFeasibilityGrowReset] = useState(0);
+  const [costingGrowReset, setCostingGrowReset] = useState(0);
+  const [quoteGrowReset, setQuoteGrowReset] = useState(0);
+  const [negoGrowReset, setNegoGrowReset] = useState(0);
   const [quote, setQuote] = useState({
     quotation_value: String(lead.quotation?.quotation_value || lead.expected_value || ''),
     commercial_terms: lead.quotation?.commercial_terms || '',
@@ -126,7 +131,12 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
   const stage = workflowStatusPresentation(lead.status);
 
-  const run = async (fn: () => Promise<unknown>, fail = 'Unable to update this lead.', action?: WorkflowActionKind) => {
+  const run = async (
+    fn: () => Promise<unknown>,
+    fail = 'Unable to update this lead.',
+    action?: WorkflowActionKind,
+    onSuccess?: () => void,
+  ) => {
     setBusy(true);
     setError(null);
     try {
@@ -136,6 +146,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       } else if (!result) {
         setError(fail);
       } else {
+        onSuccess?.();
         onUpdated(
           action
             ? { kind: action, message: WORKFLOW_ACTION_SUCCESS[action], previousStatus: lead.status }
@@ -165,15 +176,27 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     Number(costing.installation_costs || 0) +
     Number(costing.other_costs || 0);
 
-  const field = (label: string, value: string, onChange: (v: string) => void, rows = 2, readOnly = false) => (
+  const bumpFeasibilityGrowReset = () => setFeasibilityGrowReset((token) => token + 1);
+  const bumpCostingGrowReset = () => setCostingGrowReset((token) => token + 1);
+  const bumpQuoteGrowReset = () => setQuoteGrowReset((token) => token + 1);
+  const bumpNegoGrowReset = () => setNegoGrowReset((token) => token + 1);
+
+  const field = (
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    rows = 2,
+    readOnly = false,
+    resetToken = 0,
+  ) => (
     <div>
       <label className="mb-1 block font-semibold text-slate-300">{label}</label>
-      <textarea
-        rows={rows}
+      <AutoGrowTextarea
+        minHeight={rows <= 1 ? AUTO_GROW_COMPACT_HEIGHT : AUTO_GROW_DEFAULT_HEIGHT}
         readOnly={readOnly}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="form-control"
+        resetToken={resetToken}
       />
     </div>
   );
@@ -349,16 +372,16 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               <AlertTriangle className="mr-1 inline h-4 w-4" /> {lead.feasibility_return_reason || 'PM returned this feasibility for correction.'}
             </div>
           )}
-          {field('Technical feasibility', study.technical_feasibility, (v) => setStudy({ ...study, technical_feasibility: v }), 3, approvedFeasibility || !canFeasibility)}
-          {field('Required resources', study.required_resources, (v) => setStudy({ ...study, required_resources: v }), 2, approvedFeasibility)}
-          {field('Proposed solution', study.proposed_solution, (v) => setStudy({ ...study, proposed_solution: v }), 3, approvedFeasibility)}
-          {field('Major constraints', study.major_constraints, (v) => setStudy({ ...study, major_constraints: v }), 2, approvedFeasibility)}
+          {field('Technical feasibility', study.technical_feasibility, (v) => setStudy({ ...study, technical_feasibility: v }), 3, approvedFeasibility || !canFeasibility, feasibilityGrowReset)}
+          {field('Required resources', study.required_resources, (v) => setStudy({ ...study, required_resources: v }), 2, approvedFeasibility, feasibilityGrowReset)}
+          {field('Proposed solution', study.proposed_solution, (v) => setStudy({ ...study, proposed_solution: v }), 3, approvedFeasibility, feasibilityGrowReset)}
+          {field('Major constraints', study.major_constraints, (v) => setStudy({ ...study, major_constraints: v }), 2, approvedFeasibility, feasibilityGrowReset)}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {field('Estimated timeline', study.estimated_timeline, (v) => setStudy({ ...study, estimated_timeline: v }), 1, approvedFeasibility)}
-            {field('Required equipment / components', study.required_equipment, (v) => setStudy({ ...study, required_equipment: v }), 1, approvedFeasibility)}
+            {field('Estimated timeline', study.estimated_timeline, (v) => setStudy({ ...study, estimated_timeline: v }), 1, approvedFeasibility, feasibilityGrowReset)}
+            {field('Required equipment / components', study.required_equipment, (v) => setStudy({ ...study, required_equipment: v }), 1, approvedFeasibility, feasibilityGrowReset)}
           </div>
-          {field('Technical assumptions', study.technical_assumptions, (v) => setStudy({ ...study, technical_assumptions: v }), 2, approvedFeasibility)}
-          {field('Team remarks', study.team_remarks, (v) => setStudy({ ...study, team_remarks: v }), 2, approvedFeasibility)}
+          {field('Technical assumptions', study.technical_assumptions, (v) => setStudy({ ...study, technical_assumptions: v }), 2, approvedFeasibility, feasibilityGrowReset)}
+          {field('Team remarks', study.team_remarks, (v) => setStudy({ ...study, team_remarks: v }), 2, approvedFeasibility, feasibilityGrowReset)}
           <EntityDocumentUpload
             title="Feasibility documents"
             entityType="FEASIBILITY"
@@ -372,7 +395,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               {!study.started_at && lead.status === 'FEASIBILITY_IN_PROGRESS' && (
                 <button
                   disabled={busy}
-                  onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false, true))}
+                  onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false, true), undefined, undefined, bumpFeasibilityGrowReset)}
                   className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white hover:bg-emerald-600"
                 >
                   Start Feasibility
@@ -380,14 +403,14 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               )}
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false))}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, false), undefined, undefined, bumpFeasibilityGrowReset)}
                 className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 font-medium text-slate-200"
               >
                 Save Draft
               </button>
               <button
                 disabled={busy}
-                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, true), 'Unable to submit feasibility.', 'submit')}
+                onClick={() => run(() => LeadApi.saveFeasibility(lead.id, study, true), 'Unable to submit feasibility.', 'submit', bumpFeasibilityGrowReset)}
                 className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
               >
                 <Send className="h-4 w-4" /> Submit Feasibility
@@ -425,9 +448,9 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           {lead.status === 'COSTING_RETURNED' && (
             <div className="rounded border border-amber-800 bg-amber-950/40 p-3 text-amber-200">{lead.costing_return_reason || 'PM returned costing for revision.'}</div>
           )}
-          {field('BOM / components', costing.bom_components, (v) => setCosting({ ...costing, bom_components: v }), 2, approvedCosting || !canCost)}
-          {field('Vendor requirements', costing.vendor_requirements, (v) => setCosting({ ...costing, vendor_requirements: v }), 2, approvedCosting || !canCost)}
-          {field('Vendor quotations', costing.vendor_quotations, (v) => setCosting({ ...costing, vendor_quotations: v }), 2, approvedCosting || !canCost)}
+          {field('BOM / components', costing.bom_components, (v) => setCosting({ ...costing, bom_components: v }), 2, approvedCosting || !canCost, costingGrowReset)}
+          {field('Vendor requirements', costing.vendor_requirements, (v) => setCosting({ ...costing, vendor_requirements: v }), 2, approvedCosting || !canCost, costingGrowReset)}
+          {field('Vendor quotations', costing.vendor_quotations, (v) => setCosting({ ...costing, vendor_quotations: v }), 2, approvedCosting || !canCost, costingGrowReset)}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             {[
               ['Component costs', 'component_costs'],
@@ -452,11 +475,11 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="rounded border border-slate-800 bg-slate-950 p-3 font-bold text-emerald-400">
             Total estimated project cost: {formatInrCompact(costingTotal)}
           </div>
-          {field('Commercial assumptions', costing.commercial_assumptions, (v) => setCosting({ ...costing, commercial_assumptions: v }), 2, approvedCosting || !canCost)}
+          {field('Commercial assumptions', costing.commercial_assumptions, (v) => setCosting({ ...costing, commercial_assumptions: v }), 2, approvedCosting || !canCost, costingGrowReset)}
           {canCost && !approvedCosting && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED'].includes(lead.status) && (
             <div className="flex gap-2">
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, false))} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Draft</button>
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, true), 'Unable to submit costing.', 'submit')} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Submit Costing</button>
+              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, false), undefined, undefined, bumpCostingGrowReset)} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Draft</button>
+              <button disabled={busy} onClick={() => run(() => LeadApi.saveCosting(lead.id, { ...costing, total_estimated_cost: costingTotal }, true), 'Unable to submit costing.', 'submit', bumpCostingGrowReset)} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Submit Costing</button>
             </div>
           )}
         </div>
@@ -514,7 +537,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
               <input value={quote.delivery_terms} onChange={(e) => setQuote({ ...quote, delivery_terms: e.target.value })} className="form-control" />
             </div>
           </div>
-          {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }))}
+          {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }), 2, false, quoteGrowReset)}
           <input value={quote.document_name} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="form-control" />
           {lead.status === 'QUOTATION' && (
             <div className="space-y-2">
@@ -522,8 +545,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
                 Send Quotation emails the customer at {lead.customer_email || 'the recorded customer address'} (client email). Internal PMS users are notified on their dashboard and only receive Outlook mail if someone clicks Send Email Notification.
               </p>
               <div className="flex gap-2">
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, false))} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Quotation</button>
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, true))} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Send Quotation</button>
+              <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, false), undefined, undefined, bumpQuoteGrowReset)} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Quotation</button>
+              <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, true), undefined, undefined, bumpQuoteGrowReset)} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Send Quotation</button>
               </div>
             </div>
           )}
@@ -535,10 +558,10 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
             <Handshake className="h-4 w-4 text-cyan-400" /> Negotiation
           </div>
-          {field('Customer feedback', nego.customer_feedback, (v) => setNego({ ...nego, customer_feedback: v }))}
-          {field('Negotiation notes', nego.notes, (v) => setNego({ ...nego, notes: v }))}
-          {field('Customer requests', nego.customer_requests, (v) => setNego({ ...nego, customer_requests: v }))}
-          {field('Commercial changes', nego.commercial_changes, (v) => setNego({ ...nego, commercial_changes: v }))}
+          {field('Customer feedback', nego.customer_feedback, (v) => setNego({ ...nego, customer_feedback: v }), 2, false, negoGrowReset)}
+          {field('Negotiation notes', nego.notes, (v) => setNego({ ...nego, notes: v }), 2, false, negoGrowReset)}
+          {field('Customer requests', nego.customer_requests, (v) => setNego({ ...nego, customer_requests: v }), 2, false, negoGrowReset)}
+          {field('Commercial changes', nego.commercial_changes, (v) => setNego({ ...nego, commercial_changes: v }), 2, false, negoGrowReset)}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <input value={nego.revised_value} onChange={(e) => setNego({ ...nego, revised_value: e.target.value })} placeholder="Revised quotation value" className="form-control" />
             <input type="date" value={nego.follow_up_date} onChange={(e) => setNego({ ...nego, follow_up_date: e.target.value })} className="form-control" />
@@ -556,8 +579,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'UPDATE', revised_value: nego.revised_value || undefined }))} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Update Negotiation</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'REVISED_QUOTATION', revised_value: nego.revised_value || undefined }))} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500">Send Revised Quotation</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'UPDATE', revised_value: nego.revised_value || undefined }), undefined, undefined, bumpNegoGrowReset)} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Update Negotiation</button>
+            <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'REVISED_QUOTATION', revised_value: nego.revised_value || undefined }), undefined, undefined, bumpNegoGrowReset)} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500">Send Revised Quotation</button>
             <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'CONVERT' }))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Convert to Order</button>
             <button disabled={busy} onClick={() => run(() => LeadApi.negotiation(lead.id, { ...nego, action: 'LOST' }))} className="rounded-lg bg-rose-700 px-4 py-2 font-bold text-white hover:bg-rose-600">Mark as Lost</button>
           </div>
