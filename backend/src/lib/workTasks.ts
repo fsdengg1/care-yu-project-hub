@@ -422,7 +422,8 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   }
 
   const next: Task = { ...current, updated_at: new Date().toISOString() };
-  if (canManage || ownAdditional) {
+  const canEditSheetFields = canManage || ownAdditional || current.assigned_to_id === user.id;
+  if (canEditSheetFields) {
     if (body.title) next.title = String(body.title).trim();
     if (body.description !== undefined) next.description = String(body.description);
     if (body.due_date !== undefined) next.due_date = String(body.due_date || '') || undefined;
@@ -486,7 +487,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     next.last_update_at = new Date().toISOString();
     if (next.status === 'TODO' && next.progress_percent > 0) next.status = 'IN_PROGRESS';
   }
-  if ((canManage || ownAdditional) && body.depends_on_ids !== undefined) {
+  if (canEditSheetFields && body.depends_on_ids !== undefined) {
     const ids = Array.isArray(body.depends_on_ids)
       ? [...new Set((body.depends_on_ids as unknown[]).map((id) => String(id || '').trim()).filter(Boolean))]
       : [];

@@ -1,17 +1,19 @@
 'use client';
 
 import React, { Suspense, useEffect, useState } from 'react';
-import { FileText, GitCompare, Moon, Plus, RefreshCw, Sun, X } from 'lucide-react';
+import { FileText, GitCompare, ListPlus, Moon, Plus, RefreshCw, Sun, X } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { TasksApi } from '@/lib/tasksApi';
-import { canCreateWorkTask, canEditDailySheet } from '@/lib/rbac';
+import { canAddDailyWorkTask, canCreateWorkTask, canEditDailySheet } from '@/lib/rbac';
 import { CompareItem, DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 import { User } from '@/lib/types';
 import ConfirmDialog from '@/components/work/ConfirmDialog';
 import CompareView from '@/components/work/CompareView';
 import DailyStatusSheet from '@/components/work/DailyStatusSheet';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
+import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import CreateTaskForm from '@/components/work/CreateTaskForm';
 
 function friendlyError(error: unknown, fallback: string) {
   const text = error instanceof Error ? error.message : String(error || '');
@@ -41,9 +43,13 @@ function DailyWorkUpdatesInner() {
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [additionalOpen, setAdditionalOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [subtaskOpen, setSubtaskOpen] = useState(false);
+  const [subtaskParentId, setSubtaskParentId] = useState<string | undefined>(undefined);
 
   const canManageTasks = canCreateWorkTask(user);
   const canEditSheet = canEditDailySheet(user);
+  const canAddTask = canAddDailyWorkTask(user);
 
   const loadSheet = async () => {
     const sheet = await DailyStatusApi.sheet();
@@ -87,8 +93,18 @@ function DailyWorkUpdatesInner() {
     window.setTimeout(() => setSaved(false), 2500);
   };
 
+  const openAddSubtask = (parentId?: string) => {
+    setSubtaskParentId(parentId);
+    setSubtaskOpen(true);
+  };
+
   const addTask = async () => {
     if (!user) return;
+    // Sheet managers keep the quick blank-row flow; everyone else uses the create form.
+    if (!canEditSheet) {
+      setCreateOpen(true);
+      return;
+    }
     setBusy(true);
     setError(null);
     const result = await TasksApi.create({
@@ -126,6 +142,8 @@ function DailyWorkUpdatesInner() {
 
   if (!user) return null;
 
+  const subtaskParents = canEditSheet ? rows : rows.filter((row) => row.personId === user.id);
+
   return (
     <div className="flex min-h-0 min-w-0 flex-col overflow-x-hidden text-xs">
       <div className="mb-3 shrink-0 rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
@@ -138,7 +156,7 @@ function DailyWorkUpdatesInner() {
             <p className="mt-0.5 text-[11px] text-slate-400">Manage daily task updates and status directly from the central task sheet.</p>
           </div>
           <div className="flex flex-wrap gap-1.5">
-            {canEditSheet && (
+            {canAddTask && (
               <button
                 type="button"
                 disabled={busy}
@@ -146,6 +164,17 @@ function DailyWorkUpdatesInner() {
                 className="inline-flex items-center gap-1 rounded-md bg-cyan-600 px-2.5 py-1.5 font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
               >
                 <Plus className="h-3.5 w-3.5" /> Add Task
+              </button>
+            )}
+            {canAddTask && (
+              <button
+                type="button"
+                disabled={busy || subtaskParents.length === 0}
+                onClick={() => openAddSubtask()}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-cyan-600 disabled:opacity-60"
+                title={subtaskParents.length === 0 ? 'Create a parent task first' : 'Add a subtask'}
+              >
+                <ListPlus className="h-3.5 w-3.5" /> Add Subtask
               </button>
             )}
             <button
@@ -217,6 +246,7 @@ function DailyWorkUpdatesInner() {
         saved={saved}
         selectedIds={selectedIds}
         onSelectedIds={setSelectedIds}
+        onAddSubtask={canAddTask ? openAddSubtask : undefined}
         onPatch={async (id, body) => {
           setError(null);
           const result = await DailyStatusApi.updateRow(id, body);
@@ -234,24 +264,36 @@ function DailyWorkUpdatesInner() {
       {compareOpen && compare && (
         <div className="fixed inset-0 z-[85] flex justify-end overflow-x-hidden bg-slate-950/60" onClick={() => setCompareOpen(false)}>
           <div
-            className="flex h-full w-full max-w-5xl flex-col overflow-hidden border-l border-slate-800 bg-slate-900 shadow-2xl"
+            className="flex h-full w-full max-w-[96vw] flex-col overflow-hidden border-l border-[#cbd5e1] bg-[#f8fafc] shadow-2xl lg:max-w-6xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-[#e2e8f0] bg-white px-4 py-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-100">Previous Day</h2>
-                <p className="text-[11px] text-slate-400">Morning vs Evening</p>
+                <h2 className="text-sm font-bold text-[#0f172a]">Compare — Morning vs Evening</h2>
+                <p className="text-[11px] text-[#64748b]">Same sheet layout with morning status and evening current updates</p>
               </div>
-              <button type="button" onClick={() => setCompareOpen(false)} className="rounded-md p-1 text-slate-400 hover:text-slate-100">
+              <button type="button" onClick={() => setCompareOpen(false)} className="rounded-md p-1 text-[#64748b] hover:text-[#0f172a]">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
               <CompareView items={compare.items} available={compare.available} date={compare.date} />
             </div>
           </div>
         </div>
       )}
+
+      <CreateTaskForm
+        open={createOpen}
+        people={people}
+        projects={sheetProjects}
+        currentUserId={user.id}
+        onClose={() => setCreateOpen(false)}
+        onCreated={async (message) => {
+          setNotice(message);
+          await refreshSheet();
+        }}
+      />
 
       <AdditionalTaskForm
         open={additionalOpen}
@@ -265,6 +307,27 @@ function DailyWorkUpdatesInner() {
           await refreshSheet();
         }}
       />
+
+      {subtaskOpen && (
+        <AddSubtaskForm
+          parents={subtaskParents}
+          people={people}
+          defaultParentId={subtaskParentId}
+          currentUserId={user.id}
+          canAssignOthers={canManageTasks || canEditSheet}
+          onCancel={() => {
+            setSubtaskOpen(false);
+            setSubtaskParentId(undefined);
+          }}
+          onCreated={async (message) => {
+            setNotice(message);
+            setSubtaskOpen(false);
+            setSubtaskParentId(undefined);
+            await refreshSheet();
+          }}
+        />
+      )}
+
       {confirmDelete && (
         <ConfirmDialog
           title={`Delete ${selectedIds.length} selected tasks?`}

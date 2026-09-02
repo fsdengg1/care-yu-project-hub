@@ -10,7 +10,7 @@ import { StorageService } from '@/lib/storage';
 import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
 import { LEAD_STATUS_LABELS } from '@/lib/format';
 import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus } from '@/lib/dailyStatus';
-import { canCreateLead, canSubmitDailyUpdate } from '@/lib/rbac';
+import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import AddSubtaskForm from '@/components/work/AddSubtaskForm';
@@ -565,6 +565,7 @@ export default function MyAssignedWorkPage() {
           parents={sheetRows}
           people={sheetPeople}
           currentUserId={currentUser.id}
+          canAssignOthers={canCreateWorkTask(currentUser)}
           onCancel={() => setSubtaskOpen(false)}
           onCreated={(message) => {
             setNotice(message);

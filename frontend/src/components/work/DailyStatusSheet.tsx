@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Filter, Search, Trash2 } from 'lucide-react';
+import { Download, Filter, ListPlus, Search, Trash2 } from 'lucide-react';
 import {
   DailyStatusPerson,
   DailyStatusRow,
@@ -84,6 +84,7 @@ export default function DailyStatusSheet({
   onPatch,
   onExport,
   onDelete,
+  onAddSubtask,
   readOnly = false,
 }: {
   rows: DailyStatusRow[];
@@ -98,6 +99,7 @@ export default function DailyStatusSheet({
   onPatch: (id: string, body: PatchBody) => Promise<void>;
   onExport: (visible: DailyStatusRow[]) => void;
   onDelete: () => void;
+  onAddSubtask?: (parentId: string) => void;
   readOnly?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -143,7 +145,7 @@ export default function DailyStatusSheet({
   const allSelected = visible.length > 0 && visible.every((row) => selectedIds.includes(row.id));
   const selectedVisible = selectedIds.filter((id) => visible.some((row) => row.id === id)).length;
   const canEditRow = (row: DailyStatusRow) =>
-    !readOnly && (canEditAll || (row.isAdditional && row.personId === userId));
+    !readOnly && (canEditAll || row.personId === userId);
   const showSelect = !readOnly;
   const tableRef = useRef<HTMLTableElement>(null);
 
@@ -321,7 +323,7 @@ export default function DailyStatusSheet({
                   </td>
                   <td className="task-desc-cell">
                     <div className="flex items-start gap-1.5">
-                      {(row.hasSubtasks || (row.subtasks && row.subtasks.length > 0)) && (
+                      {(row.hasSubtasks || (row.subtasks && row.subtasks.length > 0)) ? (
                         <button
                           type="button"
                           onClick={() => toggleExpand(row.id)}
@@ -331,28 +333,48 @@ export default function DailyStatusSheet({
                         >
                           {expandedIds.includes(row.id) ? '−' : '+'}
                         </button>
+                      ) : (
+                        <span className="mt-0.5 inline-block h-5 w-5 shrink-0" aria-hidden />
                       )}
                       <div className="min-w-0 flex-1">
-                        {editable ? (
-                          <AutoResizeTextarea
-                            key={row.taskDescription}
-                            defaultValue={row.taskDescription}
-                            className="sheet-textarea sheet-task-field"
-                            onBlur={(event) => {
-                              const value = event.target.value.trim();
-                              if (value && value !== row.taskDescription) {
-                                void onPatch(row.id, { description: value, title: value.slice(0, 120) });
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
-                        )}
+                        <div className="flex items-start gap-1">
+                          <div className="min-w-0 flex-1">
+                            {editable ? (
+                              <AutoResizeTextarea
+                                key={row.taskDescription}
+                                defaultValue={row.taskDescription}
+                                className="sheet-textarea sheet-task-field"
+                                onBlur={(event) => {
+                                  const value = event.target.value.trim();
+                                  if (value && value !== row.taskDescription) {
+                                    void onPatch(row.id, { description: value, title: value.slice(0, 120) });
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
+                            )}
+                          </div>
+                          {onAddSubtask && !readOnly && (canEditAll || row.personId === userId) && (
+                            <button
+                              type="button"
+                              onClick={() => onAddSubtask(row.id)}
+                              className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-[#94a3b8] bg-white text-[#0f766e] hover:border-[#0f766e] hover:bg-[#ecfdf5]"
+                              title="Add subtask"
+                              aria-label="Add subtask"
+                            >
+                              <ListPlus className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                         {expandedIds.includes(row.id) && (row.subtasks || []).length > 0 && (
                           <ul className="mt-1.5 space-y-1 border-l-2 border-[#cbd5e1] pl-2">
                             {(row.subtasks || []).map((sub) => (
                               <li key={sub.id} className="text-[11px] text-[#334155]">
                                 <span className="font-semibold text-[#0f172a]">{sub.title}</span>
+                                {sub.assignedTo ? (
+                                  <span className="ml-1.5 text-[10px] text-[#64748b]">· {sub.assignedTo}</span>
+                                ) : null}
                                 <span className="ml-1.5 rounded border border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-0.5 text-[10px] font-bold">
                                   {sub.status}
                                 </span>

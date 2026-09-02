@@ -6,13 +6,18 @@ import { StorageService } from '@/lib/storage';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { LeadApi } from '@/lib/leadApi';
 import { ProjectsApi } from '@/lib/projectsApi';
-import { userIsOnLeadTeam } from '@/lib/rbac';
-import { Users, ArrowRight, Clock } from 'lucide-react';
+import { canCreateWorkTask, userIsOnLeadTeam } from '@/lib/rbac';
+import { Users, ArrowRight, Clock, Plus } from 'lucide-react';
 import Link from 'next/link';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 import TeamLeadExecutionPanel from '@/components/dashboards/TeamLeadExecutionPanel';
+import CreateTaskForm from '@/components/work/CreateTaskForm';
+import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
+import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import { DailyStatusApi } from '@/lib/dailyStatusApi';
+import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 
 function assignedTeamIds(lead: Lead): string[] {
   return [...new Set([...(lead.assigned_team_ids || []), ...(lead.assigned_team_id ? [lead.assigned_team_id] : [])].filter(Boolean))];
@@ -57,6 +62,13 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
   const [leadsMap, setLeadsMap] = useState<Record<string, Lead>>({});
   const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
   const [pendingProjects, setPendingProjects] = useState<Project[]>([]);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [additionalOpen, setAdditionalOpen] = useState(false);
+  const [subtaskOpen, setSubtaskOpen] = useState(false);
+  const [people, setPeople] = useState<DailyStatusPerson[]>([]);
+  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [sheetRows, setSheetRows] = useState<DailyStatusRow[]>([]);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     void (async () => {
@@ -86,6 +98,12 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
               !project.intake_status)
         )
       );
+      const sheet = await DailyStatusApi.sheet();
+      if (sheet.ok) {
+        setPeople(sheet.people);
+        setProjects(sheet.projects);
+        setSheetRows(sheet.rows);
+      }
     })();
   }, [user.id, user.team_id]);
 
@@ -102,9 +120,39 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
   return (
     <div className="space-y-6 text-xs">
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/30 to-slate-900 p-6 rounded-xl border border-slate-800">
-        <div className="flex items-center gap-2 text-indigo-400 font-semibold uppercase tracking-wider text-xs"><Users className="w-4 h-4" /> Team Lead Dashboard</div>
-        <h1 className="text-2xl font-bold text-slate-100 mt-1">{user.name}</h1>
-        <p className="text-slate-400 text-xs mt-0.5">Project review, task assignment, daily updates, and issue management for your team.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-indigo-400 font-semibold uppercase tracking-wider text-xs"><Users className="w-4 h-4" /> Team Lead Dashboard</div>
+            <h1 className="text-2xl font-bold text-slate-100 mt-1">{user.name}</h1>
+            <p className="text-slate-400 text-xs mt-0.5">Project review, task assignment, daily updates, and issue management for your team.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500"
+            >
+              <Plus className="h-3.5 w-3.5" /> Create Task
+            </button>
+            <button
+              type="button"
+              onClick={() => setSubtaskOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-4 py-2 text-xs font-bold text-slate-100 hover:border-cyan-600"
+            >
+              <Plus className="h-3.5 w-3.5" /> Add Subtask
+            </button>
+            <button
+              type="button"
+              onClick={() => setAdditionalOpen(true)}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-4 py-2 text-xs font-bold text-slate-100 hover:border-cyan-600"
+            >
+              <Plus className="h-3.5 w-3.5" /> Additional Task
+            </button>
+            <Link href="/daily-updates" className="rounded-lg border border-slate-700 px-4 py-2 text-xs font-bold text-slate-100 hover:border-cyan-600">
+              Daily Work Updates
+            </Link>
+          </div>
+        </div>
       </div>
 
       <TeamLeadExecutionPanel user={user} />
@@ -257,6 +305,66 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
           </div>
         )}
       </div>
+
+      {notice && (
+        <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-emerald-200">{notice}</div>
+      )}
+
+      <CreateTaskForm
+        open={createOpen}
+        people={people}
+        projects={projects}
+        currentUserId={user.id}
+        onClose={() => setCreateOpen(false)}
+        onCreated={(message) => {
+          setNotice(message);
+          void DailyStatusApi.sheet().then((sheet) => {
+            if (sheet.ok) {
+              setPeople(sheet.people);
+              setProjects(sheet.projects);
+              setSheetRows(sheet.rows);
+            }
+          });
+        }}
+      />
+      <AdditionalTaskForm
+        open={additionalOpen}
+        people={people}
+        projects={projects}
+        currentUserId={user.id}
+        requirePerson={false}
+        onClose={() => setAdditionalOpen(false)}
+        onCreated={(message) => {
+          setNotice(message);
+          void DailyStatusApi.sheet().then((sheet) => {
+            if (sheet.ok) {
+              setPeople(sheet.people);
+              setProjects(sheet.projects);
+              setSheetRows(sheet.rows);
+            }
+          });
+        }}
+      />
+      {subtaskOpen && (
+        <AddSubtaskForm
+          parents={sheetRows}
+          people={people}
+          currentUserId={user.id}
+          canAssignOthers={canCreateWorkTask(user)}
+          onCancel={() => setSubtaskOpen(false)}
+          onCreated={(message) => {
+            setNotice(message);
+            setSubtaskOpen(false);
+            void DailyStatusApi.sheet().then((sheet) => {
+              if (sheet.ok) {
+                setPeople(sheet.people);
+                setProjects(sheet.projects);
+                setSheetRows(sheet.rows);
+              }
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

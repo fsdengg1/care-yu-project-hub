@@ -322,6 +322,10 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   width: 160px;
 }
 
+.daily-status-sheet.daily-status-compare {
+  min-width: 1280px;
+}
+
 .daily-status-sheet th {
   position: sticky;
   top: 0;

@@ -221,6 +221,11 @@ export function canEditDailySheet(user: User | null | undefined): boolean {
   return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
+/** Any signed-in user can add their own daily work task / subtask. */
+export function canAddDailyWorkTask(user: User | null | undefined): boolean {
+  return Boolean(user);
+}
+
 export function canPerformPmOperations(user: User | null | undefined): boolean {
   if (!user) return false;
   return ['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);

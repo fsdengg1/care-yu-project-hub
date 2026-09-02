@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TasksApi } from '@/lib/tasksApi';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 
@@ -9,6 +9,7 @@ export default function AddSubtaskForm({
   people,
   defaultParentId,
   currentUserId,
+  canAssignOthers = false,
   onCreated,
   onCancel,
 }: {
@@ -16,11 +17,11 @@ export default function AddSubtaskForm({
   people: DailyStatusPerson[];
   defaultParentId?: string;
   currentUserId: string;
+  canAssignOthers?: boolean;
   onCreated: (message: string) => void;
   onCancel: () => void;
 }) {
-  const rootParents = useMemo(() => parents.filter((row) => !row.id.startsWith('sub-')), [parents]);
-  const [parentId, setParentId] = useState(defaultParentId || rootParents[0]?.id || '');
+  const [parentId, setParentId] = useState(defaultParentId || parents[0]?.id || '');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [assignedToId, setAssignedToId] = useState(currentUserId);
@@ -29,7 +30,15 @@ export default function AddSubtaskForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const parent = rootParents.find((row) => row.id === parentId);
+  useEffect(() => {
+    if (defaultParentId) setParentId(defaultParentId);
+  }, [defaultParentId]);
+
+  useEffect(() => {
+    if (!canAssignOthers) setAssignedToId(currentUserId);
+  }, [canAssignOthers, currentUserId]);
+
+  const parent = parents.find((row) => row.id === parentId);
 
   const submit = async () => {
     if (!parentId || !title.trim()) {
@@ -38,13 +47,14 @@ export default function AddSubtaskForm({
     }
     setBusy(true);
     setError('');
+    const assignee = canAssignOthers ? assignedToId || currentUserId : currentUserId;
     const result = await TasksApi.create({
       title: title.trim(),
       description: description.trim() || title.trim(),
       task_type: parent?.projectId ? 'PROJECT_TASK' : 'NON_PROJECT_TASK',
       project_id: parent?.projectId,
       project_name: parent?.project === '—' ? undefined : parent?.project,
-      assigned_to_id: assignedToId || currentUserId,
+      assigned_to_id: assignee,
       due_date: dueDate || undefined,
       status,
       parent_task_id: parentId,
@@ -70,8 +80,8 @@ export default function AddSubtaskForm({
               onChange={(e) => setParentId(e.target.value)}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
             >
-              {rootParents.length === 0 && <option value="">No parent tasks available</option>}
-              {rootParents.map((row) => (
+              {parents.length === 0 && <option value="">No parent tasks available</option>}
+              {parents.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.person} — {row.project} — {row.taskDescription.slice(0, 60)}
                 </option>
@@ -101,9 +111,10 @@ export default function AddSubtaskForm({
             <select
               value={assignedToId}
               onChange={(e) => setAssignedToId(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
+              disabled={!canAssignOthers}
+              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 disabled:opacity-70"
             >
-              {people.map((person) => (
+              {(canAssignOthers ? people : people.filter((person) => person.id === currentUserId)).map((person) => (
                 <option key={person.id} value={person.id}>
                   {person.displayName || person.name}
                 </option>

@@ -244,9 +244,13 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
     if (canSeeAllDailyStatusRows(user)) return canViewTask(user, task);
     return task.assigned_to_id === user.id;
   });
+  const visibleRootIds = new Set(visibleTasks.filter((task) => !task.parent_task_id).map((task) => task.id));
+  // Nest children under visible parents even when the subtask assignee differs.
   const childrenByParent = new Map<string, Task[]>();
-  for (const task of visibleTasks) {
-    if (!task.parent_task_id) continue;
+  for (const task of store.getTasks()) {
+    if (task.is_milestone) continue;
+    if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') continue;
+    if (!task.parent_task_id || !visibleRootIds.has(task.parent_task_id)) continue;
     const list = childrenByParent.get(task.parent_task_id) || [];
     list.push(task);
     childrenByParent.set(task.parent_task_id, list);
@@ -435,18 +439,22 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
     const pm = evening.find((row) => row.id === id);
     const current = live.find((row) => row.id === id);
     const base = current || pm || am!;
+    const eveningUpdateText =
+      (pm?.taskDescription && pm.taskDescription.trim()) ||
+      (current?.taskDescription && current.taskDescription.trim()) ||
+      '';
     return {
       id,
       person: base.person,
       project: base.project,
-      taskDescription: base.taskDescription,
+      taskDescription: am?.taskDescription || base.taskDescription,
       morningStatus: am?.status || '—',
-      eveningStatus: pm?.status || '—',
+      eveningStatus: pm?.status || current?.status || '—',
       morningDeadline: am?.deadline,
       eveningDeadline: pm?.deadline,
       morningDependencies: am?.dependencies,
       eveningDependencies: pm?.dependencies,
-      currentUpdate: current?.status || current?.taskDescription || '—',
+      currentUpdate: eveningUpdateText || '—',
       onTimeDelay: delayLabel(current || pm || am),
       progressPercent: current?.progressPercent ?? pm?.progressPercent ?? am?.progressPercent ?? 0,
       reasonForDelay: current?.reasonForDelay || pm?.reasonForDelay || am?.reasonForDelay || '—',

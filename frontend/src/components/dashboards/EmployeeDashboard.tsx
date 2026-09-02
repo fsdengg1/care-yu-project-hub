@@ -14,15 +14,20 @@ import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
 import MemberTaskCard from '@/components/work/MemberTaskCard';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
-import { DailyStatusPerson } from '@/lib/dailyStatus';
+import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
+import { canCreateWorkTask } from '@/lib/rbac';
 
 export default function EmployeeDashboard({ user }: { user: User }) {
   const [assignments, setAssignments] = useState<WorkAssignment[]>([]);
   const [summary, setSummary] = useState<DailyUpdateSummary | null>(null);
   const [additionalOpen, setAdditionalOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [subtaskOpen, setSubtaskOpen] = useState(false);
   const [people, setPeople] = useState<DailyStatusPerson[]>([]);
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [sheetRows, setSheetRows] = useState<DailyStatusRow[]>([]);
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     const [nextAssignments, nextSummary, sheet] = await Promise.all([
@@ -35,6 +40,7 @@ export default function EmployeeDashboard({ user }: { user: User }) {
     if (sheet.ok) {
       setPeople(sheet.people);
       setProjects(sheet.projects);
+      setSheetRows(sheet.rows);
     }
   }, []);
 
@@ -67,6 +73,14 @@ export default function EmployeeDashboard({ user }: { user: User }) {
             className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-4 py-2 text-xs font-bold text-white hover:bg-cyan-500"
           >
             <Plus className="h-3.5 w-3.5" /> Create Task
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubtaskOpen(true)}
+            disabled={sheetRows.length === 0}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-4 py-2 text-xs font-bold text-slate-100 hover:border-cyan-600 disabled:opacity-60"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add Subtask
           </button>
           <button
             type="button"
@@ -135,13 +149,17 @@ export default function EmployeeDashboard({ user }: { user: User }) {
       <PendingActionsCard />
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
+      {notice && (
+        <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">{notice}</div>
+      )}
       <CreateTaskForm
         open={createOpen}
         people={people}
         projects={projects}
         currentUserId={user.id}
         onClose={() => setCreateOpen(false)}
-        onCreated={() => {
+        onCreated={(message) => {
+          setNotice(message);
           void load();
         }}
       />
@@ -152,10 +170,25 @@ export default function EmployeeDashboard({ user }: { user: User }) {
         currentUserId={user.id}
         requirePerson={false}
         onClose={() => setAdditionalOpen(false)}
-        onCreated={() => {
+        onCreated={(message) => {
+          setNotice(message);
           void load();
         }}
       />
+      {subtaskOpen && (
+        <AddSubtaskForm
+          parents={sheetRows}
+          people={people}
+          currentUserId={user.id}
+          canAssignOthers={canCreateWorkTask(user)}
+          onCancel={() => setSubtaskOpen(false)}
+          onCreated={(message) => {
+            setNotice(message);
+            setSubtaskOpen(false);
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 }
