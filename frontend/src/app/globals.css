@@ -248,11 +248,44 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1520px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #ffffff;
   color: #0f172a;
+}
+
+.daily-status-sheet col.col-check {
+  width: 36px;
+}
+
+.daily-status-sheet col.col-person {
+  width: 108px;
+}
+
+.daily-status-sheet col.col-project {
+  width: 200px;
+}
+
+.daily-status-sheet col.col-task-desc {
+  width: 460px;
+}
+
+.daily-status-sheet col.col-deps {
+  width: 150px;
+}
+
+.daily-status-sheet col.col-status {
+  width: 118px;
+}
+
+.daily-status-sheet col.col-date,
+.daily-status-sheet col.col-deadline {
+  width: 112px;
+}
+
+.daily-status-sheet col.col-delay {
+  width: 140px;
 }
 
 .daily-status-sheet th {
@@ -267,19 +300,20 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   text-transform: uppercase;
   text-align: left;
   border: 1px solid #d4a017;
-  padding: 8px 7px;
+  padding: 10px 8px;
   white-space: nowrap;
 }
 
 .daily-status-sheet td {
   border: 1px solid #d8dee6;
-  padding: 5px 7px;
+  padding: 8px 10px;
   vertical-align: top;
   font-size: 12px;
   color: #0f172a;
   background: #ffffff;
   word-break: break-word;
   overflow-wrap: anywhere;
+  line-height: 1.45;
 }
 
 .daily-status-sheet tbody tr:nth-child(even) td:not(.tone-cell):not(.person-cell) {
@@ -295,15 +329,49 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   text-align: center;
   vertical-align: middle;
   background: #fffef6;
+  padding-inline: 6px;
 }
 
 .daily-status-sheet td.project-cell {
-  min-width: 170px;
+  min-width: 200px;
+}
+
+.daily-status-sheet td.task-desc-cell {
+  min-width: 460px;
+}
+
+.daily-status-sheet td.deps-cell {
+  min-width: 150px;
+}
+
+.daily-status-sheet td.status-cell {
+  min-width: 118px;
+}
+
+.daily-status-sheet td.date-cell {
+  min-width: 112px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.daily-status-sheet td.delay-cell {
+  min-width: 140px;
 }
 
 .daily-status-sheet .sheet-project-field {
-  min-height: 24px;
+  min-height: 28px;
   font-weight: 600;
+}
+
+.daily-status-sheet .sheet-task-field {
+  min-height: 56px;
+  line-height: 1.5;
+}
+
+.daily-status-sheet .sheet-date-input {
+  text-align: center;
+  font-size: 11px;
+  padding: 2px 0;
 }
 
 .daily-status-sheet .sheet-input,

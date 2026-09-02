@@ -140,6 +140,16 @@ export default function DailyStatusSheet({
   const canEditRow = (row: DailyStatusRow) =>
     !readOnly && (canEditAll || (row.isAdditional && row.personId === userId));
   const showSelect = !readOnly;
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      tableRef.current?.querySelectorAll('textarea.sheet-textarea').forEach((node) => {
+        resizeTextarea(node as HTMLTextAreaElement);
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [visible]);
 
   return (
     <section className={`daily-status-workspace min-w-0 overflow-hidden rounded-xl ${readOnly ? 'daily-status-workspace-readonly' : ''}`}>
@@ -205,17 +215,17 @@ export default function DailyStatusSheet({
       </div>
 
       <div className="daily-status-table-wrap">
-        <table className="daily-status-sheet">
+        <table ref={tableRef} className="daily-status-sheet">
           <colgroup>
-            {showSelect && <col style={{ width: '36px' }} />}
-            <col style={{ width: '10%' }} />
-            <col className="col-project" style={{ width: '16%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '13%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '11%' }} />
+            {showSelect && <col className="col-check" />}
+            <col className="col-person" />
+            <col className="col-project" />
+            <col className="col-task-desc" />
+            <col className="col-deps" />
+            <col className="col-status" />
+            <col className="col-date" />
+            <col className="col-deadline" />
+            <col className="col-delay" />
           </colgroup>
           <thead>
             <tr>
@@ -302,12 +312,12 @@ export default function DailyStatusSheet({
                       <span className="sheet-text">{row.project || '—'}</span>
                     )}
                   </td>
-                  <td>
+                  <td className="task-desc-cell">
                     {editable ? (
                       <AutoResizeTextarea
                         key={row.taskDescription}
                         defaultValue={row.taskDescription}
-                        className="sheet-textarea"
+                        className="sheet-textarea sheet-task-field"
                         onBlur={(event) => {
                           const value = event.target.value.trim();
                           if (value && value !== row.taskDescription) {
@@ -316,10 +326,10 @@ export default function DailyStatusSheet({
                         }}
                       />
                     ) : (
-                      <span className="sheet-text">{row.taskDescription}</span>
+                      <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
                     )}
                   </td>
-                  <td>
+                  <td className="deps-cell">
                     {editable ? (
                       <DependencyMultiSelect
                         variant="sheet"
@@ -331,7 +341,7 @@ export default function DailyStatusSheet({
                       row.dependencies
                     )}
                   </td>
-                  <td>
+                  <td className="status-cell">
                     <StatusDropdown
                       variant="sheet"
                       value={row.status}
@@ -339,14 +349,14 @@ export default function DailyStatusSheet({
                       onChange={(status) => void onPatch(row.id, { status })}
                     />
                   </td>
-                  <td>
-                    <input type="date" className="sheet-input" value={isoToInput(row.currentDate) || today} readOnly tabIndex={-1} />
+                  <td className="date-cell">
+                    <input type="date" className="sheet-input sheet-date-input" value={isoToInput(row.currentDate) || today} readOnly tabIndex={-1} />
                   </td>
-                  <td className={`tone-cell ${deadlineCellClass(tone)}`}>
+                  <td className={`date-cell tone-cell ${deadlineCellClass(tone)}`}>
                     {editable ? (
                       <input
                         type="date"
-                        className="sheet-input"
+                        className="sheet-input sheet-date-input"
                         style={{ color: 'inherit', fontWeight: 'inherit' }}
                         value={isoToInput(row.deadlineIso || row.deadline)}
                         onChange={(event) => void onPatch(row.id, { due_date: event.target.value || '' })}
@@ -355,7 +365,7 @@ export default function DailyStatusSheet({
                       row.deadline
                     )}
                   </td>
-                  <td>
+                  <td className="delay-cell">
                     {editable ? (
                       <AutoResizeTextarea
                         key={row.reasonForDelay}
