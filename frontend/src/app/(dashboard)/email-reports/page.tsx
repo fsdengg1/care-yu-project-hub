@@ -203,7 +203,7 @@ export default function EmailReportsPage() {
         <h1 className="mt-1 text-xl font-bold text-slate-100">Daily Work Updates email</h1>
         <p className="mt-1 text-slate-400">
           Mail reports use the same Daily Work Updates sheet (Person, Project, Task Description, and related
-          columns). Morning or evening titles update automatically; after 2:00 PM the page defaults to Evening.
+          columns). Titles switch automatically: Morning until 4:00 PM, Evening from 4:00 PM.
           Automatic sends run on the server at 12:00 PM and 7:15 PM ({schedule.timezone || 'Asia/Kolkata'}).
         </p>
 

@@ -410,7 +410,8 @@ function emailPeriodCopy(period: SnapshotPeriod, reportLabel?: string) {
 }
 
 export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
-  return now.getHours() >= 14 ? 'evening' : 'morning';
+  // Morning until 4:00 PM; Evening from 4:00 PM onward (local time).
+  return now.getHours() >= 16 ? 'evening' : 'morning';
 }
 
 export function renderDailyStatusEmailHtml(params: {
@@ -453,14 +454,17 @@ export function renderDailyStatusEmailHtml(params: {
           const deadlineStyle = deadlineInlineStyle(
             deadlineTone(row.status, row.deadlineIso || row.deadline, today)
           );
+          const statusLabel = escapeHtml(row.status).replace(/ /g, '&nbsp;');
+          const currentDate = escapeHtml(row.currentDate).replace(/-/g, '&#8209;');
+          const deadline = escapeHtml(row.deadline).replace(/-/g, '&#8209;');
           return `<tr>
         ${personTd}
         <td style="${cell}">${escapeHtml(row.project)}</td>
         <td style="${cell}">${escapeHtml(row.taskDescription)}</td>
-        <td style="${cell}white-space:nowrap;">${escapeHtml(row.dependencies)}</td>
-        <td style="${statusCell}"><span style="display:inline-block;padding:4px 10px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${escapeHtml(row.status)}</span></td>
-        <td style="${dateCell}">${escapeHtml(row.currentDate)}</td>
-        <td style="${dateCell}${deadlineStyle}">${escapeHtml(row.deadline)}</td>
+        <td style="${cell}">${escapeHtml(row.dependencies)}</td>
+        <td style="${statusCell}"><span style="display:inline-block;padding:4px 10px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
+        <td style="${dateCell}">${currentDate}</td>
+        <td style="${dateCell}${deadlineStyle}">${deadline}</td>
         <td style="${cell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
         })
@@ -492,15 +496,15 @@ export function renderDailyStatusEmailHtml(params: {
           <tr>
             <td style="padding:8px 12px 24px;">
               <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:980px;table-layout:fixed;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:100%;min-width:1080px;table-layout:fixed;">
                 <colgroup>
                   <col style="width:110px;" />
-                  <col style="width:160px;" />
+                  <col style="width:150px;" />
                   <col style="width:280px;" />
                   <col style="width:120px;" />
-                  <col style="width:120px;" />
-                  <col style="width:110px;" />
-                  <col style="width:110px;" />
+                  <col style="width:130px;" />
+                  <col style="width:118px;" />
+                  <col style="width:118px;" />
                   <col style="width:110px;" />
                 </colgroup>
                 <thead>

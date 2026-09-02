@@ -146,5 +146,6 @@ export interface CompareItem {
 }
 
 export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
-  return now.getHours() >= 14 ? 'evening' : 'morning';
+  // Morning until 4:00 PM; Evening from 4:00 PM onward (local time).
+  return now.getHours() >= 16 ? 'evening' : 'morning';
 }

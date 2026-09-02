@@ -261,7 +261,7 @@ router.post(
   '/email-schedule/test',
   requirePermission('view:daily-updates', 'view:dashboard:ceo'),
   async (req: AuthedRequest, res) => {
-    const slot = readSlot(req.body?.slot ?? (new Date().getHours() >= 14 ? 'evening' : 'noon'));
+    const slot = readSlot(req.body?.slot ?? (new Date().getHours() >= 16 ? 'evening' : 'noon'));
     const result = await sendConfiguredEmailReport({
       slot,
       source: 'test',
