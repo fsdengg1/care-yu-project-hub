@@ -15,6 +15,7 @@ import MemberTaskCard from '@/components/work/MemberTaskCard';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import MySubtasksPanel from '@/components/work/MySubtasksPanel';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 import { canCreateWorkTask } from '@/lib/rbac';
 
@@ -138,13 +139,28 @@ export default function EmployeeDashboard({ user }: { user: User }) {
         ) : (
           <div className="space-y-4">
             {assignments.map((item) => (
-              <MemberTaskCard key={item.id} assignment={item} onChanged={load} />
+              <MemberTaskCard
+                key={item.id}
+                assignment={item}
+                onChanged={load}
+                parents={sheetRows}
+                people={people}
+                canAssignOthers={canCreateWorkTask(user)}
+              />
             ))}
           </div>
         )}
       </div>
 
       <ProjectGanttPanel user={user} projectId={ganttProjectId} lockLabel="Gantt — Read Only" />
+
+      <MySubtasksPanel
+        rows={sheetRows}
+        people={people}
+        currentUserId={user.id}
+        canAssignOthers={canCreateWorkTask(user)}
+        onChanged={load}
+      />
 
       <PendingActionsCard />
       <LeadPipelinePanel />

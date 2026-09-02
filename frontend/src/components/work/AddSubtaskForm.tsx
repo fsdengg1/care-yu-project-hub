@@ -2,7 +2,38 @@
 
 import React, { useEffect, useState } from 'react';
 import { TasksApi } from '@/lib/tasksApi';
-import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
+import { DailyStatusPerson, DailyStatusRow, DailyStatusSubtask, parseSheetDate, toSheetStatus } from '@/lib/dailyStatus';
+
+export type EditableSubtask = {
+  id: string;
+  parentId: string;
+  title: string;
+  description?: string;
+  assignedToId: string;
+  dueDate?: string;
+  status: string;
+};
+
+function statusToApi(status: string): string {
+  const sheet = toSheetStatus(status);
+  if (sheet === 'Completed') return 'DONE';
+  if (sheet === 'In Progress') return 'IN_PROGRESS';
+  if (sheet === 'Waiting') return 'WAITING';
+  if (sheet === 'Hold') return 'HOLD';
+  return 'TODO';
+}
+
+export function subtaskToEditable(sub: DailyStatusSubtask, fallbackParentId?: string): EditableSubtask {
+  return {
+    id: sub.id,
+    parentId: sub.parentTaskId || fallbackParentId || '',
+    title: sub.title,
+    description: sub.description || sub.title,
+    assignedToId: sub.assignedToId || '',
+    dueDate: sub.deadlineIso || parseSheetDate(sub.deadline) || '',
+    status: statusToApi(sub.status),
+  };
+}
 
 export default function AddSubtaskForm({
   parents,
@@ -10,6 +41,7 @@ export default function AddSubtaskForm({
   defaultParentId,
   currentUserId,
   canAssignOthers = false,
+  editing,
   onCreated,
   onCancel,
 }: {
@@ -18,25 +50,36 @@ export default function AddSubtaskForm({
   defaultParentId?: string;
   currentUserId: string;
   canAssignOthers?: boolean;
+  editing?: EditableSubtask | null;
   onCreated: (message: string) => void;
   onCancel: () => void;
 }) {
-  const [parentId, setParentId] = useState(defaultParentId || parents[0]?.id || '');
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [assignedToId, setAssignedToId] = useState(currentUserId);
-  const [dueDate, setDueDate] = useState('');
-  const [status, setStatus] = useState('TODO');
+  const isEdit = Boolean(editing?.id);
+  const [parentId, setParentId] = useState(editing?.parentId || defaultParentId || parents[0]?.id || '');
+  const [title, setTitle] = useState(editing?.title || '');
+  const [description, setDescription] = useState(editing?.description || '');
+  const [assignedToId, setAssignedToId] = useState(editing?.assignedToId || currentUserId);
+  const [dueDate, setDueDate] = useState(editing?.dueDate || '');
+  const [status, setStatus] = useState(editing?.status || 'TODO');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (editing) {
+      setParentId(editing.parentId || defaultParentId || parents[0]?.id || '');
+      setTitle(editing.title || '');
+      setDescription(editing.description || '');
+      setAssignedToId(editing.assignedToId || currentUserId);
+      setDueDate(editing.dueDate || '');
+      setStatus(editing.status || 'TODO');
+      return;
+    }
     if (defaultParentId) setParentId(defaultParentId);
-  }, [defaultParentId]);
+  }, [editing, defaultParentId, parents, currentUserId]);
 
   useEffect(() => {
-    if (!canAssignOthers) setAssignedToId(currentUserId);
-  }, [canAssignOthers, currentUserId]);
+    if (!canAssignOthers && !isEdit) setAssignedToId(currentUserId);
+  }, [canAssignOthers, currentUserId, isEdit]);
 
   const parent = parents.find((row) => row.id === parentId);
 
@@ -47,7 +90,25 @@ export default function AddSubtaskForm({
     }
     setBusy(true);
     setError('');
-    const assignee = canAssignOthers ? assignedToId || currentUserId : currentUserId;
+    const assignee = canAssignOthers ? assignedToId || currentUserId : assignedToId || currentUserId;
+    if (isEdit && editing) {
+      const result = await TasksApi.update(editing.id, {
+        title: title.trim(),
+        description: description.trim() || title.trim(),
+        due_date: dueDate || undefined,
+        status,
+        assigned_to_id: canAssignOthers ? assignee : undefined,
+        parent_task_id: parentId,
+      });
+      setBusy(false);
+      if (!result.ok) {
+        setError(result.message || 'Unable to update subtask.');
+        return;
+      }
+      onCreated('Subtask updated.');
+      return;
+    }
+
     const result = await TasksApi.create({
       title: title.trim(),
       description: description.trim() || title.trim(),
@@ -70,8 +131,10 @@ export default function AddSubtaskForm({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
       <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
-        <h2 className="text-sm font-bold text-slate-100">Add Subtask</h2>
-        <p className="mt-1 text-xs text-slate-400">Creates an activity under a main Daily Work Updates task.</p>
+        <h2 className="text-sm font-bold text-slate-100">{isEdit ? 'Edit Subtask' : 'Add Subtask'}</h2>
+        <p className="mt-1 text-xs text-slate-400">
+          {isEdit ? 'Update this activity under the parent Daily Work Updates task.' : 'Creates an activity under a main Daily Work Updates task.'}
+        </p>
         <div className="mt-4 space-y-3 text-xs">
           <label className="block text-slate-300">
             Parent Task
@@ -114,11 +177,13 @@ export default function AddSubtaskForm({
               disabled={!canAssignOthers}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 disabled:opacity-70"
             >
-              {(canAssignOthers ? people : people.filter((person) => person.id === currentUserId)).map((person) => (
-                <option key={person.id} value={person.id}>
-                  {person.displayName || person.name}
-                </option>
-              ))}
+              {(canAssignOthers ? people : people.filter((person) => person.id === currentUserId || person.id === assignedToId)).map(
+                (person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.displayName || person.name}
+                  </option>
+                )
+              )}
             </select>
           </label>
           <div className="grid grid-cols-2 gap-3">
@@ -158,7 +223,7 @@ export default function AddSubtaskForm({
             onClick={() => void submit()}
             className="rounded-lg bg-cyan-600 px-3 py-2 text-xs font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
           >
-            Create Subtask
+            {isEdit ? 'Save Subtask' : 'Create Subtask'}
           </button>
         </div>
       </div>

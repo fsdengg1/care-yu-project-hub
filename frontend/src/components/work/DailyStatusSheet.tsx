@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Filter, ListPlus, Search, Trash2 } from 'lucide-react';
+import { Download, Filter, ListPlus, Pencil, Search, Trash2 } from 'lucide-react';
 import {
   DailyStatusPerson,
   DailyStatusRow,
+  DailyStatusSubtask,
   deadlineCellClass,
   deadlineTone,
   parseSheetDate,
@@ -85,6 +86,8 @@ export default function DailyStatusSheet({
   onExport,
   onDelete,
   onAddSubtask,
+  onEditSubtask,
+  onDeleteSubtask,
   readOnly = false,
 }: {
   rows: DailyStatusRow[];
@@ -100,6 +103,8 @@ export default function DailyStatusSheet({
   onExport: (visible: DailyStatusRow[]) => void;
   onDelete: () => void;
   onAddSubtask?: (parentId: string) => void;
+  onEditSubtask?: (subtask: DailyStatusSubtask, parentId: string) => void;
+  onDeleteSubtask?: (subtask: DailyStatusSubtask, parentId: string) => void;
   readOnly?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -369,18 +374,51 @@ export default function DailyStatusSheet({
                         </div>
                         {expandedIds.includes(row.id) && (row.subtasks || []).length > 0 && (
                           <ul className="mt-1.5 space-y-1 border-l-2 border-[#cbd5e1] pl-2">
-                            {(row.subtasks || []).map((sub) => (
-                              <li key={sub.id} className="text-[11px] text-[#334155]">
-                                <span className="font-semibold text-[#0f172a]">{sub.title}</span>
-                                {sub.assignedTo ? (
-                                  <span className="ml-1.5 text-[10px] text-[#64748b]">· {sub.assignedTo}</span>
-                                ) : null}
-                                <span className="ml-1.5 rounded border border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-0.5 text-[10px] font-bold">
-                                  {sub.status}
-                                </span>
-                                <span className="ml-1 text-[#64748b]">{sub.progressPercent}%</span>
-                              </li>
-                            ))}
+                            {(row.subtasks || []).map((sub) => {
+                              const canManageSub =
+                                !readOnly &&
+                                (canEditAll || sub.assignedToId === userId || row.personId === userId);
+                              return (
+                                <li key={sub.id} className="flex items-start justify-between gap-2 text-[11px] text-[#334155]">
+                                  <div className="min-w-0 flex-1">
+                                    <span className="font-semibold text-[#0f172a]">{sub.title}</span>
+                                    {sub.assignedTo ? (
+                                      <span className="ml-1.5 text-[10px] text-[#64748b]">· {sub.assignedTo}</span>
+                                    ) : null}
+                                    <span className="ml-1.5 rounded border border-[#e2e8f0] bg-[#f8fafc] px-1.5 py-0.5 text-[10px] font-bold">
+                                      {sub.status}
+                                    </span>
+                                    <span className="ml-1 text-[#64748b]">{sub.progressPercent}%</span>
+                                  </div>
+                                  {canManageSub && (onEditSubtask || onDeleteSubtask) && (
+                                    <div className="flex shrink-0 items-center gap-1">
+                                      {onEditSubtask && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onEditSubtask(sub, row.id)}
+                                          className="inline-flex h-5 w-5 items-center justify-center rounded border border-[#cbd5e1] bg-white text-[#0f172a] hover:border-[#0f766e]"
+                                          title="Edit subtask"
+                                          aria-label="Edit subtask"
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                      {onDeleteSubtask && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onDeleteSubtask(sub, row.id)}
+                                          className="inline-flex h-5 w-5 items-center justify-center rounded border border-[#fecaca] bg-white text-[#b91c1c] hover:border-[#b91c1c]"
+                                          title="Delete subtask"
+                                          aria-label="Delete subtask"
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                       </div>

@@ -1,11 +1,14 @@
 'use client';
 
 import React, { useState } from 'react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { TasksApi } from '@/lib/tasksApi';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { WorkAssignment } from '@/lib/types';
 import { PROJECT_ACTION_SUCCESS } from '@/lib/format';
+import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
+import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
 
 function fmt(value?: string) {
   if (!value) return '—';
@@ -39,13 +42,27 @@ function Field({ label, value }: { label: string; value?: React.ReactNode }) {
   );
 }
 
-export default function MemberTaskCard({ assignment, onChanged }: { assignment: WorkAssignment; onChanged: () => Promise<void> }) {
+export default function MemberTaskCard({
+  assignment,
+  onChanged,
+  parents = [],
+  people = [],
+  canAssignOthers = false,
+}: {
+  assignment: WorkAssignment;
+  onChanged: () => Promise<void>;
+  parents?: DailyStatusRow[];
+  people?: DailyStatusPerson[];
+  canAssignOthers?: boolean;
+}) {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [progressOpen, setProgressOpen] = useState(false);
   const [dailyOpen, setDailyOpen] = useState(false);
   const [issueOpen, setIssueOpen] = useState(false);
+  const [editSubtaskOpen, setEditSubtaskOpen] = useState(false);
+  const [editingSubtask, setEditingSubtask] = useState<EditableSubtask | null>(null);
   const [progress, setProgress] = useState({
     percent: assignment.progress_percent || 0,
     completed: '',
@@ -99,7 +116,14 @@ export default function MemberTaskCard({ assignment, onChanged }: { assignment: 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-xs uppercase tracking-wider text-slate-500">{assignment.project_code || 'No project'}</div>
-          <h3 className="text-lg font-bold text-white">{assignment.task_title}</h3>
+          <h3 className="text-lg font-bold text-white">
+            {assignment.task_title}
+            {assignment.parent_task_id ? (
+              <span className="ml-2 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+                Subtask
+              </span>
+            ) : null}
+          </h3>
           <p className="text-sm text-slate-400">{assignment.project_name}</p>
         </div>
         <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${blocked ? 'bg-rose-500/15 text-rose-300' : inProgress ? 'bg-cyan-500/15 text-cyan-300' : completed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
@@ -144,6 +168,55 @@ export default function MemberTaskCard({ assignment, onChanged }: { assignment: 
 
       {!viewOnly && !blocked ? (
         <div className="mt-4 flex flex-wrap gap-2">
+          {assignment.parent_task_id && assignment.task_id ? (
+            <>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => {
+                  setEditingSubtask({
+                    id: assignment.task_id!,
+                    parentId: assignment.parent_task_id || '',
+                    title: assignment.task_title || '',
+                    description: assignment.description || assignment.task_title || '',
+                    assignedToId: assignment.assigned_to_id,
+                    dueDate: assignment.due_date ? String(assignment.due_date).slice(0, 10) : '',
+                    status:
+                      assignment.current_status === 'DONE' || assignment.current_status === 'COMPLETED'
+                        ? 'DONE'
+                        : assignment.current_status === 'IN_PROGRESS'
+                          ? 'IN_PROGRESS'
+                          : assignment.current_status === 'BLOCKED' || assignment.current_status === 'WAITING'
+                            ? 'WAITING'
+                            : assignment.current_status === 'HOLD'
+                              ? 'HOLD'
+                              : 'TODO',
+                  });
+                  setEditSubtaskOpen(true);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200"
+              >
+                <Pencil className="h-3.5 w-3.5" /> Edit Subtask
+              </button>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                onClick={() => {
+                  if (!window.confirm('Delete this subtask?')) return;
+                  void run(
+                    'delete-subtask',
+                    async () => {
+                      await requireOk(await TasksApi.bulkDelete([assignment.task_id!]));
+                    },
+                    'Subtask deleted.',
+                  );
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-4 py-2 text-sm font-semibold text-rose-200"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> {busy === 'delete-subtask' ? 'Deleting…' : 'Delete Subtask'}
+              </button>
+            </>
+          ) : null}
           {assigned && assignment.task_id ? (
             <button
               disabled={Boolean(busy)}
@@ -319,6 +392,74 @@ export default function MemberTaskCard({ assignment, onChanged }: { assignment: 
             <button onClick={() => setIssueOpen(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancel</button>
           </div>
         </div>
+      {assignment.parent_task_id && assignment.task_id && (viewOnly || blocked) ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            onClick={() => {
+              setEditingSubtask({
+                id: assignment.task_id!,
+                parentId: assignment.parent_task_id || '',
+                title: assignment.task_title || '',
+                description: assignment.description || assignment.task_title || '',
+                assignedToId: assignment.assigned_to_id,
+                dueDate: assignment.due_date ? String(assignment.due_date).slice(0, 10) : '',
+                status:
+                  assignment.current_status === 'DONE' || assignment.current_status === 'COMPLETED'
+                    ? 'DONE'
+                    : assignment.current_status === 'IN_PROGRESS'
+                      ? 'IN_PROGRESS'
+                      : assignment.current_status === 'BLOCKED' || assignment.current_status === 'WAITING'
+                        ? 'WAITING'
+                        : assignment.current_status === 'HOLD'
+                          ? 'HOLD'
+                          : 'TODO',
+              });
+              setEditSubtaskOpen(true);
+            }}
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit Subtask
+          </button>
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            onClick={() => {
+              if (!window.confirm('Delete this subtask?')) return;
+              void run(
+                'delete-subtask',
+                async () => {
+                  await requireOk(await TasksApi.bulkDelete([assignment.task_id!]));
+                },
+                'Subtask deleted.',
+              );
+            }}
+            className="inline-flex items-center gap-1 rounded-lg border border-rose-500/40 px-4 py-2 text-sm font-semibold text-rose-200"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete Subtask
+          </button>
+        </div>
+      ) : null}
+
+      {editSubtaskOpen && editingSubtask ? (
+        <AddSubtaskForm
+          parents={parents.length ? parents : [{ id: editingSubtask.parentId, personId: assignment.assigned_to_id, person: assignment.assigned_to, project: assignment.project_name, projectId: assignment.project_id, taskDescription: assignment.task_title, dependencyIds: [], dependencies: '', status: 'In Progress', currentDate: '', deadline: '', reasonForDelay: '', isAdditional: false, progressPercent: 0 }]}
+          people={people.length ? people : [{ id: assignment.assigned_to_id, name: assignment.assigned_to, displayName: assignment.assigned_to, email: '', role_name: '' }]}
+          currentUserId={assignment.assigned_to_id}
+          canAssignOthers={canAssignOthers}
+          editing={editingSubtask}
+          onCancel={() => {
+            setEditSubtaskOpen(false);
+            setEditingSubtask(null);
+          }}
+          onCreated={(message) => {
+            setNotice(message);
+            setEditSubtaskOpen(false);
+            setEditingSubtask(null);
+            void onChanged();
+          }}
+        />
       ) : null}
     </article>
   );

@@ -6,10 +6,14 @@ export type DeadlineTone = 'completed' | 'hold' | 'delay-1' | 'delay-2plus' | 'n
 export interface DailyStatusSubtask {
   id: string;
   title: string;
+  description?: string;
   status: DailySheetStatus;
   progressPercent: number;
   deadline: string;
+  deadlineIso?: string;
   assignedTo: string;
+  assignedToId?: string;
+  parentTaskId?: string;
 }
 
 export interface DailyStatusRow {

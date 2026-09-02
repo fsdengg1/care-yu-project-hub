@@ -12,10 +12,14 @@ export type SnapshotPeriod = 'morning' | 'evening';
 export interface DailyStatusSubtask {
   id: string;
   title: string;
+  description?: string;
   status: DailySheetStatus;
   progressPercent: number;
   deadline: string;
+  deadlineIso?: string;
   assignedTo: string;
+  assignedToId?: string;
+  parentTaskId?: string;
 }
 
 export interface DailyStatusRow {
@@ -273,12 +277,16 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
       const subtasks: DailyStatusSubtask[] = children.map((child) => ({
         id: child.id,
         title: child.title,
+        description: child.description || child.title,
         status: toSheetStatus(child.status === 'BLOCKED' ? 'WAITING' : child.status),
         progressPercent: child.progress_percent || 0,
         deadline: formatSheetDate(child.due_date),
+        deadlineIso: child.due_date ? String(child.due_date).slice(0, 10) : undefined,
         assignedTo: formatEmployeeDisplayName(
           users.find((item) => item.id === child.assigned_to_id) || child.assigned_to
         ),
+        assignedToId: child.assigned_to_id,
+        parentTaskId: child.parent_task_id || task.id,
       }));
       let progressPercent = task.progress_percent || 0;
       if (children.length && !task.progress_manual_override) {

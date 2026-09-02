@@ -16,6 +16,7 @@ import TeamLeadExecutionPanel from '@/components/dashboards/TeamLeadExecutionPan
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import MySubtasksPanel from '@/components/work/MySubtasksPanel';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 
@@ -156,6 +157,21 @@ export default function TeamLeadDashboard({ user }: { user: User }) {
       </div>
 
       <TeamLeadExecutionPanel user={user} />
+
+      <MySubtasksPanel
+        rows={sheetRows}
+        people={people}
+        currentUserId={user.id}
+        canAssignOthers={canCreateWorkTask(user)}
+        onChanged={async () => {
+          const sheet = await DailyStatusApi.sheet();
+          if (sheet.ok) {
+            setPeople(sheet.people);
+            setProjects(sheet.projects);
+            setSheetRows(sheet.rows);
+          }
+        }}
+      />
 
       <PendingActionsCard />
       <LeadPipelinePanel />

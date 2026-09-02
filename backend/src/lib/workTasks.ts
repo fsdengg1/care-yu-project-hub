@@ -625,10 +625,24 @@ export function deleteWorkTasks(user: User, ids: string[]) {
   const uniqueIds = [...new Set(ids.map((id) => String(id || '').trim()).filter(Boolean))];
   if (!uniqueIds.length) return { error: 'No tasks selected.', status: 400 as const };
   const canManage = hasPermission(user, 'create:task') || ['PROJECT_MANAGER', 'SYSTEM_ADMIN', 'TEAM_LEAD'].includes(user.role_code);
-  if (!canManage) return { error: 'You do not have permission to delete tasks.', status: 403 as const };
   const tasks = store.getTasks();
-  const selected = tasks.filter((task) => uniqueIds.includes(task.id) && canViewTask(user, task));
-  if (!selected.length) return { error: 'No matching tasks were found.', status: 404 as const };
+  const selected = tasks.filter((task) => {
+    if (!uniqueIds.includes(task.id) || !canViewTask(user, task)) return false;
+    if (canManage) return true;
+    // Any user can delete their own subtasks (assignee or creator).
+    const ownSubtask =
+      Boolean(task.parent_task_id) &&
+      (task.assigned_to_id === user.id || task.created_by_id === user.id);
+    return ownSubtask;
+  });
+  if (!selected.length) {
+    return {
+      error: canManage
+        ? 'No matching tasks were found.'
+        : 'You can only delete subtasks assigned to you or created by you.',
+      status: canManage ? (404 as const) : (403 as const),
+    };
+  }
   const removedIds = new Set(selected.map((task) => task.id));
   const next = tasks
     .filter((task) => !removedIds.has(task.id))

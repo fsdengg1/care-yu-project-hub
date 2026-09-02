@@ -6,13 +6,13 @@ import { StorageService } from '@/lib/storage';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { TasksApi } from '@/lib/tasksApi';
 import { canAddDailyWorkTask, canCreateWorkTask, canEditDailySheet } from '@/lib/rbac';
-import { CompareItem, DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
+import { CompareItem, DailyStatusPerson, DailyStatusRow, DailyStatusSubtask } from '@/lib/dailyStatus';
 import { User } from '@/lib/types';
 import ConfirmDialog from '@/components/work/ConfirmDialog';
 import CompareView from '@/components/work/CompareView';
 import DailyStatusSheet from '@/components/work/DailyStatusSheet';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
-import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import AddSubtaskForm, { EditableSubtask, subtaskToEditable } from '@/components/work/AddSubtaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 
 function friendlyError(error: unknown, fallback: string) {
@@ -51,6 +51,8 @@ function DailyWorkUpdatesInner() {
   const [createOpen, setCreateOpen] = useState(false);
   const [subtaskOpen, setSubtaskOpen] = useState(false);
   const [subtaskParentId, setSubtaskParentId] = useState<string | undefined>(undefined);
+  const [editingSubtask, setEditingSubtask] = useState<EditableSubtask | null>(null);
+  const [confirmSubtaskDelete, setConfirmSubtaskDelete] = useState<DailyStatusSubtask | null>(null);
 
   const canManageTasks = canCreateWorkTask(user);
   const canEditSheet = canEditDailySheet(user);
@@ -99,8 +101,21 @@ function DailyWorkUpdatesInner() {
   };
 
   const openAddSubtask = (parentId?: string) => {
+    setEditingSubtask(null);
     setSubtaskParentId(parentId);
     setSubtaskOpen(true);
+  };
+
+  const openEditSubtask = (sub: DailyStatusSubtask, parentId: string) => {
+    setEditingSubtask(subtaskToEditable(sub, parentId));
+    setSubtaskParentId(parentId);
+    setSubtaskOpen(true);
+  };
+
+  const closeSubtaskForm = () => {
+    setSubtaskOpen(false);
+    setSubtaskParentId(undefined);
+    setEditingSubtask(null);
   };
 
   const addTask = async () => {
@@ -252,6 +267,14 @@ function DailyWorkUpdatesInner() {
         selectedIds={selectedIds}
         onSelectedIds={setSelectedIds}
         onAddSubtask={canAddTask ? openAddSubtask : undefined}
+        onEditSubtask={canAddTask ? openEditSubtask : undefined}
+        onDeleteSubtask={
+          canAddTask
+            ? (sub) => {
+                setConfirmSubtaskDelete(sub);
+              }
+            : undefined
+        }
         onPatch={async (id, body) => {
           setError(null);
           const result = await DailyStatusApi.updateRow(id, body);
@@ -326,14 +349,33 @@ function DailyWorkUpdatesInner() {
           defaultParentId={subtaskParentId}
           currentUserId={user.id}
           canAssignOthers={canManageTasks || canEditSheet}
-          onCancel={() => {
-            setSubtaskOpen(false);
-            setSubtaskParentId(undefined);
-          }}
+          editing={editingSubtask}
+          onCancel={closeSubtaskForm}
           onCreated={async (message) => {
             setNotice(message);
-            setSubtaskOpen(false);
-            setSubtaskParentId(undefined);
+            closeSubtaskForm();
+            await refreshSheet();
+          }}
+        />
+      )}
+
+      {confirmSubtaskDelete && (
+        <ConfirmDialog
+          title="Delete this subtask?"
+          body={`"${confirmSubtaskDelete.title}" will be permanently deleted.`}
+          busy={busy}
+          onCancel={() => setConfirmSubtaskDelete(null)}
+          onConfirm={async () => {
+            const id = confirmSubtaskDelete.id;
+            setBusy(true);
+            const result = await TasksApi.bulkDelete([id]);
+            setBusy(false);
+            setConfirmSubtaskDelete(null);
+            if (!result.ok) {
+              setError(result.message);
+              return;
+            }
+            setNotice(result.data.message || 'Subtask deleted.');
             await refreshSheet();
           }}
         />

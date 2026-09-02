@@ -13,10 +13,10 @@ import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, for
 import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
-import AddSubtaskForm from '@/components/work/AddSubtaskForm';
+import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
 import RequestDependencyForm from '@/components/work/RequestDependencyForm';
 import {
-  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
+  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle, Pencil, Trash2
 } from 'lucide-react';
 
 const GROUP_META: Record<string, { title: string; icon: React.ReactNode }> = {
@@ -85,6 +85,7 @@ export default function MyAssignedWorkPage() {
   const [taskBusy, setTaskBusy] = useState<string | null>(null);
   const [additionalOpen, setAdditionalOpen] = useState(false);
   const [subtaskOpen, setSubtaskOpen] = useState(false);
+  const [editingSubtask, setEditingSubtask] = useState<EditableSubtask | null>(null);
   const [dependencyFor, setDependencyFor] = useState<{ id: string; label: string } | null>(null);
   const [sheetPeople, setSheetPeople] = useState<DailyStatusPerson[]>([]);
   const [sheetProjects, setSheetProjects] = useState<Array<{ id: string; name: string }>>([]);
@@ -210,7 +211,13 @@ export default function MyAssignedWorkPage() {
           <div className="flex flex-col gap-3 border-b border-slate-800 pb-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-bold text-slate-100">Assigned execution work</h2>
             <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => setSubtaskOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600">
+              <button
+                onClick={() => {
+                  setEditingSubtask(null);
+                  setSubtaskOpen(true);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600"
+              >
                 <Plus className="h-3 w-3" /> Add Subtask
               </button>
               <button onClick={() => setAdditionalOpen(true)} className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-600">
@@ -350,6 +357,59 @@ export default function MyAssignedWorkPage() {
                     </td>
                     <td className="p-2 text-right">
                       <div className="flex flex-wrap justify-end gap-1">
+                        {taskId && isAssignee && item.parent_task_id && item.acceptance_status !== 'REQUESTED' && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setEditingSubtask({
+                                  id: taskId,
+                                  parentId: item.parent_task_id || '',
+                                  title: item.task_title || item.description || '',
+                                  description: item.description || item.task_title || '',
+                                  assignedToId: item.assigned_to_id || currentUser.id,
+                                  dueDate: item.due_date ? String(item.due_date).slice(0, 10) : '',
+                                  status:
+                                    item.current_status === 'DONE' || item.current_status === 'COMPLETED'
+                                      ? 'DONE'
+                                      : item.current_status === 'IN_PROGRESS'
+                                        ? 'IN_PROGRESS'
+                                        : item.current_status === 'BLOCKED' || item.current_status === 'WAITING'
+                                          ? 'WAITING'
+                                          : item.current_status === 'HOLD'
+                                            ? 'HOLD'
+                                            : 'TODO',
+                                });
+                                setSubtaskOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
+                            >
+                              <Pencil className="h-3 w-3" /> Edit Subtask
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                if (!window.confirm('Delete this subtask?')) return;
+                                void (async () => {
+                                  setTaskBusy(taskId);
+                                  const result = await TasksApi.bulkDelete([taskId]);
+                                  setTaskBusy(null);
+                                  if (!result.ok) {
+                                    setNotice(result.message || 'Unable to delete subtask.');
+                                    return;
+                                  }
+                                  setNotice(result.data.message || 'Subtask deleted.');
+                                  await refreshWork();
+                                })();
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
+                            >
+                              <Trash2 className="h-3 w-3" /> Delete
+                            </button>
+                          </>
+                        )}
                         {taskId && isAssignee && item.acceptance_status === 'REQUESTED' && (
                           <>
                             <button
@@ -566,10 +626,15 @@ export default function MyAssignedWorkPage() {
           people={sheetPeople}
           currentUserId={currentUser.id}
           canAssignOthers={canCreateWorkTask(currentUser)}
-          onCancel={() => setSubtaskOpen(false)}
+          editing={editingSubtask}
+          onCancel={() => {
+            setSubtaskOpen(false);
+            setEditingSubtask(null);
+          }}
           onCreated={(message) => {
             setNotice(message);
             setSubtaskOpen(false);
+            setEditingSubtask(null);
             void refreshWork();
           }}
         />
