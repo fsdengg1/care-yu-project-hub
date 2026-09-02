@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { store } from '../store/db.js';
 import { User } from '../types.js';
 import {
+  persistDailyStatusSnapshot,
   renderDailyStatusEmailHtml,
   rowsForPeriod,
   SnapshotPeriod,
@@ -435,6 +436,8 @@ export async function sendConfiguredEmailReport(params: {
   writeHistoryEntry(pending);
 
   const packed = rowsForPeriod(actor, meta.period, date);
+  // Freeze mailed rows for Compare (Task Description / Current Updates).
+  persistDailyStatusSnapshot(date, meta.period, packed.rows, actor.id);
   const rendered = renderDailyStatusEmailHtml({
     period: meta.period,
     date,
@@ -461,6 +464,17 @@ export async function sendConfiguredEmailReport(params: {
     emailChannel: 'INTERNAL',
     emailType: params.source === 'test' ? 'DAILY_STATUS_REPORT_TEST' : 'DAILY_STATUS_REPORT_SCHEDULED',
   });
+
+  const emails = store.getOutboundEmails();
+  if (emails[0] && (emails[0].email_type === 'DAILY_STATUS_REPORT_SCHEDULED' || emails[0].email_type === 'DAILY_STATUS_REPORT_TEST')) {
+    store.saveOutboundEmails([
+      {
+        ...emails[0],
+        body: JSON.stringify({ date, period: meta.period, html, rows: packed.rows, slot: params.slot }),
+      },
+      ...emails.slice(1),
+    ]);
+  }
 
   const entry: EmailReportHistoryEntry = {
     ...pending,

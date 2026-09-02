@@ -39,7 +39,12 @@ function DailyWorkUpdatesInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [compare, setCompare] = useState<{ items: CompareItem[]; available: boolean; date?: string } | null>(null);
+  const [compare, setCompare] = useState<{
+    items: CompareItem[];
+    available: boolean;
+    date?: string;
+    message?: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [additionalOpen, setAdditionalOpen] = useState(false);
@@ -277,7 +282,13 @@ function DailyWorkUpdatesInner() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
-              <CompareView items={compare.items} available={compare.available} date={compare.date} />
+              {!compare.available ? (
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-8 text-center text-sm text-[#64748b]">
+                  {compare.message || 'Morning and evening updates are not yet available.'}
+                </div>
+              ) : (
+                <CompareView items={compare.items} available={compare.available} date={compare.date} />
+              )}
             </div>
           </div>
         </div>

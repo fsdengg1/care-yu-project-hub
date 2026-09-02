@@ -110,7 +110,9 @@ router.get(
     const result = compareSnapshots(req.user!, date);
     return res.json({
       ...result,
-      message: result.available ? undefined : 'Morning and evening updates are not yet available.',
+      message: result.available
+        ? undefined
+        : result.message || 'Morning and evening updates are not yet available.',
     });
   }
 );

@@ -1,4 +1,5 @@
 import { store } from '../store/db.js';
+import { env } from '../config/env.js';
 import { DailyUpdate, Project, Task, User } from '../types.js';
 import { canViewProject } from './dailyUpdates.js';
 import { canViewTask } from './workTasks.js';
@@ -86,13 +87,17 @@ export function formatSheetDate(value?: string): string {
 }
 
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateInAppTimezone();
 }
 
-function yesterdayIso(): string {
-  const date = new Date();
-  date.setDate(date.getDate() - 1);
-  return date.toISOString().slice(0, 10);
+/** Calendar date in app timezone (default Asia/Kolkata) as YYYY-MM-DD. */
+export function dateInAppTimezone(when = new Date(), timezone = env.appTimezone || 'Asia/Kolkata'): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(when);
 }
 
 export type DeadlineTone = 'completed' | 'hold' | 'delay-1' | 'delay-2plus' | 'normal';
@@ -335,22 +340,33 @@ function snapshotId(date: string, period: SnapshotPeriod) {
 
 export function saveDailyStatusSnapshot(user: User, period: SnapshotPeriod, date = todayIso()) {
   const rows = buildDailyStatusRows(user);
+  return persistDailyStatusSnapshot(date, period, rows, user.id);
+}
+
+/** Persist the exact rows that were (or will be) mailed for morning/evening compare. */
+export function persistDailyStatusSnapshot(
+  date: string,
+  period: SnapshotPeriod,
+  rows: DailyStatusRow[],
+  capturedBy = 'system'
+) {
   const records = store.getSystemMeta();
   const id = snapshotId(date, period);
   const next = records.filter((item) => item.id !== id);
+  const captured_at = new Date().toISOString();
   next.push({
     id,
     payloadType: 'DAILY_STATUS_SNAPSHOT',
     payload: {
       date,
       period,
-      captured_at: new Date().toISOString(),
-      captured_by: user.id,
+      captured_at,
+      captured_by: capturedBy,
       rows,
     },
   });
   store.saveSystemMeta(next);
-  return { date, period, rows, captured_at: new Date().toISOString() };
+  return { date, period, rows, captured_at };
 }
 
 export function loadDailyStatusSnapshot(date: string, period: SnapshotPeriod): DailyStatusRow[] | null {
@@ -359,12 +375,70 @@ export function loadDailyStatusSnapshot(date: string, period: SnapshotPeriod): D
   return Array.isArray(rows) ? rows : null;
 }
 
+/** Prefer snapshot; else rows stored on outbound morning/evening mail bodies. */
+export function loadMailedOrSnapshotRows(date: string, period: SnapshotPeriod): DailyStatusRow[] | null {
+  const snap = loadDailyStatusSnapshot(date, period);
+  if (snap?.length) return snap;
+  const mailed = loadRowsFromOutboundMails(date, period);
+  if (mailed?.length) return mailed;
+  return snap;
+}
+
+function loadRowsFromOutboundMails(date: string, period: SnapshotPeriod): DailyStatusRow[] | null {
+  const types = new Set(['DAILY_STATUS_REPORT', 'DAILY_STATUS_REPORT_SCHEDULED', 'DAILY_STATUS_REPORT_TEST']);
+  const displayDate = formatSheetDate(date); // dd-mm-yyyy
+  for (const email of store.getOutboundEmails()) {
+    if (!types.has(String(email.email_type || ''))) continue;
+    try {
+      const parsed = JSON.parse(email.body || '{}') as {
+        date?: string;
+        period?: SnapshotPeriod;
+        rows?: DailyStatusRow[];
+        slot?: string;
+      };
+      if (Array.isArray(parsed.rows) && parsed.rows.length) {
+        const periodMatch =
+          parsed.period === period ||
+          (period === 'morning' && parsed.slot === 'noon') ||
+          (period === 'evening' && parsed.slot === 'evening');
+        if (parsed.date === date && periodMatch) return parsed.rows;
+      }
+    } catch {
+      /* ignore non-json bodies */
+    }
+    const subject = String(email.subject || '');
+    const subjectMentionsDate =
+      subject.includes(date) ||
+      subject.includes(displayDate) ||
+      subject.toLowerCase().includes(
+        new Date(`${date}T00:00:00`)
+          .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+          .replace(/ /g, '-')
+      );
+    // Morning Status Report / noon vs 7:15 PM evening report
+    const subjectPeriod: SnapshotPeriod | null = /7:15|evening/i.test(subject)
+      ? 'evening'
+      : /morning|12:00|noon/i.test(subject)
+        ? 'morning'
+        : null;
+    if (subjectMentionsDate && subjectPeriod === period) {
+      try {
+        const parsed = JSON.parse(email.body || '{}') as { rows?: DailyStatusRow[] };
+        if (Array.isArray(parsed.rows) && parsed.rows.length) return parsed.rows;
+      } catch {
+        /* no rows in body */
+      }
+    }
+  }
+  return null;
+}
+
 export function rowsForPeriod(user: User, period: SnapshotPeriod, date = todayIso()): {
   rows: DailyStatusRow[];
   source: 'snapshot' | 'live';
   available: boolean;
 } {
-  const snap = loadDailyStatusSnapshot(date, period);
+  const snap = loadMailedOrSnapshotRows(date, period);
   if (snap) return { rows: scopedDailyStatusRows(user, snap), source: 'snapshot', available: true };
   if (date === todayIso()) return { rows: buildDailyStatusRows(user), source: 'live', available: true };
   return { rows: [], source: 'snapshot', available: false };
@@ -437,13 +511,45 @@ function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): Compa
   return [...new Set(kinds)];
 }
 
-export function compareSnapshots(user: User, date = yesterdayIso()): { items: CompareItem[]; available: boolean; date: string } {
-  const morningRaw = loadDailyStatusSnapshot(date, 'morning');
-  const eveningRaw = loadDailyStatusSnapshot(date, 'evening');
-  if (!morningRaw || !eveningRaw) {
-    return { items: [], available: false, date };
+function resolveCompareDate(requested?: string): string {
+  if (requested && /^\d{4}-\d{2}-\d{2}$/.test(requested)) return requested;
+  // Always default to today's mail (IST). Yesterday is only used when date= is passed.
+  return todayIso();
+}
+
+export function compareSnapshots(
+  user: User,
+  date?: string
+): { items: CompareItem[]; available: boolean; date: string; message?: string } {
+  const resolved = resolveCompareDate(date);
+  let morningRaw = loadMailedOrSnapshotRows(resolved, 'morning');
+  let eveningRaw = loadMailedOrSnapshotRows(resolved, 'evening');
+
+  // Today: if evening mail/snapshot is missing, use current sheet as evening (latest updates).
+  if ((!eveningRaw || !eveningRaw.length) && resolved === todayIso()) {
+    eveningRaw = buildDailyStatusRows(user);
   }
-  // Same rows that went into morning / evening mails (snapshots), not live sheet fallthrough.
+  // Today: if morning mail/snapshot is missing but evening exists, do not invent morning from live.
+  if (!morningRaw || !morningRaw.length) {
+    return {
+      items: [],
+      available: false,
+      date: resolved,
+      message:
+        resolved === todayIso()
+          ? 'Today morning mail/snapshot is not available yet. Send or save Morning first, then Compare.'
+          : 'Morning and evening updates are not yet available for this date.',
+    };
+  }
+  if (!eveningRaw || !eveningRaw.length) {
+    return {
+      items: [],
+      available: false,
+      date: resolved,
+      message: 'Evening mail/snapshot is not available yet.',
+    };
+  }
+
   const morning = scopedDailyStatusRows(user, morningRaw);
   const evening = scopedDailyStatusRows(user, eveningRaw);
   const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id)]);
@@ -455,7 +561,6 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
       id,
       person: base.person,
       project: base.project,
-      // Task Description = morning mail task description
       taskDescription: (am?.taskDescription || '').trim() || '—',
       morningStatus: am?.status || '—',
       eveningStatus: pm?.status || '—',
@@ -463,7 +568,6 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
       eveningDeadline: pm?.deadline,
       morningDependencies: am?.dependencies,
       eveningDependencies: pm?.dependencies,
-      // Current Updates = evening mail task description
       currentUpdate: (pm?.taskDescription || '').trim() || '—',
       onTimeDelay: delayLabel(pm || am),
       progressPercent: progressFromRow(pm || am),
@@ -473,7 +577,7 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
       kinds: compareKinds(am, pm),
     };
   });
-  return { items, available: true, date };
+  return { items, available: true, date: resolved };
 }
 
 /** Upsert today's morning/evening DailyUpdate hours for a task from the sheet. */
@@ -752,6 +856,8 @@ export async function sendDailyStatusReport(params: {
   if (!packed.available && packed.source === 'snapshot') {
     return { error: 'Morning and evening updates are not yet available.' as const };
   }
+  // Freeze the exact mailed rows so Compare can show morning vs evening mail text.
+  persistDailyStatusSnapshot(date, params.period, packed.rows, params.actor.id);
   const toEmail = (params.toEmail || params.actor.email || '').trim().toLowerCase();
   const rendered = renderDailyStatusEmailHtml({
     period: params.period,
