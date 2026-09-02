@@ -264,13 +264,13 @@ function DailyWorkUpdatesInner() {
       {compareOpen && compare && (
         <div className="fixed inset-0 z-[85] flex justify-end overflow-x-hidden bg-slate-950/60" onClick={() => setCompareOpen(false)}>
           <div
-            className="flex h-full w-full max-w-[96vw] flex-col overflow-hidden border-l border-[#cbd5e1] bg-[#f8fafc] shadow-2xl lg:max-w-6xl"
+            className="flex h-full w-full max-w-none flex-col overflow-hidden border-l border-[#cbd5e1] bg-[#f8fafc] shadow-2xl sm:max-w-[min(100vw,1100px)]"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-[#e2e8f0] bg-white px-4 py-3">
               <div>
                 <h2 className="text-sm font-bold text-[#0f172a]">Compare — Morning vs Evening</h2>
-                <p className="text-[11px] text-[#64748b]">Same sheet layout with morning status and evening current updates</p>
+                <p className="text-[11px] text-[#64748b]">Task Description from morning mail · Current Updates from evening mail</p>
               </div>
               <button type="button" onClick={() => setCompareOpen(false)} className="rounded-md p-1 text-[#64748b] hover:text-[#0f172a]">
                 <X className="h-4 w-4" />

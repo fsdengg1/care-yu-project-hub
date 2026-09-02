@@ -408,6 +408,19 @@ function delayLabel(row?: DailyStatusRow): string {
   return 'On Time';
 }
 
+/** Progress for compare: Completed always 100%, else use stored % / status defaults. */
+function progressFromRow(row?: DailyStatusRow): number {
+  if (!row) return 0;
+  if (row.status === 'Completed') return 100;
+  if (row.status === 'Yet to Start') return 0;
+  const stored = Math.max(0, Math.min(100, Number(row.progressPercent) || 0));
+  if (stored > 0) return stored;
+  if (row.status === 'In Progress') return 50;
+  if (row.status === 'Waiting') return 25;
+  if (row.status === 'Hold') return stored;
+  return stored;
+}
+
 function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): CompareKind[] {
   if (!morning || !evening) return ['No Change'];
   const kinds: CompareKind[] = [];
@@ -430,36 +443,33 @@ export function compareSnapshots(user: User, date = yesterdayIso()): { items: Co
   if (!morningRaw || !eveningRaw) {
     return { items: [], available: false, date };
   }
+  // Same rows that went into morning / evening mails (snapshots), not live sheet fallthrough.
   const morning = scopedDailyStatusRows(user, morningRaw);
   const evening = scopedDailyStatusRows(user, eveningRaw);
-  const live = buildDailyStatusRows(user);
-  const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id), ...live.map((row) => row.id)]);
+  const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id)]);
   const items: CompareItem[] = [...ids].map((id) => {
     const am = morning.find((row) => row.id === id);
     const pm = evening.find((row) => row.id === id);
-    const current = live.find((row) => row.id === id);
-    const base = current || pm || am!;
-    const eveningUpdateText =
-      (pm?.taskDescription && pm.taskDescription.trim()) ||
-      (current?.taskDescription && current.taskDescription.trim()) ||
-      '';
+    const base = pm || am!;
     return {
       id,
       person: base.person,
       project: base.project,
-      taskDescription: am?.taskDescription || base.taskDescription,
+      // Task Description = morning mail task description
+      taskDescription: (am?.taskDescription || '').trim() || '—',
       morningStatus: am?.status || '—',
-      eveningStatus: pm?.status || current?.status || '—',
+      eveningStatus: pm?.status || '—',
       morningDeadline: am?.deadline,
       eveningDeadline: pm?.deadline,
       morningDependencies: am?.dependencies,
       eveningDependencies: pm?.dependencies,
-      currentUpdate: eveningUpdateText || '—',
-      onTimeDelay: delayLabel(current || pm || am),
-      progressPercent: current?.progressPercent ?? pm?.progressPercent ?? am?.progressPercent ?? 0,
-      reasonForDelay: current?.reasonForDelay || pm?.reasonForDelay || am?.reasonForDelay || '—',
-      loggedHours: current?.loggedHours || pm?.loggedHours || am?.loggedHours || formatLoggedHours(0),
-      hoursWorked: current?.hoursWorked ?? pm?.hoursWorked ?? am?.hoursWorked ?? 0,
+      // Current Updates = evening mail task description
+      currentUpdate: (pm?.taskDescription || '').trim() || '—',
+      onTimeDelay: delayLabel(pm || am),
+      progressPercent: progressFromRow(pm || am),
+      reasonForDelay: pm?.reasonForDelay || am?.reasonForDelay || '—',
+      loggedHours: pm?.loggedHours || am?.loggedHours || formatLoggedHours(0),
+      hoursWorked: pm?.hoursWorked ?? am?.hoursWorked ?? 0,
       kinds: compareKinds(am, pm),
     };
   });
