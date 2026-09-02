@@ -19,6 +19,7 @@ import chatRouter from './routes/chat.js';
 import forumRouter from './routes/forum.js';
 import tasksRouter from './routes/tasks.js';
 import { startNotificationScheduler } from './lib/reminderJob.js';
+import { startEmailReportScheduler } from './lib/emailReportJob.js';
 import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
 import { ensureLiveDirectory } from './lib/directoryRoles.js';
 import { ensureActionItemTasks } from './lib/actionItemSheet.js';
@@ -133,6 +134,7 @@ async function start() {
   ensureActionItemTasks();
   logEmailConfigOnStartup();
   startNotificationScheduler();
+  startEmailReportScheduler();
 
   const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`Careyu backend listening on 0.0.0.0:${env.port}`);

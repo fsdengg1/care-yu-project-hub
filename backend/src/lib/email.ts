@@ -15,7 +15,24 @@ export type OutboundEmailInput = {
   emailChannel?: 'INTERNAL' | 'CLIENT';
   emailType?: string;
   notificationId?: string;
+  /** Override default env sender for this message (must be verified in Elastic Email). */
+  fromEmail?: string;
+  fromName?: string;
+  ccEmails?: string[];
+  bccEmails?: string[];
 };
+
+function parseAddressList(value?: string | string[]): string[] {
+  const raw = Array.isArray(value) ? value.join(',') : value || '';
+  return [
+    ...new Set(
+      raw
+        .split(/[,;]+/)
+        .map((part) => part.trim().toLowerCase())
+        .filter((part) => isValidRecipient(part))
+    ),
+  ];
+}
 
 export type EmailDeliveryResult = {
   status: 'SENT' | 'FAILED' | 'QUEUED';
@@ -40,7 +57,9 @@ async function deliverViaElasticEmail(input: OutboundEmailInput): Promise<EmailD
       reason: 'ELASTIC_EMAIL_API_KEY is missing',
     };
   }
-  if (!env.emailFrom) {
+  const senderEmail = (input.fromEmail || env.emailFrom || '').trim().toLowerCase();
+  const senderName = (input.fromName || env.emailFromName || '').trim();
+  if (!senderEmail) {
     emailErrorLog('ELASTIC_EMAIL_FROM_EMAIL: missing');
     return {
       status: 'FAILED',
@@ -59,22 +78,36 @@ async function deliverViaElasticEmail(input: OutboundEmailInput): Promise<EmailD
     };
   }
 
-  const senderEmail = env.emailFrom.trim().toLowerCase();
   const from = senderEmail;
   const recipient = input.toEmail.trim().toLowerCase();
-  emailDebugLog('Triggered', { recipient, subject: input.subject, sender: from });
+  const ccEmails = parseAddressList(input.ccEmails).filter((email) => email !== recipient);
+  const bccEmails = parseAddressList(input.bccEmails).filter(
+    (email) => email !== recipient && !ccEmails.includes(email)
+  );
+  emailDebugLog('Triggered', { recipient, subject: input.subject, sender: from, cc: ccEmails.length, bcc: bccEmails.length });
   emailDebugLog('Calling Elastic Email');
 
+  const recipients = [
+    { Email: recipient },
+    ...ccEmails.map((email) => ({ Email: email })),
+    ...bccEmails.map((email) => ({ Email: email })),
+  ];
+  const headers: Record<string, string> = {};
+  if (ccEmails.length) headers.Cc = ccEmails.join(', ');
+  if (bccEmails.length) headers.Bcc = bccEmails.join(', ');
+
   const payload = {
-    Recipients: [{ Email: recipient }],
+    Recipients: recipients,
     Content: {
       Body: [
         { ContentType: 'HTML', Charset: 'utf-8', Content: input.html },
         { ContentType: 'PlainText', Charset: 'utf-8', Content: input.text },
       ],
       From: from,
+      FromName: senderName || undefined,
       ReplyTo: env.emailReplyTo || undefined,
       Subject: input.subject,
+      ...(Object.keys(headers).length ? { Headers: headers } : {}),
     },
   };
 
@@ -152,8 +185,10 @@ async function deliverViaSmtp(input: OutboundEmailInput): Promise<'SENT' | 'FAIL
   });
 
   await transporter.sendMail({
-    from: `"${env.emailFromName}" <${env.emailFrom}>`,
+    from: `"${input.fromName || env.emailFromName}" <${input.fromEmail || env.emailFrom}>`,
     to: `"${input.toName}" <${input.toEmail}>`,
+    cc: parseAddressList(input.ccEmails).join(', ') || undefined,
+    bcc: parseAddressList(input.bccEmails).join(', ') || undefined,
     replyTo: env.emailReplyTo || undefined,
     subject: input.subject,
     text: input.text,
@@ -278,6 +313,10 @@ export async function sendEmail(input: {
   emailChannel?: 'INTERNAL' | 'CLIENT';
   emailType?: string;
   notificationId?: string;
+  fromEmail?: string;
+  fromName?: string;
+  ccEmails?: string[];
+  bccEmails?: string[];
 }): Promise<EmailDeliveryResult> {
   const toEmail = input.toEmail.trim().toLowerCase();
   const subject = input.subject.trim();
@@ -305,6 +344,10 @@ export async function sendEmail(input: {
     emailChannel: input.emailChannel,
     emailType: input.emailType,
     notificationId: input.notificationId,
+    fromEmail: input.fromEmail,
+    fromName: input.fromName,
+    ccEmails: input.ccEmails,
+    bccEmails: input.bccEmails,
   });
   return {
     status: sent.status,

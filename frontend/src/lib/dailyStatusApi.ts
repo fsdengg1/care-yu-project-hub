@@ -7,6 +7,39 @@ import {
   SnapshotPeriod,
 } from './dailyStatus';
 
+export type EmailReportSlot = 'noon' | 'evening';
+
+export type EmailReportScheduleConfig = {
+  fromEmail: string;
+  fromName: string;
+  toEmail: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  contentTemplate: string;
+  sendAtNoon: boolean;
+  sendAtEvening: boolean;
+  timezone: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export type EmailReportHistoryEntry = {
+  id: string;
+  date: string;
+  time: string;
+  slot: EmailReportSlot;
+  fromEmail: string;
+  toEmail: string;
+  subject: string;
+  status: 'Sent' | 'Failed' | 'Pending';
+  error?: string;
+  transactionId?: string;
+  createdAt: string;
+  updatedAt: string;
+  source: 'schedule' | 'test' | 'manual';
+};
+
 export const DailyStatusApi = {
   async sheet() {
     const result = await apiRequest<{
@@ -58,16 +91,59 @@ export const DailyStatusApi = {
   },
 
   async emailSend(period: SnapshotPeriod, toEmail?: string, date?: string) {
-    return apiRequest<{ message: string; html: string; subject: string; rows: DailyStatusRow[] }>(
-      '/api/daily-status/email-send',
-      { method: 'POST', body: JSON.stringify({ period, toEmail, date }) }
-    );
+    return apiRequest<{
+      message: string;
+      html: string;
+      subject: string;
+      rows: DailyStatusRow[];
+      toEmail?: string;
+    }>('/api/daily-status/email-send', {
+      method: 'POST',
+      body: JSON.stringify({ period, toEmail, date }),
+    });
   },
 
   async emailRestore() {
-    return apiRequest<{ html: string; subject: string; date?: string; period?: SnapshotPeriod; rows?: DailyStatusRow[] }>(
-      '/api/daily-status/email-restore'
+    return apiRequest<{
+      html: string;
+      subject: string;
+      date?: string;
+      period?: SnapshotPeriod;
+      rows?: DailyStatusRow[];
+    }>('/api/daily-status/email-restore');
+  },
+
+  async emailSchedule() {
+    return apiRequest<{
+      config: EmailReportScheduleConfig;
+      timezone: string;
+      schedule: Array<{ slot: EmailReportSlot; time: string; enabled: boolean }>;
+    }>('/api/daily-status/email-schedule');
+  },
+
+  async saveEmailSchedule(config: Partial<EmailReportScheduleConfig>) {
+    return apiRequest<{ message: string; config: EmailReportScheduleConfig }>('/api/daily-status/email-schedule', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    });
+  },
+
+  async emailHistory(limit = 60) {
+    return apiRequest<{ history: EmailReportHistoryEntry[] }>(
+      `/api/daily-status/email-history?limit=${encodeURIComponent(String(limit))}`
     );
+  },
+
+  async emailScheduleTest(slot?: EmailReportSlot) {
+    return apiRequest<{
+      message: string;
+      entry: EmailReportHistoryEntry;
+      subject?: string;
+      html?: string;
+    }>('/api/daily-status/email-schedule/test', {
+      method: 'POST',
+      body: JSON.stringify({ slot }),
+    });
   },
 
   async updateRow(id: string, body: Record<string, unknown>) {

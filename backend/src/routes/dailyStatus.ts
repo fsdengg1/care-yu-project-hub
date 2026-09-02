@@ -19,11 +19,23 @@ import {
 } from '../lib/dailyStatus.js';
 import { formatEmployeeDisplayName } from '../lib/people.js';
 import { updateWorkTask } from '../lib/workTasks.js';
+import {
+  getEmailReportScheduleConfig,
+  listEmailReportHistory,
+  saveEmailReportScheduleConfig,
+  sendConfiguredEmailReport,
+  EmailReportSlot,
+} from '../lib/emailReportSchedule.js';
+import { env } from '../config/env.js';
 
 const router = Router();
 
 function readPeriod(value: unknown): SnapshotPeriod {
   return String(value || '').toLowerCase() === 'evening' ? 'evening' : 'morning';
+}
+
+function readSlot(value: unknown): EmailReportSlot {
+  return String(value || '').toLowerCase() === 'evening' ? 'evening' : 'noon';
 }
 
 function todayDate() {
@@ -56,7 +68,10 @@ router.post(
   requirePermission('view:daily-updates', 'submit:daily-update'),
   (req: AuthedRequest, res) => {
     if (!canSeeAllDailyStatusRows(req.user!)) {
-      return res.status(403).json({ message: 'Only the Project Manager, Engineering Director, or CEO can save the shared morning/evening snapshot.' });
+      return res.status(403).json({
+        message:
+          'Only the Project Manager, Engineering Director, or CEO can save the shared morning/evening snapshot.',
+      });
     }
     const period = readPeriod(req.body?.period);
     const date = typeof req.body?.date === 'string' && req.body.date ? req.body.date : todayDate();
@@ -140,9 +155,27 @@ router.post(
   requirePermission('view:daily-updates', 'view:dashboard:ceo'),
   async (req: AuthedRequest, res) => {
     const period = readPeriod(req.body?.period);
-    const toEmail = typeof req.body?.toEmail === 'string' ? req.body.toEmail : undefined;
+    const configured = getEmailReportScheduleConfig();
+    const toEmail =
+      (typeof req.body?.toEmail === 'string' && req.body.toEmail.trim()) ||
+      configured.toEmail ||
+      undefined;
     const date = typeof req.body?.date === 'string' && req.body.date ? req.body.date : todayDate();
-    const result = await sendDailyStatusReport({ actor: req.user!, period, toEmail, date });
+    const splitList = (raw: string) =>
+      raw
+        .split(/[,;]+/)
+        .map((part) => part.trim().toLowerCase())
+        .filter(Boolean);
+    const result = await sendDailyStatusReport({
+      actor: req.user!,
+      period,
+      toEmail,
+      date,
+      fromEmail: configured.fromEmail || undefined,
+      fromName: configured.fromName || undefined,
+      ccEmails: configured.cc ? splitList(configured.cc) : undefined,
+      bccEmails: configured.bcc ? splitList(configured.bcc) : undefined,
+    });
     if ('error' in result) {
       return res.status(400).json({ message: result.error });
     }
@@ -156,6 +189,7 @@ router.post(
       rows: result.rows,
       date: result.date,
       period: result.period,
+      toEmail,
     });
   }
 );
@@ -170,16 +204,100 @@ router.get(
   }
 );
 
+router.get(
+  '/email-schedule',
+  requirePermission('view:daily-updates', 'view:dashboard:ceo'),
+  (_req, res) => {
+    const config = getEmailReportScheduleConfig();
+    return res.json({
+      config,
+      timezone: config.timezone || env.appTimezone,
+      schedule: [
+        { slot: 'noon', time: '12:00 PM', enabled: config.sendAtNoon },
+        { slot: 'evening', time: '7:15 PM', enabled: config.sendAtEvening },
+      ],
+    });
+  }
+);
+
+router.put(
+  '/email-schedule',
+  requirePermission('view:daily-updates', 'view:dashboard:ceo'),
+  (req: AuthedRequest, res) => {
+    const body = req.body || {};
+    const saved = saveEmailReportScheduleConfig(
+      {
+        fromEmail: body.fromEmail,
+        fromName: body.fromName,
+        toEmail: body.toEmail,
+        cc: body.cc,
+        bcc: body.bcc,
+        subject: body.subject,
+        contentTemplate: body.contentTemplate,
+        sendAtNoon: body.sendAtNoon,
+        sendAtEvening: body.sendAtEvening,
+        timezone: body.timezone || env.appTimezone,
+      },
+      req.user
+    );
+    if (saved.error) return res.status(400).json({ message: saved.error });
+    return res.json({
+      message: 'Email schedule configuration saved.',
+      config: saved.config,
+    });
+  }
+);
+
+router.get(
+  '/email-history',
+  requirePermission('view:daily-updates', 'view:dashboard:ceo'),
+  (req, res) => {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 60));
+    return res.json({ history: listEmailReportHistory(limit) });
+  }
+);
+
+router.post(
+  '/email-schedule/test',
+  requirePermission('view:daily-updates', 'view:dashboard:ceo'),
+  async (req: AuthedRequest, res) => {
+    const slot = readSlot(req.body?.slot ?? (new Date().getHours() >= 14 ? 'evening' : 'noon'));
+    const result = await sendConfiguredEmailReport({
+      slot,
+      source: 'test',
+      actor: req.user!,
+      force: true,
+    });
+    if (!result.ok) {
+      return res.status(502).json({
+        message: result.message,
+        entry: result.entry,
+      });
+    }
+    return res.json({
+      message: result.message,
+      entry: result.entry,
+      subject: result.subject,
+      html: result.html,
+    });
+  }
+);
+
 router.patch(
   '/rows/:id',
   requirePermission('view:daily-updates', 'create:task', 'submit:daily-update'),
   (req: AuthedRequest, res) => {
     const body: Record<string, unknown> = { ...(req.body || {}) };
-    if (typeof body.status === 'string' && !['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'WAITING', 'HOLD'].includes(body.status)) {
+    if (
+      typeof body.status === 'string' &&
+      !['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'WAITING', 'HOLD'].includes(body.status)
+    ) {
       body.status = fromSheetStatus(body.status);
     }
     const result = updateWorkTask(req.user!, String(req.params.id), body);
-    if ('error' in result && result.error === 'not_found') return res.status(404).json({ message: 'Task not found.' });
+    if ('error' in result && result.error === 'not_found') {
+      return res.status(404).json({ message: 'Task not found.' });
+    }
     if ('error' in result) {
       return res.status(result.status || 400).json({
         message:

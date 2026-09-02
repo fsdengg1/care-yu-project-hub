@@ -179,5 +179,7 @@ export const env = {
   escalationAfterReminders: Number(process.env.ESCALATION_AFTER_REMINDERS ?? 3),
   dailyDigestEnabled: (process.env.DAILY_DIGEST_ENABLED ?? 'true').toLowerCase() === 'true',
   schedulerEnabled: (process.env.NOTIFICATION_SCHEDULER_ENABLED ?? 'true').toLowerCase() !== 'false',
+  /** IANA timezone for cron jobs (daily email reports, digests). Default Asia/Kolkata (IST). */
+  appTimezone: (process.env.APP_TIMEZONE ?? process.env.TZ ?? 'Asia/Kolkata').trim() || 'Asia/Kolkata',
   defaultProjectManagerEmail: (process.env.DEFAULT_PROJECT_MANAGER_EMAIL ?? '').trim().toLowerCase(),
 };

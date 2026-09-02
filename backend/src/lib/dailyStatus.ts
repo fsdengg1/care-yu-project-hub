@@ -402,13 +402,15 @@ function formatSubjectDate(value?: string): string {
   return `${String(date.getDate()).padStart(2, '0')}-${months[date.getMonth()]}-${date.getFullYear()}`;
 }
 
-function emailPeriodCopy(period: SnapshotPeriod) {
+function emailPeriodCopy(period: SnapshotPeriod, reportLabel?: string) {
   const isMorning = period === 'morning';
+  const reportTitle =
+    reportLabel || (isMorning ? 'Morning Status Report' : 'Evening Status Report');
   return {
-    reportTitle: isMorning ? 'Morning Status Report' : 'Evening Status Report',
+    reportTitle,
     periodWord: isMorning ? 'morning' : 'evening',
     greeting: 'Dear Team,',
-    intro: `Please find the ${isMorning ? 'morning' : 'evening'} Daily Status Report below.`,
+    intro: `Please find the ${reportTitle} below.`,
   };
 }
 
@@ -458,10 +460,13 @@ export function renderDailyStatusEmailHtml(params: {
   date: string;
   rows: DailyStatusRow[];
   recipientName: string;
+  reportLabel?: string;
+  subjectOverride?: string;
 }): { html: string; text: string; subject: string } {
-  const copy = emailPeriodCopy(params.period);
+  const copy = emailPeriodCopy(params.period, params.reportLabel);
   const today = params.date || todayIso();
-  const subject = `${copy.reportTitle} - ${formatSubjectDate(today)}`;
+  const subject =
+    (params.subjectOverride || '').trim() || `${copy.reportTitle} - ${formatSubjectDate(today)}`;
   const reportDate = formatReportDateSlash(today);
   const th =
     'padding:10px 8px;background:#0B1F3A;color:#ffffff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #1e293b;text-align:left;white-space:nowrap;';
@@ -581,6 +586,10 @@ export async function sendDailyStatusReport(params: {
   period: SnapshotPeriod;
   toEmail?: string;
   date?: string;
+  fromEmail?: string;
+  fromName?: string;
+  ccEmails?: string[];
+  bccEmails?: string[];
 }) {
   const date = params.date || todayIso();
   const packed = rowsForPeriod(params.actor, params.period, date);
@@ -603,6 +612,10 @@ export async function sendDailyStatusReport(params: {
     text: rendered.text,
     emailChannel: 'INTERNAL',
     emailType: 'DAILY_STATUS_REPORT',
+    fromEmail: params.fromEmail,
+    fromName: params.fromName,
+    ccEmails: params.ccEmails,
+    bccEmails: params.bccEmails,
   });
   const emails = store.getOutboundEmails();
   if (emails[0]?.email_type === 'DAILY_STATUS_REPORT') {
