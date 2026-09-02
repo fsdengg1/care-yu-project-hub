@@ -459,12 +459,12 @@ export function renderDailyStatusEmailHtml(params: {
       return `<tr>
         <td width="110" style="${personCell}">${escapeHtml(row.person)}</td>
         <td width="150" style="${cell}">${escapeHtml(row.project)}</td>
-        <td width="300" style="${cell}">${escapeHtml(row.taskDescription)}</td>
+        <td width="280" style="${cell}">${escapeHtml(row.taskDescription)}</td>
         <td width="140" style="${depsCell}">${formatDepsHtml(row.dependencies)}</td>
         <td width="110" style="${statusCell}"><span style="display:inline-block;padding:4px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
         <td width="100" style="${dateCell}">${currentDate}</td>
         <td width="100" style="${dateCell}${deadlineStyle}">${deadline}</td>
-        <td width="120" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
+        <td width="160" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
     })
     .join('');
@@ -492,17 +492,17 @@ export function renderDailyStatusEmailHtml(params: {
           </tr>
           <tr>
             <td style="padding:8px 16px 24px;">
-              <table role="presentation" width="1240" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:1240px;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+              <table role="presentation" width="1280" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:1280px;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">
                 <thead>
                   <tr>
                     <th width="110" style="${headerCell}">Person</th>
                     <th width="150" style="${headerCell}">Project</th>
-                    <th width="300" style="${headerCell}">Task Description</th>
+                    <th width="280" style="${headerCell}">Task Description</th>
                     <th width="140" style="${headerCell}">Dependencies</th>
                     <th width="110" style="${headerCell}">Status</th>
                     <th width="100" style="${headerCell}">Current Date</th>
                     <th width="100" style="${headerCell}">Task Deadline</th>
-                    <th width="120" style="${headerCell}">Reason For Delay</th>
+                    <th width="160" style="${headerCell}">Reason For Delay</th>
                   </tr>
                 </thead>
                 <tbody>
