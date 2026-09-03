@@ -780,12 +780,8 @@ export function compareSnapshots(
 
       const staticTaskDesc = (task.description || task.title || '').trim() || task.title;
 
-      const morningText = morningUpdate && !isUneditedCopy(morningUpdate)
-        ? morningUpdate.work_completed.trim()
-        : 'No Morning Update Submitted';
-      const eveningText = eveningUpdate && !isUneditedCopy(eveningUpdate)
-        ? eveningUpdate.work_completed.trim()
-        : 'No Evening Update Submitted';
+      const morningText = morningUpdate?.work_completed?.trim() || (task.description || task.title || '').trim() || task.title;
+      const eveningText = eveningUpdate?.work_completed?.trim() || 'No Evening Update Submitted';
 
       const morningStatus = toSheetStatus(morningUpdate?.work_status || task.status);
       const eveningStatus = toSheetStatus(eveningUpdate?.work_status || morningUpdate?.work_status || task.status);
@@ -808,7 +804,7 @@ export function compareSnapshots(
         id: task.id,
         person: personName,
         project: projectName,
-        taskDescription: staticTaskDesc,
+        taskDescription: morningText,
         morningUpdate: morningText,
         eveningUpdate: eveningText,
         morningStatus,

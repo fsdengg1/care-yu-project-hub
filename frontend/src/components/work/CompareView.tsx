@@ -75,13 +75,12 @@ export default function CompareView({
       <div className="daily-status-table-wrap daily-status-compare-scroll">
         <table className="daily-status-sheet daily-status-compare">
           <colgroup>
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '25%' }} />
+            <col style={{ width: '25%' }} />
             <col style={{ width: '8%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '6%' }} />
+            <col style={{ width: '7%' }} />
             <col style={{ width: '5%' }} />
             <col style={{ width: '5%' }} />
             <col style={{ width: '4%' }} />
@@ -91,7 +90,6 @@ export default function CompareView({
               <th>Person</th>
               <th>Project</th>
               <th>Task Description</th>
-              <th>Morning Update</th>
               <th>Current Update</th>
               <th>Status</th>
               <th>On Time / Delay</th>
@@ -104,20 +102,8 @@ export default function CompareView({
             {groups.map((group) =>
               group.rows.map((item, index) => {
                 const progress = progressLabel(item);
-                const isCopy = (text?: string) => {
-                  if (!text || !text.trim()) return true;
-                  const cleanText = text.trim().toLowerCase().replace(/\s+/g, ' ');
-                  const cleanDesc = (item.taskDescription || '').trim().toLowerCase().replace(/\s+/g, ' ');
-                  return cleanText === cleanDesc;
-                };
-                const morningText =
-                  item.morningUpdate && !isCopy(item.morningUpdate)
-                    ? item.morningUpdate
-                    : 'No Morning Update Submitted';
-                const eveningText =
-                  item.eveningUpdate && !isCopy(item.eveningUpdate)
-                    ? item.eveningUpdate
-                    : 'No Evening Update Submitted';
+                const taskDescText = item.taskDescription || '—';
+                const currentText = item.currentUpdate || 'No Evening Update Submitted';
                 return (
                   <tr key={item.id}>
                     {index === 0 && (
@@ -129,13 +115,10 @@ export default function CompareView({
                       <span className="sheet-text">{item.project || '—'}</span>
                     </td>
                     <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field">{item.taskDescription || '—'}</span>
+                      <span className="sheet-text sheet-task-field text-[#475569]">{taskDescText}</span>
                     </td>
                     <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field text-[#475569]">{morningText}</span>
-                    </td>
-                    <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{eveningText}</span>
+                      <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{currentText}</span>
                     </td>
                     <td className="status-cell">
                       <div className="flex flex-col gap-1">

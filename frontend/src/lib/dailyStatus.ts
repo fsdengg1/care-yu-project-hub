@@ -184,15 +184,13 @@ export interface CompareItem {
   person: string;
   project: string;
   taskDescription: string;
-  morningUpdate?: string;
-  eveningUpdate?: string;
+  currentUpdate: string;
   morningStatus: string;
   eveningStatus: string;
   morningDeadline?: string;
   eveningDeadline?: string;
   morningDependencies?: string;
   eveningDependencies?: string;
-  currentUpdate?: string;
   onTimeDelay?: string;
   progressPercent?: number;
   reasonForDelay?: string;
