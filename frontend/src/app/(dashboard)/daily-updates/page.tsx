@@ -67,6 +67,7 @@ function DailyWorkUpdatesInner() {
   const [confirmSubtaskDelete, setConfirmSubtaskDelete] = useState<DailyStatusSubtask | null>(null);
   const [deleteRow, setDeleteRow] = useState<DailyStatusRow | null>(null);
   const [workDate, setWorkDate] = useState(appTodayIso);
+  const [period, setPeriod] = useState<'morning' | 'evening'>('morning');
 
   const canManageTasks = canCreateWorkTask(user);
   const canEditSheet = canEditDailySheet(user);
@@ -94,8 +95,8 @@ function DailyWorkUpdatesInner() {
     }
   };
 
-  const loadSheet = async (date = workDate) => {
-    const sheet = await DailyStatusApi.sheet(date);
+  const loadSheet = async (date = workDate, activePeriod = period) => {
+    const sheet = await DailyStatusApi.sheet(date, activePeriod);
     if (!sheet.ok) {
       setError(sheet.message || 'Unable to load daily work updates.');
       return;
@@ -111,14 +112,14 @@ function DailyWorkUpdatesInner() {
     setUser(current);
     const initialDate = readStoredWorkDate();
     setWorkDate(initialDate);
-    void loadSheet(initialDate).catch((err) => setError(friendlyError(err, 'Unable to load daily work updates.')));
+    void loadSheet(initialDate, period).catch((err) => setError(friendlyError(err, 'Unable to load daily work updates.')));
   }, []);
 
   useEffect(() => {
     if (!user) return;
-    void loadSheet(workDate).catch(() => undefined);
+    void loadSheet(workDate, period).catch(() => undefined);
     const refresh = () => {
-      void loadSheet(workDate).catch(() => undefined);
+      void loadSheet(workDate, period).catch(() => undefined);
     };
     window.addEventListener('focus', refresh);
     const timer = window.setInterval(refresh, 12000);
@@ -126,10 +127,10 @@ function DailyWorkUpdatesInner() {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [user, workDate]);
+  }, [user, workDate, period]);
 
   const refreshSheet = async () => {
-    await loadSheet();
+    await loadSheet(workDate, period);
     setSelectedIds([]);
   };
 
@@ -245,27 +246,31 @@ function DailyWorkUpdatesInner() {
             </button>
             <button
               type="button"
-              disabled={busy || !canEditSheet}
+              disabled={busy}
               onClick={async () => {
-                setBusy(true);
-                const result = await DailyStatusApi.snapshot('morning', workDate);
-                setBusy(false);
-                setNotice(result.ok ? result.data.message : result.message);
+                setPeriod('morning');
+                await loadSheet(workDate, 'morning');
               }}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-amber-400 disabled:opacity-50"
+              className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 font-bold transition-colors ${
+                period === 'morning'
+                  ? 'bg-amber-500 text-slate-950 font-extrabold shadow-sm'
+                  : 'border border-slate-700 text-slate-100 hover:border-amber-400'
+              }`}
             >
               <Sun className="h-3.5 w-3.5" /> Morning
             </button>
             <button
               type="button"
-              disabled={busy || !canEditSheet}
+              disabled={busy}
               onClick={async () => {
-                setBusy(true);
-                const result = await DailyStatusApi.snapshot('evening', workDate);
-                setBusy(false);
-                setNotice(result.ok ? result.data.message : result.message);
+                setPeriod('evening');
+                await loadSheet(workDate, 'evening');
               }}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-indigo-400 disabled:opacity-50"
+              className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 font-bold transition-colors ${
+                period === 'evening'
+                  ? 'bg-indigo-600 text-white font-extrabold shadow-sm'
+                  : 'border border-slate-700 text-slate-100 hover:border-indigo-400'
+              }`}
             >
               <Moon className="h-3.5 w-3.5" /> Evening
             </button>

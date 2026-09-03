@@ -184,6 +184,8 @@ export interface CompareItem {
   person: string;
   project: string;
   taskDescription: string;
+  morningUpdate?: string;
+  eveningUpdate?: string;
   morningStatus: string;
   eveningStatus: string;
   morningDeadline?: string;

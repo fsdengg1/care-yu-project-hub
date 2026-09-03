@@ -33,6 +33,18 @@ export const NotificationsApi = {
     });
   },
 
+  async markRead(id: string) {
+    return apiRequest<{ notification: NotificationItem }>(`/api/notifications/${id}/read`, {
+      method: 'PATCH',
+    });
+  },
+
+  async clearAll() {
+    return apiRequest<{ ok: boolean; message: string }>('/api/notifications/clear-all', {
+      method: 'DELETE',
+    });
+  },
+
   async sendClientEmail(body: {
     entityType: 'LEAD' | 'PROJECT';
     entityId: string;

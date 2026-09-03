@@ -529,17 +529,53 @@ function collectionsHaveData(parsed: Partial<DbShape> | Record<CollectionName, u
   });
 }
 
+const TEST_ARTIFACT_PATTERNS = [
+  'RackVision UI review',
+  'Website Development',
+  'Prepare shuttle feasibility calculation based on LD-001 requirement.',
+  'Prepare Monthly Management Report',
+  'Complete UI Design',
+  'Team-only update',
+  'Company holiday',
+  'requirement.pdf',
+  'task-1788433476698-lkvk',
+  'Should be blocked.',
+  'Moderator note on locked thread.',
+  'Idempotency probe',
+];
+
+export function sanitizeAudits(audits: AuditLog[], users: User[], pendingSignups: PendingSignup[] = []): AuditLog[] {
+  const validUserIds = new Set([
+    ...users.map((u) => u.id),
+    ...pendingSignups.map((p) => p.id),
+  ]);
+
+  return (audits || []).filter((log) => {
+    if (!log || !log.user_id || !log.action || !log.description) return false;
+    const text = `${log.description || ''} ${log.entity_name || ''} ${log.entity_id || ''}`;
+    if (TEST_ARTIFACT_PATTERNS.some((pattern) => text.includes(pattern))) {
+      return false;
+    }
+    if (!validUserIds.has(log.user_id)) {
+      return false;
+    }
+    return true;
+  });
+}
+
 function buildMergedDb(parsed: Partial<DbShape>): DbShape {
+  const mergedUsers = mergeUsers(parsed.users, []);
+  const pending = (parsed.pendingSignups ?? []).filter((item) => !isSmokeTestAccount(item));
   return refreshTeamCounts({
-    users: mergeUsers(parsed.users, []),
+    users: mergedUsers,
     roles: mergeRoles(parsed.roles, INITIAL_ROLES),
     teams: mergeTeams(parsed.teams, INITIAL_TEAMS),
     leads: normalizeLeads(parsed.leads),
     projects: parsed.projects ?? [],
     escalations: parsed.escalations ?? [],
     procurementRequests: parsed.procurementRequests ?? [],
-    audits: parsed.audits ?? [],
-    notifications: parsed.notifications ?? [],
+    audits: sanitizeAudits(parsed.audits ?? [], mergedUsers, pending),
+    notifications: [],
     tasks: parsed.tasks ?? [],
     dailyUpdates: parsed.dailyUpdates ?? [],
     leadDocuments: parsed.leadDocuments ?? [],
@@ -562,7 +598,7 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     forumLiveMessages: parsed.forumLiveMessages ?? [],
     assignmentHistory: parsed.assignmentHistory ?? [],
     notificationDeliveries: parsed.notificationDeliveries ?? [],
-    pendingSignups: (parsed.pendingSignups ?? []).filter((item) => !isSmokeTestAccount(item)),
+    pendingSignups: pending,
     systemMeta: parsed.systemMeta?.length
       ? parsed.systemMeta
       : [{ id: LIVE_META_ID, demoOperationalPurgedAt: new Date().toISOString() }],
@@ -1034,11 +1070,34 @@ export const store = {
     saveDb(db);
   },
   appendAudit(entry: Omit<AuditLog, 'id' | 'created_at'>): AuditLog {
+    if (!entry || !entry.user_id || !entry.action) {
+      console.warn('[store] appendAudit rejected: user_id and action are required');
+      return null as unknown as AuditLog;
+    }
+    const user = this.findUserById(entry.user_id);
+    const pending = this.findPendingSignupById(entry.user_id);
+    if (!user && !pending) {
+      console.warn('[store] appendAudit rejected: actor user_id does not reference an existing user', entry.user_id);
+      return null as unknown as AuditLog;
+    }
     const audits = this.getAudits();
+    const nowMs = Date.now();
+    const duplicate = audits.find(
+      (log) =>
+        log.user_id === entry.user_id &&
+        log.action === entry.action &&
+        log.entity_id === entry.entity_id &&
+        log.description === entry.description &&
+        nowMs - new Date(log.created_at).getTime() < 2000
+    );
+    if (duplicate) {
+      return duplicate;
+    }
+
     const log: AuditLog = {
       ...entry,
-      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      created_at: new Date().toISOString(),
+      id: `log-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+      created_at: new Date(nowMs).toISOString(),
     };
     audits.unshift(log);
     this.saveAudits(audits);

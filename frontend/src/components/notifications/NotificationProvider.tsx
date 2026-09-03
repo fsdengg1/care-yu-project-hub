@@ -18,6 +18,7 @@ interface NotificationContextValue {
   dismissToast: (id: string) => void;
   markRead: (id: string) => Promise<void>;
   markAllRead: () => Promise<void>;
+  clearAll: () => Promise<void>;
   refresh: () => Promise<void>;
 }
 
@@ -134,7 +135,8 @@ export function NotificationProvider({
 
   const refresh = useCallback(async () => {
     const result = await apiRequest<{ notifications: NotificationItem[] }>('/api/notifications');
-    const list = result.ok ? result.data.notifications : StorageService.getNotifications(userIdRef.current);
+    const rawList = result.ok ? result.data.notifications : StorageService.getNotifications(userIdRef.current);
+    const list = rawList.filter((item) => !item.is_cleared);
     setNotifications(list);
     ingest(list);
   }, [ingest]);
@@ -151,6 +153,15 @@ export function NotificationProvider({
     await apiRequest('/api/notifications/read-all', { method: 'PATCH' });
     const now = new Date().toISOString();
     setNotifications((current) => current.map((item) => (item.read_status ? item : { ...item, read_status: true, read_at: now })));
+    setToasts([]);
+    queueRef.current = [];
+    syncLive([]);
+  }, [syncLive]);
+
+  const clearAll = useCallback(async () => {
+    await apiRequest('/api/notifications/clear-all', { method: 'DELETE' });
+    StorageService.clearNotifications();
+    setNotifications([]);
     setToasts([]);
     queueRef.current = [];
     syncLive([]);
@@ -180,7 +191,8 @@ export function NotificationProvider({
         ForumApi.heartbeat(),
       ]);
       if (cancelled) return;
-      const list = result.ok ? result.data.notifications : StorageService.getNotifications(user.id);
+      const rawList = result.ok ? result.data.notifications : StorageService.getNotifications(user.id);
+      const list = rawList.filter((item) => !item.is_cleared);
       setNotifications(list);
       ingest(list);
     };
@@ -207,14 +219,15 @@ export function NotificationProvider({
   const value = useMemo<NotificationContextValue>(
     () => ({
       notifications,
-      unreadCount: notifications.filter((item) => !item.read_status).length,
+      unreadCount: notifications.filter((item) => !item.read_status && !item.is_cleared).length,
       toasts,
       dismissToast,
       markRead,
       markAllRead,
+      clearAll,
       refresh,
     }),
-    [notifications, toasts, dismissToast, markRead, markAllRead, refresh]
+    [notifications, toasts, dismissToast, markRead, markAllRead, clearAll, refresh]
   );
 
   return <NotificationContext.Provider value={value}>{children}</NotificationContext.Provider>;

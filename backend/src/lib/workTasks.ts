@@ -418,6 +418,9 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     entity_id: task.id,
     entity_name: task.title,
     action: 'TASK_ASSIGNED',
+    assigned_to: assignee.name,
+    assigned_to_id: assignee.id,
+    assigned_to_name: assignee.name,
     description: `${user.name} assigned "${task.title}" to ${assignee.name}.`,
   });
   if (assignee.id !== user.id) {
@@ -713,6 +716,24 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     void import('./smartNotifications.js').then((mod) => {
       mod.markNotificationsCompleted('TASK', next.id);
     });
+  } else if (
+    current.status !== next.status ||
+    current.progress_percent !== next.progress_percent ||
+    (next.blocked_reason && current.blocked_reason !== next.blocked_reason)
+  ) {
+    const isBlocked = next.status === 'BLOCKED';
+    store.appendAudit({
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role_name,
+      entity_type: 'TASK',
+      entity_id: next.id,
+      entity_name: next.title,
+      action: isBlocked ? 'TASK_BLOCKED' : 'TASK_UPDATED',
+      description: isBlocked
+        ? `${user.name} reported issue/blocker on "${next.title}": ${next.blocked_reason || 'Issue raised'}`
+        : `${user.name} updated "${next.title}" (${current.status.replace('_', ' ')}, ${next.progress_percent}%).`,
+    });
   }
   return { task: next };
 }
@@ -845,6 +866,16 @@ export function acceptWorkTask(user: User, id: string) {
   tasks[index] = next;
   store.saveTasks(tasks);
   if (next.project_id) persistComputedProgress(next.project_id);
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'TASK',
+    entity_id: next.id,
+    entity_name: next.title,
+    action: 'TASK_ACCEPTED',
+    description: `${user.name} accepted task "${next.title}".`,
+  });
   const notifyIds = [...new Set([current.requested_by_id, current.assigned_by_id].filter(Boolean))] as string[];
   if (notifyIds.length) {
     const leadTask = isLeadBasedTask(current);
@@ -885,6 +916,16 @@ export function rejectWorkTask(user: User, id: string, reason?: string) {
   };
   tasks[index] = next;
   store.saveTasks(tasks);
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'TASK',
+    entity_id: next.id,
+    entity_name: next.title,
+    action: 'TASK_REJECTED',
+    description: `${user.name} rejected task "${next.title}".${next.remarks ? ` Reason: ${next.remarks}` : ''}`,
+  });
   if (current.requested_by_id) {
     emitWorkflowEvent({
       event: 'TASK_ASSIGNED',

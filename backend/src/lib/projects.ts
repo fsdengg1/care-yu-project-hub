@@ -306,16 +306,6 @@ export function syncConvertedLeadsToProjects() {
     };
     projects.unshift(project);
     added = true;
-    store.appendAudit({
-      user_id: lead.created_by_id,
-      user_name: lead.created_by,
-      user_role: lead.created_by_role || 'Business Head',
-      entity_type: 'PROJECT',
-      entity_id: project.id,
-      entity_name: project.code,
-      action: 'PROJECT_CREATED',
-      description: `${lead.lead_number} converted to active project ${project.code}.`,
-    });
   }
 
   if (added) store.saveProjects(projects);

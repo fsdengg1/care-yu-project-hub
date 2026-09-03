@@ -31,7 +31,7 @@ export default function Navbar({ user }: NavbarProps) {
   const { openMobile, isDesktop } = useSidebar();
   const [showProfile, setShowProfile] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
+  const { notifications, unreadCount, markRead, markAllRead, clearAll } = useNotifications();
   const profileRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -92,40 +92,63 @@ export default function Navbar({ user }: NavbarProps) {
           </button>
 
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 bg-slate-900 border border-slate-800 rounded-lg shadow-xl p-3 z-50">
+            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-lg shadow-xl p-3 z-50">
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
-                <span className="text-xs font-bold text-slate-200">Notifications ({notifications.length})</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-200">Notifications</span>
+                  {unreadCount > 0 ? (
+                    <span className="text-[10px] bg-rose-950 border border-rose-800 text-rose-300 font-bold px-1.5 py-0.5 rounded-full">
+                      {unreadCount} unread
+                    </span>
+                  ) : (
+                    <span className="text-[10px] bg-slate-800 text-slate-400 font-medium px-1.5 py-0.5 rounded-full">
+                      {notifications.length} total
+                    </span>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
-                  {unreadCount > 0 && (
+                  {notifications.length > 0 && (
                     <button
                       type="button"
-                      onClick={() => void markAllRead()}
-                      className="text-[11px] font-bold text-slate-300 hover:text-slate-100"
+                      onClick={() => void clearAll()}
+                      className="text-[11px] font-bold text-slate-400 hover:text-slate-200"
                     >
                       Clear all
                     </button>
                   )}
-                  <Link href="/notifications" className="text-[11px] text-cyan-400 hover:underline">
+                  <Link href="/notifications" className="text-[11px] text-cyan-400 hover:underline" onClick={() => setShowNotifications(false)}>
                     View all
                   </Link>
                 </div>
               </div>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div className="space-y-2 max-h-72 overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-2 text-center">No notifications</p>
+                  <div className="py-6 text-center text-xs text-slate-500">You&apos;re all caught up.</div>
                 ) : (
-                  notifications.slice(0, 6).map((n) => (
+                  notifications.slice(0, 8).map((n) => (
                     <Link
                       key={n.id}
                       href={notificationHref(n)}
                       onClick={() => {
                         void markRead(n.id);
+                        setShowNotifications(false);
                       }}
-                      className={`block w-full text-left p-2 rounded bg-slate-950/50 border text-xs ${n.read_status ? 'border-slate-800' : 'border-cyan-800'}`}
+                      className={`block w-full text-left p-2.5 rounded-lg border transition-all text-xs relative ${
+                        n.read_status
+                          ? 'bg-slate-950/30 border-slate-800/80 text-slate-400 opacity-80'
+                          : 'bg-cyan-950/40 border-cyan-800/60 text-slate-100 shadow-sm'
+                      }`}
                     >
-                      <div className="font-semibold text-cyan-300">{n.title}</div>
-                      <div className="text-slate-300 mt-0.5">{n.message}</div>
-                      <div className="text-[10px] text-slate-500 mt-1">{formatRelativeTime(n.created_at)}</div>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-1.5 font-semibold text-cyan-300">
+                          {!n.read_status && (
+                            <span className="w-2 h-2 rounded-full bg-cyan-400 inline-block shrink-0" title="Unread" />
+                          )}
+                          <span>{n.title}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 shrink-0">{formatRelativeTime(n.created_at)}</span>
+                      </div>
+                      <div className="text-slate-300 mt-1 text-[11px] line-clamp-2">{n.message}</div>
                     </Link>
                   ))
                 )}

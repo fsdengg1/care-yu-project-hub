@@ -111,7 +111,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
     collection: 'audits',
     table: 'audits',
     fields: [
-      ...text('user_id', 'user_name', 'user_role', 'entity_type', 'entity_id', 'entity_name', 'action', 'description', 'old_value', 'new_value'),
+      ...text('user_id', 'user_name', 'user_role', 'entity_type', 'entity_id', 'entity_name', 'action', 'description', 'assigned_to', 'assigned_to_id', 'assigned_to_name', 'old_value', 'new_value'),
       f('created_at', 'timestamptz'),
     ],
   },
@@ -604,6 +604,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
       f('progress_percent', 'integer'),
       f('hours_worked', 'numeric'),
       f('period', 'text'),
+      f('update_type', 'text'),
       f('pm_comments', 'jsonb'),
       ...ts('submitted_at', 'created_at', 'updated_at'),
     ],

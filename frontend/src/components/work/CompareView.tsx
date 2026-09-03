@@ -75,22 +75,24 @@ export default function CompareView({
       <div className="daily-status-table-wrap daily-status-compare-scroll">
         <table className="daily-status-sheet daily-status-compare">
           <colgroup>
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '22%' }} />
-            <col style={{ width: '9%' }} />
             <col style={{ width: '8%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '9%' }} />
             <col style={{ width: '6%' }} />
-            <col style={{ width: '8%' }} />
-            <col style={{ width: '6%' }} />
+            <col style={{ width: '5%' }} />
+            <col style={{ width: '5%' }} />
+            <col style={{ width: '4%' }} />
           </colgroup>
           <thead>
             <tr>
               <th>Person</th>
               <th>Project</th>
               <th>Task Description</th>
-              <th>Current Updates</th>
+              <th>Morning Update</th>
+              <th>Evening Update</th>
               <th>Status</th>
               <th>On Time / Delay</th>
               <th>Progress</th>
@@ -102,6 +104,8 @@ export default function CompareView({
             {groups.map((group) =>
               group.rows.map((item, index) => {
                 const progress = progressLabel(item);
+                const morningText = item.morningUpdate || 'No Morning Update Submitted';
+                const eveningText = item.eveningUpdate || item.currentUpdate || 'No Evening Update Submitted';
                 return (
                   <tr key={item.id}>
                     {index === 0 && (
@@ -116,10 +120,16 @@ export default function CompareView({
                       <span className="sheet-text sheet-task-field">{item.taskDescription || '—'}</span>
                     </td>
                     <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field">{item.currentUpdate || '—'}</span>
+                      <span className="sheet-text sheet-task-field text-[#475569]">{morningText}</span>
+                    </td>
+                    <td className="task-desc-cell">
+                      <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{eveningText}</span>
                     </td>
                     <td className="status-cell">
-                      <StatusPill value={item.eveningStatus} />
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-[#64748b]">AM: <StatusPill value={item.morningStatus} /></span>
+                        <span className="text-[9px] text-[#64748b]">PM: <StatusPill value={item.eveningStatus} /></span>
+                      </div>
                     </td>
                     <td className={`status-cell ${delayClass(item.onTimeDelay)}`}>{item.onTimeDelay || '—'}</td>
                     <td className="hours-cell">

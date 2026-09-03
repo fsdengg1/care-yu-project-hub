@@ -171,8 +171,9 @@ export class StorageService {
     if (!this.isBrowser) return [];
     const stored = localStorage.getItem(STORAGE_KEYS.NOTIFS);
     const notifs: NotificationItem[] = stored ? JSON.parse(stored) : [];
-    if (recipientId) return notifs.filter(n => n.recipient_id === recipientId || recipientId === 'u-ceo');
-    return notifs;
+    const active = notifs.filter((n) => !n.is_cleared);
+    if (recipientId) return active.filter((n) => n.recipient_id === recipientId || recipientId === 'u-ceo');
+    return active;
   }
 
   static sendNotification(notif: Omit<NotificationItem, 'id' | 'created_at' | 'read_status'>) {
@@ -186,6 +187,19 @@ export class StorageService {
     notifs.unshift(newNotif);
     if (this.isBrowser) localStorage.setItem(STORAGE_KEYS.NOTIFS, JSON.stringify(notifs));
     return newNotif;
+  }
+
+  static clearNotifications(recipientId?: string) {
+    if (!this.isBrowser) return;
+    if (!recipientId) {
+      localStorage.removeItem(STORAGE_KEYS.NOTIFS);
+      return;
+    }
+    const stored = localStorage.getItem(STORAGE_KEYS.NOTIFS);
+    if (!stored) return;
+    const notifs: NotificationItem[] = JSON.parse(stored);
+    const remaining = notifs.filter((n) => n.recipient_id !== recipientId && recipientId !== 'u-ceo');
+    localStorage.setItem(STORAGE_KEYS.NOTIFS, JSON.stringify(remaining));
   }
 
   // ============================================================

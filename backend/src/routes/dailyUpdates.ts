@@ -166,8 +166,24 @@ router.post(
     const now = new Date().toISOString();
     const task = resolveOrCreateTask(user, assignment);
     const progress = Math.max(0, Math.min(100, Number(body.progress_percent ?? assignment.progress_percent ?? 0) || 0));
+
+    const rawPeriod = String(body.period || body.update_type || (new Date().getHours() >= 17 ? 'evening' : 'morning')).toLowerCase();
+    const period: 'morning' | 'evening' = rawPeriod === 'evening' ? 'evening' : 'morning';
+    const update_type: 'MORNING' | 'EVENING' = period === 'evening' ? 'EVENING' : 'MORNING';
+    const work_date = String(body.work_date || todayDate()).slice(0, 10);
+
+    const targetTaskId = task?.id;
+    const updates = store.getDailyUpdates();
+    const existingIndex = updates.findIndex(
+      (item) =>
+        item.user_id === user.id &&
+        (item.task_id === targetTaskId || item.assignment_id === assignment.id) &&
+        item.work_date === work_date &&
+        (item.period === period || item.update_type === update_type)
+    );
+
     const update: DailyUpdate = {
-      id: newId('upd'),
+      id: existingIndex !== -1 ? updates[existingIndex].id : newId('upd'),
       user_id: user.id,
       user_name: user.name,
       user_role: user.role_name,
@@ -183,7 +199,7 @@ router.post(
       project_name: assignment.project_name,
       customer_name: assignment.customer_name,
       task_title: assignment.task_title,
-      work_date: String(body.work_date || todayDate()).slice(0, 10),
+      work_date,
       work_completed: String(body.work_completed || '').trim(),
       progress_percent: progress,
       hours_worked: Math.max(0, Number(body.hours_worked || 0) || 0),
@@ -194,15 +210,20 @@ router.post(
       next_plan: String(body.next_plan || '').trim(),
       attachments: parseAttachments(body.attachments),
       submission_status: submit ? 'SUBMITTED' : 'DRAFT',
-      submitted_at: submit ? now : undefined,
+      submitted_at: submit ? now : (existingIndex !== -1 ? updates[existingIndex].submitted_at : undefined),
       summary: String(body.work_completed || '').trim(),
-      pm_comments: [],
-      created_at: now,
+      period,
+      update_type,
+      pm_comments: existingIndex !== -1 ? updates[existingIndex].pm_comments || [] : [],
+      created_at: existingIndex !== -1 ? updates[existingIndex].created_at : now,
       updated_at: now,
     };
 
-    const updates = store.getDailyUpdates();
-    updates.unshift(update);
+    if (existingIndex !== -1) {
+      updates[existingIndex] = update;
+    } else {
+      updates.unshift(update);
+    }
     store.saveDailyUpdates(updates);
 
     if (submit) {

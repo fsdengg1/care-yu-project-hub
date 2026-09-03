@@ -250,8 +250,14 @@ function pickUpdateForDate(
   if (!forTask.length) return undefined;
   const onDate = forTask.filter((item) => item.work_date === workDate);
   if (!onDate.length) return undefined;
-  const preferred = period || inferDefaultEmailPeriod();
-  return onDate.find((item) => item.period === preferred) || onDate[0];
+  if (period) {
+    const targetPeriod = period === 'evening' ? 'evening' : 'morning';
+    const targetType = targetPeriod === 'evening' ? 'EVENING' : 'MORNING';
+    return onDate.find(
+      (item) => item.period === targetPeriod || item.update_type === targetType
+    );
+  }
+  return onDate[0];
 }
 
 function latestUpdateForTask(
@@ -262,11 +268,7 @@ function latestUpdateForTask(
 ): DailyUpdate | undefined {
   const forTask = updatesForTask(task, updates);
   if (!forTask.length) return undefined;
-  const onDate = pickUpdateForDate(forTask, workDate, period);
-  if (onDate) return onDate;
-  // Today: fall back to the latest prior update for narrative fields.
-  if (workDate === todayIso()) return forTask[0];
-  return undefined;
+  return pickUpdateForDate(forTask, workDate, period);
 }
 
 /** Logged hours are per calendar day. A day with no log is 0. */
@@ -389,7 +391,7 @@ export function buildDailyStatusRows(
         person: formatEmployeeDisplayName(assignee || task.assigned_to),
         projectId: isLeadTask ? undefined : task.project_id,
         project: isLeadTask ? leadLabel || task.lead_name || task.title : project?.name || task.project_name || update?.project_name || '—',
-        taskDescription: (update?.work_completed || task.description || task.title || '').trim() || task.title,
+        taskDescription: (task.description || task.title || '').trim() || task.title,
         dependencyIds: deps,
         dependencies: formatDependencies(deps, allUsers, update?.dependency),
         status,
@@ -638,6 +640,8 @@ export interface CompareItem {
   person: string;
   project: string;
   taskDescription: string;
+  morningUpdate: string;
+  eveningUpdate: string;
   morningStatus: string;
   eveningStatus: string;
   morningDeadline?: string;
@@ -704,76 +708,86 @@ export function compareSnapshots(
   user: User,
   date?: string
 ): { items: CompareItem[]; available: boolean; date: string; message?: string } {
-  const resolved = resolveCompareDate(date);
-  const today = todayIso();
-  let morningRaw = loadMailedOrSnapshotRows(resolved, 'morning');
-  let eveningRaw = loadMailedOrSnapshotRows(resolved, 'evening');
+  const resolved = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayIso();
 
-  // Today: evening side always tracks the live sheet so latest hub edits show in Compare
-  // (morning stays frozen from Morning save/mail).
-  if (resolved === today) {
-    eveningRaw = visibleSheetRows(buildDailyStatusRows(user, { date: resolved, period: 'evening' }));
-  }
-  // Previous day: if evening mail/snapshot is missing, rebuild from that day's submitted updates.
-  if ((!eveningRaw || !eveningRaw.length) && resolved < today && morningRaw?.length) {
-    const rebuilt = eveningRowsFromDayUpdates(resolved, morningRaw);
-    if (rebuilt?.length) {
-      eveningRaw = rebuilt;
-      persistDailyStatusSnapshot(resolved, 'evening', rebuilt, user.id);
-    }
-  }
-  // Today: if morning mail/snapshot is missing but evening exists, do not invent morning from live.
-  if (!morningRaw || !morningRaw.length) {
-    return {
-      items: [],
-      available: false,
-      date: resolved,
-      message:
-        resolved === today
-          ? 'Today morning mail/snapshot is not available yet. Send or save Morning first, or switch to Previous day.'
-          : 'Previous day morning mail/snapshot is not available.',
-    };
-  }
-  if (!eveningRaw || !eveningRaw.length) {
-    return {
-      items: [],
-      available: false,
-      date: resolved,
-      message:
-        resolved === today
-          ? 'Evening mail/snapshot is not available yet.'
-          : 'Previous day evening mail/snapshot is not available. Send Evening for that day, or ensure evening updates were submitted.',
-    };
-  }
+  const visibleTasks = store.getTasks().filter((task) => canSeeDailyStatusTask(user, task));
+  const scopedTasks = canSeeAllDailyStatusRows(user)
+    ? visibleTasks
+    : visibleTasks.filter((task) => task.assigned_to_id === user.id || task.created_by_id === user.id);
 
-  const morning = scopedDailyStatusRows(user, morningRaw);
-  const evening = scopedDailyStatusRows(user, eveningRaw);
-  const ids = new Set([...morning.map((row) => row.id), ...evening.map((row) => row.id)]);
-  const items: CompareItem[] = [...ids].map((id) => {
-    const am = morning.find((row) => row.id === id);
-    const pm = evening.find((row) => row.id === id);
-    const base = pm || am!;
-    return {
-      id,
-      person: base.person,
-      project: base.project,
-      taskDescription: (am?.taskDescription || '').trim() || '—',
-      morningStatus: am?.status || '—',
-      eveningStatus: pm?.status || '—',
-      morningDeadline: am?.deadline,
-      eveningDeadline: pm?.deadline,
-      morningDependencies: am?.dependencies,
-      eveningDependencies: pm?.dependencies,
-      currentUpdate: (pm?.taskDescription || '').trim() || '—',
-      onTimeDelay: delayLabel(pm || am),
-      progressPercent: progressFromRow(pm || am),
-      reasonForDelay: pm?.reasonForDelay || am?.reasonForDelay || '—',
-      loggedHours: pm?.loggedHours || am?.loggedHours || formatLoggedHours(0),
-      hoursWorked: pm?.hoursWorked ?? am?.hoursWorked ?? 0,
-      kinds: compareKinds(am, pm),
-    };
-  });
-  return { items, available: true, date: resolved };
+  const allUpdates = store.getDailyUpdates().filter((u) => u.work_date === resolved && u.submission_status === 'SUBMITTED');
+  const allUsers = store.getUsers();
+  const projects = store.getProjects();
+
+  const items: CompareItem[] = scopedTasks
+    .filter((task) => !task.parent_task_id && !task.is_milestone && task.acceptance_status !== 'REJECTED')
+    .map((task) => {
+      const taskUpdates = updatesForTask(task, allUpdates);
+      const morningUpdate = taskUpdates.find((u) => u.period === 'morning' || u.update_type === 'MORNING');
+      const eveningUpdate = taskUpdates.find((u) => u.period === 'evening' || u.update_type === 'EVENING');
+
+      const assignee = allUsers.find((u) => u.id === task.assigned_to_id);
+      const personName = formatEmployeeDisplayName(assignee || task.assigned_to);
+
+      const isLeadTask = isLeadBasedTask(task) || task.task_type === 'LEAD_TASK';
+      const lead = task.lead_id ? store.getLeads().find((item) => item.id === task.lead_id) : undefined;
+      const leadLabel = isLeadTask
+        ? [lead?.lead_number, task.lead_name || lead?.title].filter(Boolean).join(' • ')
+        : '';
+      const project = task.project_id ? projects.find((item) => item.id === task.project_id) : undefined;
+      const projectName = isLeadTask ? leadLabel || task.lead_name || task.title : project?.name || task.project_name || '—';
+
+      const staticTaskDesc = (task.description || task.title || '').trim() || task.title;
+
+      const morningText = morningUpdate?.work_completed?.trim() || 'No Morning Update Submitted';
+      const eveningText = eveningUpdate?.work_completed?.trim() || 'No Evening Update Submitted';
+
+      const morningStatus = toSheetStatus(morningUpdate?.work_status || task.status);
+      const eveningStatus = toSheetStatus(eveningUpdate?.work_status || morningUpdate?.work_status || task.status);
+
+      const hoursWorked = Math.max(
+        Number(eveningUpdate?.hours_worked) || 0,
+        Number(morningUpdate?.hours_worked) || 0
+      );
+
+      const reasonForDelay = (
+        eveningUpdate?.blocker ||
+        morningUpdate?.blocker ||
+        task.blocked_reason ||
+        (isOverdue(task, resolved) ? task.remarks || 'No delay' : 'No delay')
+      ).trim() || 'No delay';
+
+      const progress = eveningUpdate?.progress_percent ?? morningUpdate?.progress_percent ?? task.progress_percent ?? 0;
+
+      return {
+        id: task.id,
+        person: personName,
+        project: projectName,
+        taskDescription: staticTaskDesc,
+        morningUpdate: morningText,
+        eveningUpdate: eveningText,
+        morningStatus,
+        eveningStatus,
+        morningDeadline: formatSheetDate(task.due_date),
+        eveningDeadline: formatSheetDate(task.due_date),
+        morningDependencies: formatDependencies(dependencyIdsOf(task), allUsers, morningUpdate?.dependency),
+        eveningDependencies: formatDependencies(dependencyIdsOf(task), allUsers, eveningUpdate?.dependency || morningUpdate?.dependency),
+        currentUpdate: eveningText,
+        onTimeDelay: eveningStatus === 'Completed' ? 'On Time' : (isOverdue(task, resolved) ? 'Delay' : 'On Time'),
+        progressPercent: progress,
+        reasonForDelay,
+        loggedHours: formatLoggedHours(hoursWorked),
+        hoursWorked,
+        kinds: [],
+      };
+    })
+    .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
+
+  return {
+    items,
+    available: true,
+    date: resolved,
+  };
 }
 
 /** Upsert morning/evening DailyUpdate hours for a task on the selected work date. */

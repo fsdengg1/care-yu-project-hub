@@ -45,7 +45,15 @@ function employeeNamed(skipId?: string): User {
 
 await initStore();
 
+if (process.env.CAREYU_LIVE_PERMISSION_TESTS !== '1') {
+  console.error(
+    'Permission checks create real chat, forum, and task records. Refusing to run on the live store.\nSet CAREYU_LIVE_PERMISSION_TESTS=1 only on a disposable database.'
+  );
+  process.exit(1);
+}
+
 const snapshot = {
+  audits: store.getAudits(),
   conversations: store.getConversations(),
   participants: store.getConversationParticipants(),
   messages: store.getChatMessages(),
@@ -362,6 +370,7 @@ try {
     assert('Live chat messages are visible to other users', listLiveMessages().some((item) => item.id === live.message.id));
   }
 } finally {
+  store.saveAudits(snapshot.audits);
   store.saveConversations(snapshot.conversations);
   store.saveConversationParticipants(snapshot.participants);
   store.saveChatMessages(snapshot.messages);

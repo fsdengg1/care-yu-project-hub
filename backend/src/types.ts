@@ -111,6 +111,9 @@ export interface AuditLog {
   entity_name?: string;
   action: string;
   description: string;
+  assigned_to?: string;
+  assigned_to_id?: string;
+  assigned_to_name?: string;
   old_value?: string;
   new_value?: string;
   created_at: string;
@@ -188,6 +191,8 @@ export interface NotificationItem {
   acted_at?: string;
   read_status: boolean;
   read_at?: string;
+  is_cleared?: boolean;
+  cleared_at?: string;
   created_at: string;
   email_channel?: EmailChannel;
   email_policy?: EmailPolicy;
@@ -1071,6 +1076,7 @@ export interface DailyUpdate {
   summary?: string;
   /** Morning/evening discriminator for sheet-logged hours history. */
   period?: 'morning' | 'evening';
+  update_type?: 'MORNING' | 'EVENING';
   pm_comments?: DailyUpdateComment[];
   created_at: string;
   updated_at: string;

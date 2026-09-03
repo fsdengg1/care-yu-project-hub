@@ -568,15 +568,6 @@ export function postMessage(user: User, conversationId: string, body: PostMessag
       entity_id: conversation.id,
     });
   }
-  store.appendAudit({
-    user_id: user.id,
-    user_name: user.name,
-    user_role: user.role_name,
-    entity_type: 'CONVERSATION',
-    entity_id: conversation.id,
-    action: 'MESSAGE_SENT',
-    description: `${user.name} sent a message in ${conversation.name || 'a conversation'}.`,
-  });
   return { message: decorateMessage(message), conversation };
 }
 

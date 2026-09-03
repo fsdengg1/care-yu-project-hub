@@ -42,7 +42,7 @@ function statusLabel(item: NotificationItem) {
 }
 
 export default function NotificationsPage() {
-  const { notifications, markRead, markAllRead, unreadCount } = useNotifications();
+  const { notifications, markRead, markAllRead, clearAll, unreadCount } = useNotifications();
   const user = StorageService.getCurrentUser();
   const isAdmin = user?.role_code === 'SYSTEM_ADMIN';
   const [tab, setTab] = React.useState<'INTERNAL' | 'CLIENT'>('INTERNAL');
@@ -83,13 +83,13 @@ export default function NotificationsPage() {
           >
             Client / Customer
           </button>
-          {unreadCount > 0 && (
+          {notifications.length > 0 && (
             <button
               type="button"
-              onClick={() => void markAllRead()}
+              onClick={() => void clearAll()}
               className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800"
             >
-              Clear all unread
+              Clear all
             </button>
           )}
         </div>
@@ -97,9 +97,9 @@ export default function NotificationsPage() {
 
       <div className="bg-slate-900/90 rounded-xl border border-slate-800 p-5 space-y-3">
         {visible.length === 0 ? (
-          <p className="text-xs text-slate-500 py-6 text-center">
-            {tab === 'CLIENT' ? 'No client or customer emails yet.' : 'No internal PMS notifications yet.'}
-          </p>
+          <div className="py-8 text-center text-xs text-slate-500">
+            {tab === 'CLIENT' ? 'No client or customer emails yet.' : "You're all caught up. No internal PMS notifications."}
+          </div>
         ) : visible.map((n) => (
           <Link
             key={n.id}
@@ -107,10 +107,13 @@ export default function NotificationsPage() {
             onClick={() => {
               void markRead(n.id);
             }}
-            className={`block w-full text-left p-3.5 border rounded-lg text-xs space-y-1 ${n.read_status ? 'bg-slate-950/60 border-slate-800' : 'bg-slate-950 border-cyan-800'}`}
+            className={`block w-full text-left p-3.5 border rounded-lg text-xs space-y-1 transition-all ${
+              n.read_status ? 'bg-slate-950/40 border-slate-800 text-slate-400 opacity-80' : 'bg-cyan-950/30 border-cyan-800/80 text-slate-100'
+            }`}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-2 font-bold text-cyan-300">
+                {!n.read_status && <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" title="Unread" />}
                 <NotificationGlyph item={n} />
                 {n.title}
               </span>
@@ -123,7 +126,7 @@ export default function NotificationsPage() {
                     {n.email_status === 'SENT' ? 'Sent' : n.email_status === 'FAILED' ? 'Failed' : n.email_status}
                   </span>
                 )}
-                <span>{n.read_status ? 'Read' : 'Unread'}</span>
+                <span className={n.read_status ? 'text-slate-500' : 'text-cyan-400 font-bold'}>{n.read_status ? 'Read' : 'Unread'}</span>
                 <span>{formatRelativeTime(n.created_at)}</span>
               </span>
             </div>

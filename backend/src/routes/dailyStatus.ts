@@ -57,7 +57,8 @@ router.get(
   (req: AuthedRequest, res) => {
     const user = req.user!;
     const date = readIsoDate(req.query.date);
-    const rows = buildDailyStatusRows(user, { date });
+    const period = typeof req.query.period === 'string' && req.query.period ? readPeriod(req.query.period) : undefined;
+    const rows = buildDailyStatusRows(user, { date, period });
     return res.json({
       rows,
       date,

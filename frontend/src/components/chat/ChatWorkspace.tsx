@@ -129,9 +129,19 @@ export default function ChatWorkspace({
   }, [activeId, expectedType, tab]);
 
   const visibleEmployees = useMemo(
-    () => employees.filter((item) => item.name.toLowerCase().includes(query.toLowerCase())),
-    [employees, query]
+    () => employees.filter((item) => item.id !== currentUser.id && item.name.toLowerCase().includes(query.toLowerCase())),
+    [employees, query, currentUser.id]
   );
+
+  const activeDirect = useMemo(
+    () => directConversations.filter((item) => Boolean(item.last_message)),
+    [directConversations]
+  );
+
+  const startEmployees = useMemo(() => {
+    const inChat = new Set(activeDirect.map((item) => item.other_user_id).filter(Boolean));
+    return visibleEmployees.filter((item) => !inChat.has(item.id));
+  }, [visibleEmployees, activeDirect]);
 
   const title =
     active?.name ||
@@ -284,10 +294,10 @@ export default function ChatWorkspace({
         <div className="max-h-[58vh] space-y-1 overflow-y-auto">
           {tab === 'direct' && (
             <>
-              {directConversations.length > 0 && (
+              {activeDirect.length > 0 && (
                 <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">Conversations</div>
               )}
-              {directConversations.filter((item) => matchesQuery(item, query)).map((item) => {
+              {activeDirect.filter((item) => matchesQuery(item, query)).map((item) => {
                 const meta = messageTypeMeta(item.last_message_type);
                 const Icon = meta.Icon;
                 return (
@@ -316,9 +326,7 @@ export default function ChatWorkspace({
               <div className="mb-1 mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                 {isCeo ? 'Employee List' : 'Start a conversation'}
               </div>
-              {visibleEmployees.map((employee) => {
-                const existing = directConversations.find((item) => item.other_user_id === employee.id);
-                return (
+              {startEmployees.map((employee) => (
                   <button
                     key={employee.id}
                     onClick={() => void startDirect(employee.id)}
@@ -329,10 +337,8 @@ export default function ChatWorkspace({
                       {employee.role_name}
                       {employee.team_name ? ` • ${employee.team_name}` : ''}
                     </div>
-                    {existing?.last_message && <div className="truncate text-[11px] text-slate-500">{existing.last_message}</div>}
                   </button>
-                );
-              })}
+              ))}
             </>
           )}
           {tab === 'group' &&

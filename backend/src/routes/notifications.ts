@@ -38,7 +38,7 @@ router.get('/', requireAuth, requirePermission('view:notifications'), (req: Auth
   const channel = queryString(req, 'channel').toUpperCase();
   let notifications = store
     .getNotifications()
-    .filter((item) => item.recipient_id === recipientId)
+    .filter((item) => item.recipient_id === recipientId && !item.is_cleared)
     .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
   if (channel === 'CLIENT') {
     notifications = notifications.filter(isClientNotification);
@@ -47,7 +47,7 @@ router.get('/', requireAuth, requirePermission('view:notifications'), (req: Auth
   }
   return res.json({
     notifications: notifications.map((item) => ({ ...item, notification_status: deriveNotificationStatus(item) })),
-    unreadCount: notifications.filter((item) => !item.read_status).length,
+    unreadCount: notifications.filter((item) => !item.read_status && !item.is_cleared).length,
     reminderAfterHours: env.reminderAfterHours,
   });
 });
@@ -161,6 +161,45 @@ router.post('/client-email', requireAuth, async (req: AuthedRequest, res) => {
 router.patch('/read-all', requireAuth, requirePermission('view:notifications'), (req: AuthedRequest, res) => {
   const changed = markAllNotificationsRead(req.user!.id);
   return res.json({ changed });
+});
+
+router.delete('/clear-all', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.user!.id;
+  const now = new Date().toISOString();
+  const notifications = store.getNotifications().map((item) => {
+    if (item.recipient_id === userId) {
+      return { ...item, is_cleared: true, cleared_at: now };
+    }
+    return item;
+  });
+  store.saveNotifications(notifications);
+  return res.json({ ok: true, message: 'All notifications cleared.' });
+});
+
+router.post('/clear-all', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.user!.id;
+  const now = new Date().toISOString();
+  const notifications = store.getNotifications().map((item) => {
+    if (item.recipient_id === userId) {
+      return { ...item, is_cleared: true, cleared_at: now };
+    }
+    return item;
+  });
+  store.saveNotifications(notifications);
+  return res.json({ ok: true, message: 'All notifications cleared.' });
+});
+
+router.delete('/', requireAuth, (req: AuthedRequest, res) => {
+  const userId = req.user!.id;
+  const now = new Date().toISOString();
+  const notifications = store.getNotifications().map((item) => {
+    if (item.recipient_id === userId) {
+      return { ...item, is_cleared: true, cleared_at: now };
+    }
+    return item;
+  });
+  store.saveNotifications(notifications);
+  return res.json({ ok: true, message: 'All notifications cleared.' });
 });
 
 router.get('/:id', requireAuth, requirePermission('view:notifications'), (req: AuthedRequest, res) => {

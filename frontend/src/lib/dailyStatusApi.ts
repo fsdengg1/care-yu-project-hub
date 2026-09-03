@@ -41,8 +41,11 @@ export type EmailReportHistoryEntry = {
 };
 
 export const DailyStatusApi = {
-  async sheet(date?: string) {
-    const query = date ? `?date=${encodeURIComponent(date)}` : '';
+  async sheet(date?: string, period?: SnapshotPeriod) {
+    const params = new URLSearchParams();
+    if (date) params.set('date', date);
+    if (period) params.set('period', period);
+    const query = params.toString() ? `?${params.toString()}` : '';
     const result = await apiRequest<{
       rows: DailyStatusRow[];
       kpis: DailyStatusKpis;

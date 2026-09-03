@@ -187,6 +187,11 @@ export async function ensureSchema(): Promise<void> {
       ALTER TABLE escalations ADD COLUMN IF NOT EXISTS history JSONB;
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_team_ids TEXT[];
       ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_team_names TEXT[];
+      ALTER TABLE audits ADD COLUMN IF NOT EXISTS assigned_to TEXT;
+      ALTER TABLE audits ADD COLUMN IF NOT EXISTS assigned_to_id TEXT;
+      ALTER TABLE audits ADD COLUMN IF NOT EXISTS assigned_to_name TEXT;
+      ALTER TABLE daily_updates ADD COLUMN IF NOT EXISTS period TEXT;
+      ALTER TABLE daily_updates ADD COLUMN IF NOT EXISTS update_type TEXT;
     `);
     const tables = await client.query<{ table_name: string }>(`
       SELECT table_name
