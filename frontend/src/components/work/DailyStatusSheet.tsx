@@ -299,6 +299,7 @@ export default function DailyStatusSheet({
                             variant="sheet"
                             people={people}
                             value={group.personId}
+                            fallbackLabel={group.person}
                             onChange={async (id) => {
                               const ids = group.rows.map((item) => item.id);
                               for (const taskId of ids) {

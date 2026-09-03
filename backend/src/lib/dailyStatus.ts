@@ -257,6 +257,7 @@ function scopedDailyStatusRows(user: User, rows: DailyStatusRow[]) {
 
 export function buildDailyStatusRows(user: User): DailyStatusRow[] {
   const users = visibleUsers(user);
+  const allUsers = store.getUsers();
   const projects = store.getProjects();
   const updates = store
     .getDailyUpdates()
@@ -285,7 +286,9 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
     .filter((task) => !task.parent_task_id)
     .map((task) => {
       const project = task.project_id ? projects.find((item) => item.id === task.project_id) : undefined;
-      const assignee = users.find((item) => item.id === task.assigned_to_id);
+      const assignee =
+        users.find((item) => item.id === task.assigned_to_id) ||
+        allUsers.find((item) => item.id === task.assigned_to_id);
       const update = latestUpdateForTask(task, updates);
       const deps = dependencyIdsOf(task);
       const status = toSheetStatus(task.status === 'BLOCKED' ? 'WAITING' : task.status);
@@ -299,7 +302,9 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         deadline: formatSheetDate(child.due_date),
         deadlineIso: child.due_date ? String(child.due_date).slice(0, 10) : undefined,
         assignedTo: formatEmployeeDisplayName(
-          users.find((item) => item.id === child.assigned_to_id) || child.assigned_to
+          users.find((item) => item.id === child.assigned_to_id) ||
+            allUsers.find((item) => item.id === child.assigned_to_id) ||
+            child.assigned_to
         ),
         assignedToId: child.assigned_to_id,
         parentTaskId: child.parent_task_id || task.id,
@@ -321,7 +326,7 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         project: project?.name || task.project_name || update?.project_name || '—',
         taskDescription: (update?.work_completed || task.description || task.title || '').trim() || task.title,
         dependencyIds: deps,
-        dependencies: formatDependencies(deps, users, update?.dependency),
+        dependencies: formatDependencies(deps, allUsers, update?.dependency),
         status,
         currentDate: formatSheetDate(todayIso()),
         startDate: formatSheetDate(task.start_date),
@@ -1038,29 +1043,66 @@ export function restoreDailyStatusReport(): {
   return { html: latest.body, subject: latest.subject };
 }
 
-export function directoryPeople(): Array<{ id: string; name: string; displayName: string; email: string; role_name: string }> {
+type DirectoryPerson = { id: string; name: string; displayName: string; email: string; role_name: string };
+
+function isRemovedDirectoryPerson(user: { name?: string; email?: string }): boolean {
+  const given = personGivenKey(user.name);
+  const haystack = String(user.name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+  const local = String(user.email || '')
+    .split('@')[0]
+    .toLowerCase();
+  const email = String(user.email || '').trim().toLowerCase();
   const removed = new Set(['sanjay', 'aravind', 'fsd', 'fsdengineer', 'fsdengg', 'fsdengg1']);
-  const active = store.getUsers().filter((user) => {
-    if (user.status !== 'ACTIVE') return false;
-    const given = personGivenKey(user.name);
-    const haystack = String(user.name || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, '');
-    const local = String(user.email || '')
-      .split('@')[0]
-      .toLowerCase();
-    const email = String(user.email || '').trim().toLowerCase();
-    if (removed.has(given) || removed.has(local) || email === 'fsdengg1@careyu.ai') return false;
-    if (haystack.includes('fsd') || local.includes('fsd')) return false;
-    return true;
-  });
-  return dedupeByStableId(active, (user) => user.id).map((user) => ({
+  if (removed.has(given) || removed.has(local) || email === 'fsdengg1@careyu.ai') return true;
+  if (haystack.includes('fsd') || local.includes('fsd')) return true;
+  return false;
+}
+
+function toDirectoryPerson(user: User): DirectoryPerson {
+  return {
     id: user.id,
     name: user.name,
     displayName: formatEmployeeDisplayName(user),
     email: user.email,
     role_name: user.role_name,
-  }));
+  };
+}
+
+export function directoryPeople(): DirectoryPerson[] {
+  const active = store.getUsers().filter((user) => user.status === 'ACTIVE' && !isRemovedDirectoryPerson(user));
+  return dedupeByStableId(active, (user) => user.id).map(toDirectoryPerson);
+}
+
+/** People pickers for the sheet: directory + anyone already assigned or listed as a dependency. */
+export function peopleForDailySheet(rows: DailyStatusRow[]): DirectoryPerson[] {
+  const people = directoryPeople();
+  const byId = new Map(people.map((person) => [person.id, person]));
+
+  const ensureId = (idRaw: string, fallbackName?: string) => {
+    const id = String(idRaw || '').trim();
+    if (!id || byId.has(id)) return;
+    const user = store.getUsers().find((item) => item.id === id);
+    if (user && isRemovedDirectoryPerson(user)) return;
+    const entry: DirectoryPerson = user
+      ? toDirectoryPerson(user)
+      : {
+          id,
+          name: fallbackName || id,
+          displayName: formatEmployeeDisplayName(fallbackName || id),
+          email: '',
+          role_name: '',
+        };
+    byId.set(id, entry);
+    people.push(entry);
+  };
+
+  for (const row of rows) {
+    ensureId(row.personId, row.person);
+    for (const depId of row.dependencyIds || []) ensureId(depId);
+  }
+  return people;
 }
 
 export function visibleProjects(user: User): Project[] {

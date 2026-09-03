@@ -12,6 +12,7 @@ export default function UserDropdown({
   value,
   onChange,
   placeholder = 'Select a person',
+  fallbackLabel,
   disabled,
   variant = 'default',
 }: {
@@ -19,6 +20,7 @@ export default function UserDropdown({
   value: string;
   onChange: (id: string) => void;
   placeholder?: string;
+  fallbackLabel?: string;
   disabled?: boolean;
   variant?: 'default' | 'sheet';
 }) {
@@ -29,6 +31,7 @@ export default function UserDropdown({
   const panelRef = useRef<HTMLDivElement>(null);
   const unique = useMemo(() => dedupeByStableId(people, (item) => item.id), [people]);
   const selected = unique.find((item) => item.id === value);
+  const label = selected?.displayName || fallbackLabel || placeholder;
   const filtered = unique.filter((item) =>
     `${item.displayName} ${item.name} ${item.email}`.toLowerCase().includes(query.trim().toLowerCase())
   );
@@ -75,8 +78,8 @@ export default function UserDropdown({
             : 'inline-flex min-w-[180px] items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-left text-xs font-medium text-slate-100 hover:border-cyan-600 disabled:opacity-50'
         }
       >
-        <span className={variant === 'sheet' ? 'text-[#0f172a]' : selected ? 'text-slate-100' : 'text-slate-500'}>
-          {selected?.displayName || placeholder}
+        <span className={variant === 'sheet' ? 'text-[#0f172a]' : selected || fallbackLabel ? 'text-slate-100' : 'text-slate-500'}>
+          {label}
         </span>
         {!disabled && <ChevronDown className={`h-3.5 w-3.5 ${variant === 'sheet' ? 'text-[#64748b]' : 'text-slate-400'}`} />}
       </button>

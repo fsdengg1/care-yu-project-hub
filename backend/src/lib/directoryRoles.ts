@@ -391,13 +391,10 @@ function deactivateRemovedDirectoryPeople(users: User[]): User[] {
     const given = personGivenKey(user.name);
     const email = normalize(user.email);
     const local = emailLocal(email);
+    // Exact given-name / email match only. Prefix checks are unsafe: e.g. "aravind"
+    // must never deactivate "arun", and personGivenKey already strips surnames.
     const hit = REMOVED_DIRECTORY_NAMES.some(
-      (key) =>
-        given === key ||
-        (given.length > key.length && given.startsWith(key)) ||
-        local === key ||
-        (local.length > key.length && local.startsWith(key)) ||
-        email === `${key}@careyu.ai`
+      (key) => given === key || local === key || email === `${key}@careyu.ai`
     );
     if (!hit) return user;
     if (user.status === 'INACTIVE' && user.account_status === 'DISABLED') return user;

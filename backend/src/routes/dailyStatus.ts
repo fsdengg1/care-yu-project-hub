@@ -6,7 +6,7 @@ import {
   buildDailyStatusRows,
   canSeeAllDailyStatusRows,
   compareSnapshots,
-  directoryPeople,
+  peopleForDailySheet,
   fromSheetStatus,
   loadDailyStatusSnapshot,
   renderDailyStatusEmailHtml,
@@ -54,7 +54,7 @@ router.get(
     return res.json({
       rows,
       kpis: buildDailyStatusKpis(user, rows),
-      people: directoryPeople(),
+      people: peopleForDailySheet(rows),
       projects: visibleProjects(user).map((project) => ({
         id: project.id,
         name: project.name,
