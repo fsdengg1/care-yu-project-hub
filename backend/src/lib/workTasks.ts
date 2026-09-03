@@ -198,11 +198,9 @@ export function applyTaskLifecycle(
 export function canViewTask(user: User, task: Task) {
   if (task.assigned_to_id === user.id || task.created_by_id === user.id || task.assigned_by_id === user.id) return true;
   if (task.responsible_user_id === user.id) return true;
-  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
-  if (user.role_code === 'PROJECT_MANAGER') {
-    if (!task.project_id) return true;
-    const project = store.getProjects().find((item) => item.id === task.project_id);
-    return Boolean(project && project.pm_id === user.id);
+  // Daily Work Updates / hub leadership: shared global visibility (not project-private).
+  if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)) {
+    return true;
   }
   if (task.project_id) {
     const project = store.getProjects().find((item) => item.id === task.project_id);

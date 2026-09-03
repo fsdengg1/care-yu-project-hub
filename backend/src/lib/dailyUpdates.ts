@@ -283,19 +283,14 @@ export function listAssignmentsForUser(user: User): WorkAssignment[] {
 
 export function canViewAssignment(user: User, item: WorkAssignment): boolean {
   if (user.role_code === 'SYSTEM_ADMIN' || user.role_code === 'CEO' || user.role_code === 'CTO') return true;
+  // Daily Work Updates are a shared company sheet for PM + Engineering Director.
+  if (user.role_code === 'PROJECT_MANAGER' || user.role_code === 'ENG_DIRECTOR') return true;
   if (item.assigned_to_id === user.id) return true;
   if (user.role_code === 'TEAM_LEAD') {
     const assignee = store.findUserById(item.assigned_to_id);
     return Boolean(assignee?.team_id && assignee.team_id === user.team_id);
   }
-  if (user.role_code === 'PROJECT_MANAGER') {
-    if (item.project_id) {
-      const project = store.getProjects().find((entry) => entry.id === item.project_id);
-      return project?.pm_id === user.id;
-    }
-    return true;
-  }
-  if (user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR') {
+  if (user.role_code === 'BUSINESS_HEAD') {
     const lead = item.lead_id ? store.getLeads().find((entry) => entry.id === item.lead_id) : undefined;
     if (lead) return canOwnLead(user, lead);
     const project = item.project_id ? store.getProjects().find((entry) => entry.id === item.project_id) : undefined;

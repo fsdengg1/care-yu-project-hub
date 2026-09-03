@@ -2,7 +2,6 @@ import { store } from '../store/db.js';
 import { env } from '../config/env.js';
 import { DailyUpdate, Project, Task, User } from '../types.js';
 import { canViewProject } from './dailyUpdates.js';
-import { canViewTask } from './workTasks.js';
 import { formatEmployeeDisplayName, dedupeByStableId, personGivenKey } from './people.js';
 import { sendEmail } from './email.js';
 
@@ -222,21 +221,35 @@ function formatLoggedHours(hours?: number): string {
   return `${whole}h ${String(mins).padStart(2, '0')}m`;
 }
 
-function latestUpdateForTask(task: Task, updates: DailyUpdate[]): DailyUpdate | undefined {
-  const forTask = updates.filter(
+function updatesForTask(task: Task, updates: DailyUpdate[]): DailyUpdate[] {
+  return updates.filter(
     (item) =>
       item.task_id === task.id ||
       item.assignment_id === task.id ||
       (item.user_id === task.assigned_to_id && item.project_id === task.project_id && item.task_title === task.title)
   );
+}
+
+function pickUpdateForDate(forTask: DailyUpdate[], workDate: string): DailyUpdate | undefined {
+  if (!forTask.length) return undefined;
+  const onDate = forTask.filter((item) => item.work_date === workDate);
+  if (!onDate.length) return undefined;
+  const period = inferDefaultEmailPeriod();
+  return onDate.find((item) => item.period === period) || onDate[0];
+}
+
+function latestUpdateForTask(task: Task, updates: DailyUpdate[]): DailyUpdate | undefined {
+  const forTask = updatesForTask(task, updates);
   if (!forTask.length) return undefined;
   const today = todayIso();
-  const period = inferDefaultEmailPeriod();
-  return (
-    forTask.find((item) => item.work_date === today && item.period === period) ||
-    forTask.find((item) => item.work_date === today) ||
-    forTask[0]
-  );
+  // Prefer today's update for narrative fields; otherwise fall back to the latest prior update.
+  return pickUpdateForDate(forTask, today) || forTask[0];
+}
+
+/** Logged hours are per calendar day. Previous days stay on that day's update; today starts at 0. */
+function loggedHoursForToday(task: Task, updates: DailyUpdate[]): number {
+  const todayUpdate = pickUpdateForDate(updatesForTask(task, updates), todayIso());
+  return Math.max(0, Number(todayUpdate?.hours_worked) || 0);
 }
 
 function visibleUsers(user: User): User[] {
@@ -248,6 +261,20 @@ function visibleUsers(user: User): User[] {
 
 export function canSeeAllDailyStatusRows(user: User) {
   return ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+/** Shared Daily Work Updates visibility: leadership sees every row; others see assigned/created tasks. */
+export function canSeeDailyStatusTask(user: User, task: Task): boolean {
+  if (task.is_milestone) return false;
+  if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') return false;
+  // Global shared sheet for CEO / Engineering Director / Arivan (PM) / admin.
+  if (canSeeAllDailyStatusRows(user)) return true;
+  return (
+    task.assigned_to_id === user.id ||
+    task.created_by_id === user.id ||
+    task.assigned_by_id === user.id ||
+    task.responsible_user_id === user.id
+  );
 }
 
 function scopedDailyStatusRows(user: User, rows: DailyStatusRow[]) {
@@ -264,12 +291,7 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
     .filter((item) => item.submission_status === 'SUBMITTED')
     .slice()
     .sort((a, b) => (b.submitted_at || b.updated_at).localeCompare(a.submitted_at || a.updated_at));
-  const visibleTasks = store.getTasks().filter((task) => {
-    if (task.is_milestone) return false;
-    if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') return false;
-    if (canSeeAllDailyStatusRows(user)) return canViewTask(user, task);
-    return task.assigned_to_id === user.id;
-  });
+  const visibleTasks = store.getTasks().filter((task) => canSeeDailyStatusTask(user, task));
   const visibleRootIds = new Set(visibleTasks.filter((task) => !task.parent_task_id).map((task) => task.id));
   // Nest children under visible parents even when the subtask assignee differs.
   const childrenByParent = new Map<string, Task[]>();
@@ -290,6 +312,7 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         users.find((item) => item.id === task.assigned_to_id) ||
         allUsers.find((item) => item.id === task.assigned_to_id);
       const update = latestUpdateForTask(task, updates);
+      const hoursToday = loggedHoursForToday(task, updates);
       const deps = dependencyIdsOf(task);
       const status = toSheetStatus(task.status === 'BLOCKED' ? 'WAITING' : task.status);
       const children = (childrenByParent.get(task.id) || []).slice().sort((a, b) => a.title.localeCompare(b.title));
@@ -338,9 +361,9 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         blocked: task.status === 'BLOCKED' || task.status === ('WAITING' as Task['status']),
         overdue: isOverdue(task),
         progressPercent,
-        hoursWorked: Math.max(0, Number(update?.hours_worked) || 0),
-        loggedHours: formatLoggedHours(update?.hours_worked),
-        workDate: update?.work_date,
+        hoursWorked: hoursToday,
+        loggedHours: formatLoggedHours(hoursToday),
+        workDate: pickUpdateForDate(updatesForTask(task, updates), todayIso())?.work_date || todayIso(),
         latestUpdateAt: update?.submitted_at || update?.updated_at || task.last_update_at,
         subtasks,
         hasSubtasks: subtasks.length > 0,
@@ -705,7 +728,7 @@ export function upsertLoggedHoursForTask(
 ): { ok: true; update: DailyUpdate } | { ok: false; error: string; status?: number } {
   const task = store.getTasks().find((item) => item.id === taskId);
   if (!task) return { ok: false, error: 'not_found', status: 404 };
-  if (!canViewTask(actor, task) && task.assigned_to_id !== actor.id) {
+  if (!canSeeDailyStatusTask(actor, task) && task.assigned_to_id !== actor.id) {
     return { ok: false, error: 'forbidden', status: 403 };
   }
   const period: SnapshotPeriod = inferDefaultEmailPeriod();
@@ -1047,17 +1070,13 @@ type DirectoryPerson = { id: string; name: string; displayName: string; email: s
 
 function isRemovedDirectoryPerson(user: { name?: string; email?: string }): boolean {
   const given = personGivenKey(user.name);
-  const haystack = String(user.name || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
   const local = String(user.email || '')
     .split('@')[0]
     .toLowerCase();
   const email = String(user.email || '').trim().toLowerCase();
-  const removed = new Set(['sanjay', 'aravind', 'fsd', 'fsdengineer', 'fsdengg', 'fsdengg1']);
-  if (removed.has(given) || removed.has(local) || email === 'fsdengg1@careyu.ai') return true;
-  if (haystack.includes('fsd') || local.includes('fsd')) return true;
-  return false;
+  // Only hide Sanjay / Aravind. Do not hide by "fsd*" email locals — live accounts
+  // use fsdlead1 (Arun) and fsdengg1 (Kabitha), and they must stay in pickers.
+  return given === 'sanjay' || given === 'aravind' || local === 'sanjay' || local === 'aravind' || email === 'sanjay@careyu.ai' || email === 'aravind@careyu.ai';
 }
 
 function toDirectoryPerson(user: User): DirectoryPerson {
@@ -1070,9 +1089,23 @@ function toDirectoryPerson(user: User): DirectoryPerson {
   };
 }
 
+const SHEET_PICKER_EMAILS = new Set([
+  'robottech@careyu.ai',
+  'fsdlead1@careyu.ai',
+  'arun@careyu.ai',
+  'kabitha@careyu.ai',
+  'fsdengg1@careyu.ai',
+  'raja@careyu.ai',
+  'projects@careyu.ai',
+]);
+
+const SHEET_PICKER_NAMES = new Set(['aakash', 'arun', 'kabitha', 'raja', 'vanippriya', 'vani']);
+
 export function directoryPeople(): DirectoryPerson[] {
   const active = store.getUsers().filter((user) => user.status === 'ACTIVE' && !isRemovedDirectoryPerson(user));
-  return dedupeByStableId(active, (user) => user.id).map(toDirectoryPerson);
+  return dedupeByStableId(active, (user) => user.id)
+    .map(toDirectoryPerson)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 /** People pickers for the sheet: directory + anyone already assigned or listed as a dependency. */
@@ -1080,29 +1113,58 @@ export function peopleForDailySheet(rows: DailyStatusRow[]): DirectoryPerson[] {
   const people = directoryPeople();
   const byId = new Map(people.map((person) => [person.id, person]));
 
+  const pushPerson = (entry: DirectoryPerson) => {
+    if (!entry.id || byId.has(entry.id)) return;
+    byId.set(entry.id, entry);
+    people.push(entry);
+  };
+
+  const ensureUser = (user: User) => {
+    if (isRemovedDirectoryPerson(user)) return;
+    pushPerson(toDirectoryPerson(user));
+  };
+
+  // Always keep known functional leads/members selectable (Aakash, Arun, …).
+  for (const user of store.getUsers()) {
+    if (user.status !== 'ACTIVE') continue;
+    const email = String(user.email || '').trim().toLowerCase();
+    const given = personGivenKey(user.name);
+    if (SHEET_PICKER_EMAILS.has(email) || SHEET_PICKER_NAMES.has(given) || user.role_code === 'TEAM_LEAD') {
+      ensureUser(user);
+    }
+  }
+
   const ensureId = (idRaw: string, fallbackName?: string) => {
     const id = String(idRaw || '').trim();
     if (!id || byId.has(id)) return;
     const user = store.getUsers().find((item) => item.id === id);
-    if (user && isRemovedDirectoryPerson(user)) return;
-    const entry: DirectoryPerson = user
-      ? toDirectoryPerson(user)
-      : {
-          id,
-          name: fallbackName || id,
-          displayName: formatEmployeeDisplayName(fallbackName || id),
-          email: '',
-          role_name: '',
-        };
-    byId.set(id, entry);
-    people.push(entry);
+    if (user) {
+      // Assignees/deps on the sheet must remain selectable even if directory hide rules change.
+      pushPerson(toDirectoryPerson(user));
+      return;
+    }
+    const byName = fallbackName
+      ? store.getUsers().find((item) => item.status === 'ACTIVE' && personGivenKey(item.name) === personGivenKey(fallbackName))
+      : undefined;
+    if (byName && !isRemovedDirectoryPerson(byName)) {
+      // Prefer the live directory person when the task points at an orphan id.
+      pushPerson(toDirectoryPerson(byName));
+    }
+    pushPerson({
+      id,
+      name: fallbackName || id,
+      displayName: formatEmployeeDisplayName(fallbackName || id),
+      email: '',
+      role_name: '',
+    });
   };
 
   for (const row of rows) {
     ensureId(row.personId, row.person);
     for (const depId of row.dependencyIds || []) ensureId(depId);
   }
-  return people;
+
+  return people.sort((a, b) => a.displayName.localeCompare(b.displayName));
 }
 
 export function visibleProjects(user: User): Project[] {

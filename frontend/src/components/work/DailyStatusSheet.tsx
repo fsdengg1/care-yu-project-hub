@@ -148,6 +148,35 @@ export default function DailyStatusSheet({
     return next;
   }, [visible]);
 
+  /** Keep everyone on the sheet (e.g. Aakash / Arun) selectable even if the API list is incomplete. */
+  const pickerPeople = useMemo(() => {
+    const byId = new Map(people.map((person) => [person.id, person]));
+    for (const row of rows) {
+      if (row.personId && !byId.has(row.personId)) {
+        byId.set(row.personId, {
+          id: row.personId,
+          name: row.person,
+          displayName: row.person,
+          email: '',
+          role_name: '',
+        });
+      }
+      for (const depId of row.dependencyIds || []) {
+        if (!depId || byId.has(depId)) continue;
+        byId.set(depId, {
+          id: depId,
+          name: depId,
+          displayName: depId,
+          email: '',
+          role_name: '',
+        });
+      }
+    }
+    return [...byId.values()].sort((a, b) =>
+      (a.displayName || a.name).localeCompare(b.displayName || b.name)
+    );
+  }, [people, rows]);
+
   const allSelected = visible.length > 0 && visible.every((row) => selectedIds.includes(row.id));
   const selectedVisible = selectedIds.filter((id) => visible.some((row) => row.id === id)).length;
   const canEditRow = (row: DailyStatusRow) =>
@@ -297,7 +326,7 @@ export default function DailyStatusSheet({
                         {canEditAll && !readOnly ? (
                           <UserDropdown
                             variant="sheet"
-                            people={people}
+                            people={pickerPeople}
                             value={group.personId}
                             fallbackLabel={group.person}
                             onChange={async (id) => {
@@ -430,7 +459,7 @@ export default function DailyStatusSheet({
                     {editable ? (
                       <DependencyMultiSelect
                         variant="sheet"
-                        people={people.filter((person) => person.id !== row.personId)}
+                        people={pickerPeople.filter((person) => person.id !== row.personId)}
                         value={row.dependencyIds}
                         onChange={(ids) => void onPatch(row.id, { depends_on_ids: ids })}
                       />

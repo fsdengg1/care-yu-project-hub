@@ -44,6 +44,8 @@ const ARAVIND_EMAIL = 'aravind@careyu.ai';
 const RAJA_EMAIL = 'raja@careyu.ai';
 const KABITHA_EMAIL = 'kabitha@careyu.ai';
 const ARUN_EMAIL = 'arun@careyu.ai';
+/** Live Software Team Lead login (seeded historically as fsdlead1). */
+const ARUN_LIVE_EMAIL = 'fsdlead1@careyu.ai';
 const REMOVED_DIRECTORY_NAMES = ['sanjay', 'aravind'] as const;
 
 function normalize(value: string) {
@@ -101,7 +103,13 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (email === robotEmail || local === 'aakash' || personGivenKey(nameRaw) === 'aakash') {
     return role('TEAM_LEAD', ROBOTICS_TEAM);
   }
-  if ((name.startsWith('arun') && !name.includes('arivan') && !name.includes('aravind')) || (local.startsWith('arun') && !local.startsWith('arivan') && !local.startsWith('aravind'))) {
+  if (
+    email === ARUN_EMAIL ||
+    email === ARUN_LIVE_EMAIL ||
+    local === 'fsdlead1' ||
+    (name.startsWith('arun') && !name.includes('arivan') && !name.includes('aravind')) ||
+    (local.startsWith('arun') && !local.startsWith('arivan') && !local.startsWith('aravind'))
+  ) {
     return role('TEAM_LEAD', SOFTWARE_TEAM);
   }
   if (name.includes('kabitha') || local.includes('kabitha') || email === KABITHA_EMAIL || personGivenKey(nameRaw) === 'kabitha') {
@@ -413,7 +421,7 @@ export async function ensureLiveDirectory() {
 
   users = await ensureEngineeringDirector(users);
   users = deactivateRemovedDirectoryPeople(users);
-  users = await ensureTeamPerson(users, { name: 'Arun', email: ARUN_EMAIL, matchName: 'arun', exactName: true });
+  users = await ensureTeamPerson(users, { name: 'Arun', email: ARUN_LIVE_EMAIL, matchName: 'arun', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Aakash', email: robotLeadEmail(), matchName: 'aakash', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Kabitha', email: KABITHA_EMAIL, matchName: 'kabitha', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });
