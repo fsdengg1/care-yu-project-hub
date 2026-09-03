@@ -133,7 +133,7 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'PROCUREMENT',
     name: 'Procurement / Costing Team',
     description: 'BOM Cost Estimation, Vendor Management, RFQ Processing & Logistics.',
-    team_lead_name: 'Sanjay',
+    team_lead_name: 'Not Assigned',
     member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'
@@ -143,7 +143,7 @@ export const INITIAL_TEAMS: Team[] = [
     code: 'EXECUTION',
     name: 'Execution Team',
     description: 'Site Assembly, Wiring, Panel Fabrication, Mechanical Integration & Commissioning.',
-    team_lead_name: 'Aravind',
+    team_lead_name: 'Not Assigned',
     member_count: 0,
     status: 'ACTIVE',
     created_at: '2026-01-10T09:00:00Z'

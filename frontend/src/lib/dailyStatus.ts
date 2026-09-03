@@ -27,6 +27,8 @@ export interface DailyStatusRow {
   dependencies: string;
   status: DailySheetStatus;
   currentDate: string;
+  startDate: string;
+  startDateIso?: string;
   deadline: string;
   deadlineIso?: string;
   reasonForDelay: string;

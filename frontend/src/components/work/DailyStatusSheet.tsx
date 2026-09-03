@@ -236,6 +236,7 @@ export default function DailyStatusSheet({
             <col className="col-deps" />
             <col className="col-status" />
             <col className="col-date" />
+            <col className="col-date" />
             <col className="col-deadline" />
             <col className="col-hours" />
             <col className="col-delay" />
@@ -258,6 +259,7 @@ export default function DailyStatusSheet({
               <th>Dependencies</th>
               <th>Status</th>
               <th>Current Date</th>
+              <th>Start Date</th>
               <th>Task Deadline</th>
               <th>Logged Hours</th>
               <th>Reason For Delay</th>
@@ -266,7 +268,7 @@ export default function DailyStatusSheet({
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={showSelect ? 10 : 9} className="py-10 text-center text-[#64748b]">
+                <td colSpan={showSelect ? 11 : 10} className="py-10 text-center text-[#64748b]">
                   No tasks found.
                 </td>
               </tr>
@@ -446,6 +448,18 @@ export default function DailyStatusSheet({
                   </td>
                   <td className="date-cell">
                     <input type="date" className="sheet-input sheet-date-input" value={isoToInput(row.currentDate) || today} readOnly tabIndex={-1} />
+                  </td>
+                  <td className="date-cell">
+                    {editable ? (
+                      <input
+                        type="date"
+                        className="sheet-input sheet-date-input"
+                        value={isoToInput(row.startDateIso || row.startDate)}
+                        onChange={(event) => void onPatch(row.id, { start_date: event.target.value || '' })}
+                      />
+                    ) : (
+                      row.startDate || '—'
+                    )}
                   </td>
                   <td className={`date-cell tone-cell ${deadlineCellClass(tone)}`}>
                     {editable ? (

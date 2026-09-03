@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 import { DailyUpdate, Project, Task, User } from '../types.js';
 import { canViewProject } from './dailyUpdates.js';
 import { canViewTask } from './workTasks.js';
-import { formatEmployeeDisplayName, dedupeByStableId } from './people.js';
+import { formatEmployeeDisplayName, dedupeByStableId, personGivenKey } from './people.js';
 import { sendEmail } from './email.js';
 
 export type DailySheetStatus = 'Yet to Start' | 'In Progress' | 'Waiting' | 'Completed' | 'Hold';
@@ -33,6 +33,8 @@ export interface DailyStatusRow {
   dependencies: string;
   status: DailySheetStatus;
   currentDate: string;
+  startDate: string;
+  startDateIso?: string;
   deadline: string;
   deadlineIso?: string;
   reasonForDelay: string;
@@ -322,6 +324,8 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         dependencies: formatDependencies(deps, users, update?.dependency),
         status,
         currentDate: formatSheetDate(todayIso()),
+        startDate: formatSheetDate(task.start_date),
+        startDateIso: task.start_date ? String(task.start_date).slice(0, 10) : undefined,
         deadline: formatSheetDate(task.due_date),
         deadlineIso: task.due_date ? String(task.due_date).slice(0, 10) : undefined,
         reasonForDelay: delayReason(task, update),
@@ -776,6 +780,7 @@ export function renderDailyStatusEmailHtml(params: {
           );
           const statusLabel = escapeHtml(row.status).replace(/ /g, '&nbsp;');
           const currentDate = escapeHtml(row.currentDate).replace(/-/g, '&#8209;');
+          const startDate = escapeHtml(row.startDate || '—').replace(/-/g, '&#8209;');
           const deadline = escapeHtml(row.deadline).replace(/-/g, '&#8209;');
           const hours = escapeHtml(row.loggedHours || formatLoggedHours(row.hoursWorked));
           return `<tr>
@@ -785,6 +790,7 @@ export function renderDailyStatusEmailHtml(params: {
         <td width="130" style="${depsCell}">${formatDepsHtml(row.dependencies)}</td>
         <td width="100" style="${statusCell}"><span style="display:inline-block;padding:4px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
         <td width="95" style="${dateCell}">${currentDate}</td>
+        <td width="95" style="${dateCell}">${startDate}</td>
         <td width="95" style="${dateCell}${deadlineStyle}">${deadline}</td>
         <td width="90" style="${hoursCell}">${hours}</td>
         <td width="150" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
@@ -793,7 +799,7 @@ export function renderDailyStatusEmailHtml(params: {
         .join('')
     )
     .join('');
-  const empty = `<tr><td colspan="9" style="${cell}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
+  const empty = `<tr><td colspan="10" style="${cell}text-align:center;color:#64748b;">No tasks found.</td></tr>`;
   const html = `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8" /><title>${escapeHtml(subject)}</title></head>
@@ -801,7 +807,7 @@ export function renderDailyStatusEmailHtml(params: {
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F7FB;padding:24px 12px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="1280" cellspacing="0" cellpadding="0" style="width:1280px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;">
+        <table role="presentation" width="1375" cellspacing="0" cellpadding="0" style="width:1375px;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;">
           <tr>
             <td style="background:#0B1F3A;padding:18px 22px;color:#ffffff;border-radius:12px 12px 0 0;">
               <div style="font-size:11px;letter-spacing:0.12em;text-transform:uppercase;color:#facc15;">CareYu Automation</div>
@@ -817,7 +823,7 @@ export function renderDailyStatusEmailHtml(params: {
           </tr>
           <tr>
             <td style="padding:8px 16px 24px;">
-              <table role="presentation" width="1280" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:1280px;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">
+              <table role="presentation" width="1375" cellspacing="0" cellpadding="0" style="border-collapse:collapse;width:1375px;table-layout:fixed;mso-table-lspace:0pt;mso-table-rspace:0pt;">
                 <thead>
                   <tr>
                     <th width="110" style="${headerCell}">Person</th>
@@ -826,6 +832,7 @@ export function renderDailyStatusEmailHtml(params: {
                     <th width="130" style="${headerCell}">Dependencies</th>
                     <th width="100" style="${headerCell}">Status</th>
                     <th width="95" style="${headerCell}">Current Date</th>
+                    <th width="95" style="${headerCell}">Start Date</th>
                     <th width="95" style="${headerCell}">Task Deadline</th>
                     <th width="90" style="${headerCell}">Logged Hours</th>
                     <th width="150" style="${headerCell}">Reason For Delay</th>
@@ -858,7 +865,7 @@ export function renderDailyStatusEmailHtml(params: {
     '',
     ...sorted.map(
       (row) =>
-        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.currentDate} | ${row.deadline} | ${row.loggedHours || formatLoggedHours(row.hoursWorked)} | ${row.reasonForDelay}`
+        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.currentDate} | ${row.startDate || '—'} | ${row.deadline} | ${row.loggedHours || formatLoggedHours(row.hoursWorked)} | ${row.reasonForDelay}`
     ),
     '',
     'Regards,',
@@ -953,10 +960,17 @@ export function restoreDailyStatusReport(): {
 }
 
 export function directoryPeople(): Array<{ id: string; name: string; displayName: string; email: string; role_name: string }> {
-  return dedupeByStableId(
-    store.getUsers().filter((user) => user.status === 'ACTIVE'),
-    (user) => user.id
-  ).map((user) => ({
+  const removed = new Set(['sanjay', 'aravind']);
+  const active = store.getUsers().filter((user) => {
+    if (user.status !== 'ACTIVE') return false;
+    const given = personGivenKey(user.name);
+    const local = String(user.email || '')
+      .split('@')[0]
+      .toLowerCase();
+    if (removed.has(given) || removed.has(local)) return false;
+    return true;
+  });
+  return dedupeByStableId(active, (user) => user.id).map((user) => ({
     id: user.id,
     name: user.name,
     displayName: formatEmployeeDisplayName(user),

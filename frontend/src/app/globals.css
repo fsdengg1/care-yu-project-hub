@@ -278,7 +278,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet {
   width: 100%;
-  min-width: 1680px;
+  min-width: 1808px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #ffffff;
@@ -357,7 +357,8 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  text-align: left;
+  text-align: center;
+  vertical-align: middle;
   border: 1px solid #d4a017;
   padding: 10px 8px;
   white-space: nowrap;

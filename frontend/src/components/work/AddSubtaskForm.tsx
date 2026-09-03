@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { TasksApi } from '@/lib/tasksApi';
 import { DailyStatusPerson, DailyStatusRow, DailyStatusSubtask, parseSheetDate, toSheetStatus } from '@/lib/dailyStatus';
+import { Task } from '@/lib/types';
 
 export type EditableSubtask = {
   id: string;
@@ -11,10 +12,10 @@ export type EditableSubtask = {
   description?: string;
   assignedToId: string;
   dueDate?: string;
-  status: string;
+  status: Task['status'];
 };
 
-function statusToApi(status: string): string {
+function statusToApi(status: string): Task['status'] {
   const sheet = toSheetStatus(status);
   if (sheet === 'Completed') return 'DONE';
   if (sheet === 'In Progress') return 'IN_PROGRESS';
@@ -60,7 +61,7 @@ export default function AddSubtaskForm({
   const [description, setDescription] = useState(editing?.description || '');
   const [assignedToId, setAssignedToId] = useState(editing?.assignedToId || currentUserId);
   const [dueDate, setDueDate] = useState(editing?.dueDate || '');
-  const [status, setStatus] = useState(editing?.status || 'TODO');
+  const [status, setStatus] = useState<Task['status']>(editing?.status || 'TODO');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -191,7 +192,7 @@ export default function AddSubtaskForm({
               Status
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value)}
+                onChange={(e) => setStatus(e.target.value as Task['status'])}
                 className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
               >
                 <option value="TODO">Pending</option>

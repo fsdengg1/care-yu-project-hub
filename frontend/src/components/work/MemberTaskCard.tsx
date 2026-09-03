@@ -392,6 +392,8 @@ export default function MemberTaskCard({
             <button onClick={() => setIssueOpen(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancel</button>
           </div>
         </div>
+      ) : null}
+
       {assignment.parent_task_id && assignment.task_id && (viewOnly || blocked) ? (
         <div className="mt-4 flex flex-wrap gap-2">
           <button
@@ -444,7 +446,7 @@ export default function MemberTaskCard({
 
       {editSubtaskOpen && editingSubtask ? (
         <AddSubtaskForm
-          parents={parents.length ? parents : [{ id: editingSubtask.parentId, personId: assignment.assigned_to_id, person: assignment.assigned_to, project: assignment.project_name, projectId: assignment.project_id, taskDescription: assignment.task_title, dependencyIds: [], dependencies: '', status: 'In Progress', currentDate: '', deadline: '', reasonForDelay: '', isAdditional: false, progressPercent: 0 }]}
+          parents={parents.length ? parents : [{ id: editingSubtask.parentId, personId: assignment.assigned_to_id, person: assignment.assigned_to, project: assignment.project_name, projectId: assignment.project_id, taskDescription: assignment.task_title, dependencyIds: [], dependencies: '', status: 'In Progress', currentDate: '', startDate: '', deadline: '', reasonForDelay: '', isAdditional: false, progressPercent: 0 }]}
           people={people.length ? people : [{ id: assignment.assigned_to_id, name: assignment.assigned_to, displayName: assignment.assigned_to, email: '', role_name: '' }]}
           currentUserId={assignment.assigned_to_id}
           canAssignOthers={canAssignOthers}

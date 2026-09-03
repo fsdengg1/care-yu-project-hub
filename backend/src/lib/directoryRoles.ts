@@ -2,6 +2,7 @@ import { env } from '../config/env.js';
 import { store } from '../store/db.js';
 import { User } from '../types.js';
 import { hashPassword, verifyPassword } from './password.js';
+import { personGivenKey } from './people.js';
 import { projectManagerEmail } from './projectManagerAccount.js';
 import { robotLeadEmail } from './robotLead.js';
 
@@ -40,6 +41,8 @@ const EXECUTION_TEAM = { team_id: 't-execution', team_name: 'Execution Team' };
 
 const SANJAY_EMAIL = 'sanjay@careyu.ai';
 const ARAVIND_EMAIL = 'aravind@careyu.ai';
+const RAJA_EMAIL = 'raja@careyu.ai';
+const REMOVED_DIRECTORY_NAMES = ['sanjay', 'aravind'] as const;
 
 function normalize(value: string) {
   return value.trim().toLowerCase();
@@ -105,11 +108,14 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (name.includes('vani') || local.includes('vani')) {
     return role('TEAM_LEAD', VISION_TEAM);
   }
-  if (name.includes('sanjay') || local.includes('sanjay') || email === SANJAY_EMAIL) {
+  if (name.includes('sanjay') || local.includes('sanjay') || email === SANJAY_EMAIL || personGivenKey(nameRaw) === 'sanjay') {
     return role('PROCUREMENT', PROCUREMENT_TEAM);
   }
-  if (name.includes('aravind') || local.includes('aravind') || email === ARAVIND_EMAIL) {
+  if (name.includes('aravind') || local.includes('aravind') || email === ARAVIND_EMAIL || personGivenKey(nameRaw) === 'aravind') {
     return role('EXECUTION', EXECUTION_TEAM);
+  }
+  if (email === RAJA_EMAIL || local === 'raja' || personGivenKey(nameRaw) === 'raja') {
+    return role('EMPLOYEE', SOFTWARE_TEAM);
   }
   return null;
 }
@@ -330,15 +336,26 @@ async function ensureEngineeringDirector(users: User[]): Promise<User[]> {
 
 async function ensureTeamPerson(
   users: User[],
-  spec: { name: string; email: string; matchName: string }
+  spec: { name: string; email: string; matchName: string; exactName?: boolean }
 ): Promise<User[]> {
   const existing = users.find((user) => {
-    const name = nameHaystack(user.name);
+    const given = personGivenKey(user.name);
     const email = normalize(user.email);
-    return name.includes(spec.matchName) || email === spec.email || emailLocal(email).includes(spec.matchName);
+    if (email === spec.email) return true;
+    if (spec.exactName) return given === spec.matchName || emailLocal(email) === spec.matchName;
+    return given.includes(spec.matchName) || emailLocal(email).includes(spec.matchName);
   });
   if (existing) {
-    return users.map((user) => (user.id === existing.id ? applyDirectoryPlacement({ ...user, name: existing.name }) : user));
+    return users.map((user) =>
+      user.id === existing.id
+        ? applyDirectoryPlacement({
+            ...user,
+            name: spec.name,
+            status: 'ACTIVE',
+            account_status: 'ACTIVE',
+          })
+        : user
+    );
   }
 
   const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER');
@@ -365,13 +382,39 @@ async function ensureTeamPerson(
   return [...users, ready];
 }
 
+/** Hide Sanjay / Aravind (and name duplicates) from daily-updates people pickers. */
+function deactivateRemovedDirectoryPeople(users: User[]): User[] {
+  const now = new Date().toISOString();
+  return users.map((user) => {
+    const given = personGivenKey(user.name);
+    const email = normalize(user.email);
+    const local = emailLocal(email);
+    const hit = REMOVED_DIRECTORY_NAMES.some(
+      (key) =>
+        given === key ||
+        given.startsWith(key) ||
+        local === key ||
+        local.startsWith(key) ||
+        email === `${key}@careyu.ai`
+    );
+    if (!hit) return user;
+    if (user.status === 'INACTIVE' && user.account_status === 'DISABLED') return user;
+    return {
+      ...user,
+      status: 'INACTIVE',
+      account_status: 'DISABLED',
+      updated_at: now,
+    };
+  });
+}
+
 export async function ensureLiveDirectory() {
   const original = store.getUsers();
   let users = original.map((user) => applyDirectoryPlacement(user));
 
   users = await ensureEngineeringDirector(users);
-  users = await ensureTeamPerson(users, { name: 'Sanjay', email: SANJAY_EMAIL, matchName: 'sanjay' });
-  users = await ensureTeamPerson(users, { name: 'Aravind', email: ARAVIND_EMAIL, matchName: 'aravind' });
+  users = deactivateRemovedDirectoryPeople(users);
+  users = await ensureTeamPerson(users, { name: 'Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });
   users = await ensureTeamPerson(users, { name: 'FSD Engineer', email: FSD_ENGG1_EMAIL, matchName: 'fsdengg' });
 
   const repaired: User[] = [];
@@ -398,6 +441,9 @@ export async function ensureLiveDirectory() {
         prev.role_name !== user.role_name ||
         prev.password_hash !== user.password_hash ||
         prev.email !== user.email ||
+        prev.name !== user.name ||
+        prev.status !== user.status ||
+        prev.account_status !== user.account_status ||
         prev.team_id !== user.team_id ||
         prev.team_name !== user.team_name ||
         prev.team_lead_id !== user.team_lead_id ||
@@ -411,6 +457,7 @@ export async function ensureLiveDirectory() {
       users: users.map((user) => ({
         name: user.name,
         role: user.role_code,
+        status: user.status,
         team: user.team_name || null,
         manager: user.reporting_manager_name || null,
       })),

@@ -23,6 +23,7 @@ const MALE_GIVEN_NAMES = new Set([
   'sanjay',
   'aravind',
   'bernard',
+  'raja',
 ]);
 
 const HONORIFIC_RE = /^(mr|mrs|ms|miss|dr)\.?\s+/i;
