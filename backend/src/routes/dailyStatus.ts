@@ -216,7 +216,7 @@ router.get(
       config,
       timezone: config.timezone || env.appTimezone,
       schedule: [
-        { slot: 'noon', time: '12:00 PM', enabled: config.sendAtNoon },
+        { slot: 'noon', time: '11:15 AM', enabled: config.sendAtNoon },
         { slot: 'evening', time: '7:15 PM', enabled: config.sendAtEvening },
       ],
     });

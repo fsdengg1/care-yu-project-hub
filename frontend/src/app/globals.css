@@ -422,6 +422,43 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   overflow-wrap: normal;
 }
 
+/* Deadline tones — must beat `.daily-status-sheet td { background }` (mail uses the same colors inline). */
+.daily-status-sheet td.tone-cell.tone-completed {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  font-weight: 700;
+}
+
+.daily-status-sheet td.tone-cell.tone-hold {
+  background: #fde68a !important;
+  color: #78350f !important;
+  font-weight: 700;
+}
+
+.daily-status-sheet td.tone-cell.tone-delay-1 {
+  background: #dc2626 !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+.daily-status-sheet td.tone-cell.tone-delay-2plus {
+  background: #0f172a !important;
+  color: #ffffff !important;
+  font-weight: 700;
+}
+
+.daily-status-sheet td.tone-cell.tone-delay-1 .sheet-input,
+.daily-status-sheet td.tone-cell.tone-delay-2plus .sheet-input {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.daily-status-sheet td.tone-cell.tone-completed .sheet-input,
+.daily-status-sheet td.tone-cell.tone-hold .sheet-input {
+  color: inherit;
+  font-weight: inherit;
+}
+
 .daily-status-sheet td.hours-cell {
   min-width: 120px;
   white-space: nowrap;

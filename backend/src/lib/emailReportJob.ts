@@ -54,7 +54,7 @@ export function startEmailReportScheduler() {
   ensureDefaultScheduleConfig();
 
   cron.schedule(
-    '0 12 * * *',
+    '15 11 * * *',
     () => {
       void runSlot('noon');
     },
@@ -70,6 +70,6 @@ export function startEmailReportScheduler() {
   );
 
   console.log(
-    `[scheduler] email report jobs started (12:00 and 19:15, timezone=${timezone})`
+    `[scheduler] email report jobs started (11:15 and 19:15, timezone=${timezone})`
   );
 }

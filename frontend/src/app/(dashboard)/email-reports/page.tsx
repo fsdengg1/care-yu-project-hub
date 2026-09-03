@@ -148,7 +148,7 @@ export default function EmailReportsPage() {
         <p className="mt-1 text-slate-400">
           Mail reports use the same Daily Work Updates sheet (Person, Project, Task Description, and related
           columns). Titles switch automatically: Morning until 4:00 PM, Evening from 4:00 PM.
-          Automatic sends run on the server at 12:00 PM and 7:15 PM ({schedule.timezone || 'Asia/Kolkata'}).
+          Automatic sends run on the server at 11:15 AM and 7:15 PM ({schedule.timezone || 'Asia/Kolkata'}).
         </p>
 
         <div className="mt-4 grid gap-3 rounded-xl border border-cyan-800/60 bg-slate-950/70 p-4 md:grid-cols-2">
@@ -371,7 +371,7 @@ export default function EmailReportsPage() {
               onChange={(e) => setSchedule((prev) => ({ ...prev, sendAtNoon: e.target.checked }))}
               className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-cyan-600"
             />
-            12:00 PM — 12:00 PM Daily Report
+            11:15 AM — 11:15 AM Daily Report
           </label>
           <label className="flex items-center gap-2">
             <input

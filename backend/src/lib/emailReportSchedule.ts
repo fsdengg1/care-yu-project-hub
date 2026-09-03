@@ -54,10 +54,10 @@ const SLOT_META: Record<
   { timeLabel: string; cronHint: string; period: SnapshotPeriod; reportLabel: string }
 > = {
   noon: {
-    timeLabel: '12:00 PM',
-    cronHint: '0 12 * * *',
+    timeLabel: '11:15 AM',
+    cronHint: '15 11 * * *',
     period: 'morning',
-    reportLabel: '12:00 PM Daily Report',
+    reportLabel: '11:15 AM Daily Report',
   },
   evening: {
     timeLabel: '7:15 PM',
@@ -320,7 +320,7 @@ export async function sendConfiguredEmailReport(params: {
             updatedAt: new Date().toISOString(),
             source: params.source,
           } satisfies EmailReportHistoryEntry),
-        message: '12:00 PM schedule is disabled.',
+        message: '11:15 AM schedule is disabled.',
       };
     }
     if (params.slot === 'evening' && !config.sendAtEvening) {

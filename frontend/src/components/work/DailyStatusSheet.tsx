@@ -7,6 +7,7 @@ import {
   DailyStatusRow,
   DailyStatusSubtask,
   deadlineCellClass,
+  deadlineCellStyle,
   deadlineTone,
   parseSheetDate,
 } from '@/lib/dailyStatus';
@@ -456,12 +457,12 @@ export default function DailyStatusSheet({
                       row.startDate || '—'
                     )}
                   </td>
-                  <td className={`date-cell tone-cell ${deadlineCellClass(tone)}`}>
+                  <td className={`date-cell tone-cell ${deadlineCellClass(tone)}`} style={deadlineCellStyle(tone)}>
                     {editable ? (
                       <input
                         type="date"
                         className="sheet-input sheet-date-input"
-                        style={{ color: 'inherit', fontWeight: 'inherit' }}
+                        style={{ color: 'inherit', fontWeight: 'inherit', background: 'transparent' }}
                         value={isoToInput(row.deadlineIso || row.deadline)}
                         onChange={(event) => void onPatch(row.id, { due_date: event.target.value || '' })}
                       />

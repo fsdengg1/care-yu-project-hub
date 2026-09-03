@@ -43,6 +43,7 @@ const SANJAY_EMAIL = 'sanjay@careyu.ai';
 const ARAVIND_EMAIL = 'aravind@careyu.ai';
 const RAJA_EMAIL = 'raja@careyu.ai';
 const KABITHA_EMAIL = 'kabitha@careyu.ai';
+const ARUN_EMAIL = 'arun@careyu.ai';
 const REMOVED_DIRECTORY_NAMES = ['sanjay', 'aravind'] as const;
 
 function normalize(value: string) {
@@ -393,9 +394,9 @@ function deactivateRemovedDirectoryPeople(users: User[]): User[] {
     const hit = REMOVED_DIRECTORY_NAMES.some(
       (key) =>
         given === key ||
-        given.startsWith(key) ||
+        (given.length > key.length && given.startsWith(key)) ||
         local === key ||
-        local.startsWith(key) ||
+        (local.length > key.length && local.startsWith(key)) ||
         email === `${key}@careyu.ai`
     );
     if (!hit) return user;
@@ -415,6 +416,7 @@ export async function ensureLiveDirectory() {
 
   users = await ensureEngineeringDirector(users);
   users = deactivateRemovedDirectoryPeople(users);
+  users = await ensureTeamPerson(users, { name: 'Arun', email: ARUN_EMAIL, matchName: 'arun', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Aakash', email: robotLeadEmail(), matchName: 'aakash', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Kabitha', email: KABITHA_EMAIL, matchName: 'kabitha', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });

@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react';
+
 export type DailySheetStatus = 'Yet to Start' | 'In Progress' | 'Waiting' | 'Completed' | 'Hold';
 export type SnapshotPeriod = 'morning' | 'evening';
 
@@ -125,11 +127,11 @@ export function deadlineTone(status: string, deadline?: string, today?: string):
 }
 
 export function deadlineCellClass(tone: DeadlineTone): string {
-  if (tone === 'completed') return 'bg-[#dcfce7] text-[#166534] font-semibold';
-  if (tone === 'hold') return 'bg-[#fde68a] text-[#78350f] font-semibold';
-  if (tone === 'delay-1') return 'bg-[#dc2626] text-white font-semibold';
-  if (tone === 'delay-2plus') return 'bg-[#0f172a] text-white font-semibold';
-  return 'bg-transparent text-[#0f172a]';
+  if (tone === 'completed') return 'tone-completed bg-[#dcfce7] text-[#166534] font-semibold';
+  if (tone === 'hold') return 'tone-hold bg-[#fde68a] text-[#78350f] font-semibold';
+  if (tone === 'delay-1') return 'tone-delay-1 bg-[#dc2626] text-white font-semibold';
+  if (tone === 'delay-2plus') return 'tone-delay-2plus bg-[#0f172a] text-white font-semibold';
+  return 'tone-normal bg-transparent text-[#0f172a]';
 }
 
 export function deadlineInlineStyle(tone: DeadlineTone): string {
@@ -138,6 +140,15 @@ export function deadlineInlineStyle(tone: DeadlineTone): string {
   if (tone === 'delay-1') return 'background:#dc2626;color:#ffffff;font-weight:700;';
   if (tone === 'delay-2plus') return 'background:#0f172a;color:#ffffff;font-weight:700;';
   return '';
+}
+
+/** React style object — beats sheet CSS the same way mail inline styles do. */
+export function deadlineCellStyle(tone: DeadlineTone): CSSProperties | undefined {
+  if (tone === 'completed') return { background: '#dcfce7', color: '#166534', fontWeight: 700 };
+  if (tone === 'hold') return { background: '#fde68a', color: '#78350f', fontWeight: 700 };
+  if (tone === 'delay-1') return { background: '#dc2626', color: '#ffffff', fontWeight: 700 };
+  if (tone === 'delay-2plus') return { background: '#0f172a', color: '#ffffff', fontWeight: 700 };
+  return undefined;
 }
 
 export type CompareKind =

@@ -412,7 +412,7 @@ export function loadMailedOrSnapshotRows(date: string, period: SnapshotPeriod): 
 
 function inferPeriodFromSubject(subject: string): SnapshotPeriod | null {
   if (/7:15|7\.15\s*pm|evening/i.test(subject)) return 'evening';
-  if (/12:00|12\s*pm|noon|morning/i.test(subject)) return 'morning';
+  if (/11:15|11\.15\s*am|12:00|12\s*pm|noon|morning/i.test(subject)) return 'morning';
   return null;
 }
 
