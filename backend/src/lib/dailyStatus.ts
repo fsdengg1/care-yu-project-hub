@@ -51,6 +51,8 @@ export interface DailyStatusRow {
   eveningStatus?: DailySheetStatus;
   subtasks?: DailyStatusSubtask[];
   hasSubtasks?: boolean;
+  /** Hidden from the default Daily Work Updates view on every dashboard. */
+  sheetHidden?: boolean;
 }
 
 export interface DailyStatusKpis {
@@ -158,10 +160,10 @@ function deadlineInlineStyle(tone: DeadlineTone): string {
   return '';
 }
 
-function isOverdue(task: Task): boolean {
+function isOverdue(task: Task, asOf = todayIso()): boolean {
   if (!task.due_date) return false;
   if (task.status === 'DONE' || task.status === ('HOLD' as Task['status'])) return false;
-  return task.due_date < todayIso();
+  return task.due_date < asOf;
 }
 
 function delayReason(task: Task, update?: DailyUpdate): string {
@@ -230,26 +232,42 @@ function updatesForTask(task: Task, updates: DailyUpdate[]): DailyUpdate[] {
   );
 }
 
-function pickUpdateForDate(forTask: DailyUpdate[], workDate: string): DailyUpdate | undefined {
+function pickUpdateForDate(
+  forTask: DailyUpdate[],
+  workDate: string,
+  period?: SnapshotPeriod
+): DailyUpdate | undefined {
   if (!forTask.length) return undefined;
   const onDate = forTask.filter((item) => item.work_date === workDate);
   if (!onDate.length) return undefined;
-  const period = inferDefaultEmailPeriod();
-  return onDate.find((item) => item.period === period) || onDate[0];
+  const preferred = period || inferDefaultEmailPeriod();
+  return onDate.find((item) => item.period === preferred) || onDate[0];
 }
 
-function latestUpdateForTask(task: Task, updates: DailyUpdate[]): DailyUpdate | undefined {
+function latestUpdateForTask(
+  task: Task,
+  updates: DailyUpdate[],
+  workDate = todayIso(),
+  period?: SnapshotPeriod
+): DailyUpdate | undefined {
   const forTask = updatesForTask(task, updates);
   if (!forTask.length) return undefined;
-  const today = todayIso();
-  // Prefer today's update for narrative fields; otherwise fall back to the latest prior update.
-  return pickUpdateForDate(forTask, today) || forTask[0];
+  const onDate = pickUpdateForDate(forTask, workDate, period);
+  if (onDate) return onDate;
+  // Today: fall back to the latest prior update for narrative fields.
+  if (workDate === todayIso()) return forTask[0];
+  return undefined;
 }
 
-/** Logged hours are per calendar day. Previous days stay on that day's update; today starts at 0. */
-function loggedHoursForToday(task: Task, updates: DailyUpdate[]): number {
-  const todayUpdate = pickUpdateForDate(updatesForTask(task, updates), todayIso());
-  return Math.max(0, Number(todayUpdate?.hours_worked) || 0);
+/** Logged hours are per calendar day. A day with no log is 0. */
+function loggedHoursForDate(
+  task: Task,
+  updates: DailyUpdate[],
+  workDate: string,
+  period?: SnapshotPeriod
+): number {
+  const dayUpdate = pickUpdateForDate(updatesForTask(task, updates), workDate, period);
+  return Math.max(0, Number(dayUpdate?.hours_worked) || 0);
 }
 
 function visibleUsers(user: User): User[] {
@@ -282,7 +300,16 @@ function scopedDailyStatusRows(user: User, rows: DailyStatusRow[]) {
   return rows.filter((row) => row.personId === user.id);
 }
 
-export function buildDailyStatusRows(user: User): DailyStatusRow[] {
+export function visibleSheetRows(rows: DailyStatusRow[]) {
+  return rows.filter((row) => !row.sheetHidden);
+}
+
+export function buildDailyStatusRows(
+  user: User,
+  options?: { date?: string; period?: SnapshotPeriod }
+): DailyStatusRow[] {
+  const workDate = options?.date && /^\d{4}-\d{2}-\d{2}$/.test(options.date) ? options.date : todayIso();
+  const period = options?.period;
   const users = visibleUsers(user);
   const allUsers = store.getUsers();
   const projects = store.getProjects();
@@ -311,8 +338,8 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
       const assignee =
         users.find((item) => item.id === task.assigned_to_id) ||
         allUsers.find((item) => item.id === task.assigned_to_id);
-      const update = latestUpdateForTask(task, updates);
-      const hoursToday = loggedHoursForToday(task, updates);
+      const update = latestUpdateForTask(task, updates, workDate, period);
+      const hoursToday = loggedHoursForDate(task, updates, workDate, period);
       const deps = dependencyIdsOf(task);
       const status = toSheetStatus(task.status === 'BLOCKED' ? 'WAITING' : task.status);
       const children = (childrenByParent.get(task.id) || []).slice().sort((a, b) => a.title.localeCompare(b.title));
@@ -351,7 +378,7 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         dependencyIds: deps,
         dependencies: formatDependencies(deps, allUsers, update?.dependency),
         status,
-        currentDate: formatSheetDate(todayIso()),
+        currentDate: formatSheetDate(workDate),
         startDate: formatSheetDate(task.start_date),
         startDateIso: task.start_date ? String(task.start_date).slice(0, 10) : undefined,
         deadline: formatSheetDate(task.due_date),
@@ -359,20 +386,21 @@ export function buildDailyStatusRows(user: User): DailyStatusRow[] {
         reasonForDelay: delayReason(task, update),
         isAdditional: Boolean(task.is_additional),
         blocked: task.status === 'BLOCKED' || task.status === ('WAITING' as Task['status']),
-        overdue: isOverdue(task),
+        overdue: isOverdue(task, workDate),
         progressPercent,
         hoursWorked: hoursToday,
         loggedHours: formatLoggedHours(hoursToday),
-        workDate: pickUpdateForDate(updatesForTask(task, updates), todayIso())?.work_date || todayIso(),
+        workDate: pickUpdateForDate(updatesForTask(task, updates), workDate, period)?.work_date || workDate,
         latestUpdateAt: update?.submitted_at || update?.updated_at || task.last_update_at,
         subtasks,
         hasSubtasks: subtasks.length > 0,
+        sheetHidden: Boolean(task.sheet_hidden),
       } satisfies DailyStatusRow;
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
 }
 
-export function buildDailyStatusKpis(user: User, rows = buildDailyStatusRows(user)): DailyStatusKpis {
+export function buildDailyStatusKpis(user: User, rows = visibleSheetRows(buildDailyStatusRows(user))): DailyStatusKpis {
   const today = todayIso();
   const summaryUpdates = store.getDailyUpdates().filter((item) => item.work_date === today && item.submission_status === 'SUBMITTED');
   const visibleProjectIds = new Set(
@@ -393,7 +421,7 @@ function snapshotId(date: string, period: SnapshotPeriod) {
 }
 
 export function saveDailyStatusSnapshot(user: User, period: SnapshotPeriod, date = todayIso()) {
-  const rows = buildDailyStatusRows(user);
+  const rows = visibleSheetRows(buildDailyStatusRows(user, { date, period }));
   return persistDailyStatusSnapshot(date, period, rows, user.id);
 }
 
@@ -562,15 +590,13 @@ export function rowsForPeriod(user: User, period: SnapshotPeriod, date = todayIs
   source: 'snapshot' | 'live';
   available: boolean;
 } {
-  const today = todayIso();
-  // Today: always use the live Daily Work Updates sheet so mail/preview matches
-  // the hub after edits. Sending still freezes a snapshot for Compare.
-  if (date === today) {
-    return { rows: buildDailyStatusRows(user), source: 'live', available: true };
-  }
-  const snap = loadMailedOrSnapshotRows(date, period);
-  if (snap) return { rows: scopedDailyStatusRows(user, snap), source: 'snapshot', available: true };
-  return { rows: [], source: 'snapshot', available: false };
+  // One source of truth: the same Daily Work Updates builder used by the hub,
+  // for the selected calendar date (hidden tasks stay out of mail).
+  return {
+    rows: visibleSheetRows(buildDailyStatusRows(user, { date, period })),
+    source: 'live',
+    available: true,
+  };
 }
 
 export type CompareKind =
@@ -662,7 +688,7 @@ export function compareSnapshots(
   // Today: evening side always tracks the live sheet so latest hub edits show in Compare
   // (morning stays frozen from Morning save/mail).
   if (resolved === today) {
-    eveningRaw = buildDailyStatusRows(user);
+    eveningRaw = visibleSheetRows(buildDailyStatusRows(user, { date: resolved, period: 'evening' }));
   }
   // Previous day: if evening mail/snapshot is missing, rebuild from that day's submitted updates.
   if ((!eveningRaw || !eveningRaw.length) && resolved < today && morningRaw?.length) {
@@ -726,11 +752,12 @@ export function compareSnapshots(
   return { items, available: true, date: resolved };
 }
 
-/** Upsert today's morning/evening DailyUpdate hours for a task from the sheet. */
+/** Upsert morning/evening DailyUpdate hours for a task on the selected work date. */
 export function upsertLoggedHoursForTask(
   actor: User,
   taskId: string,
-  hoursWorked: number
+  hoursWorked: number,
+  workDate = todayIso()
 ): { ok: true; update: DailyUpdate } | { ok: false; error: string; status?: number } {
   const task = store.getTasks().find((item) => item.id === taskId);
   if (!task) return { ok: false, error: 'not_found', status: 404 };
@@ -738,14 +765,14 @@ export function upsertLoggedHoursForTask(
     return { ok: false, error: 'forbidden', status: 403 };
   }
   const period: SnapshotPeriod = inferDefaultEmailPeriod();
-  const workDate = todayIso();
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(workDate) ? workDate : todayIso();
   const hours = Math.max(0, Number(hoursWorked) || 0);
   const now = new Date().toISOString();
   const updates = store.getDailyUpdates();
   const existing = updates.find(
     (item) =>
       item.task_id === taskId &&
-      item.work_date === workDate &&
+      item.work_date === date &&
       item.period === period &&
       item.user_id === (task.assigned_to_id || actor.id)
   );
@@ -775,7 +802,7 @@ export function upsertLoggedHoursForTask(
     project_name: project?.name || task.project_name || '—',
     customer_name: project?.customer_name || '',
     task_title: task.title,
-    work_date: workDate,
+    work_date: date,
     work_completed: task.description || task.title,
     progress_percent: task.progress_percent ?? 0,
     hours_worked: hours,

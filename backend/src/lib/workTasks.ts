@@ -397,7 +397,19 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   const project = current.project_id ? store.getProjects().find((item) => item.id === current.project_id) : undefined;
   const isProjectTeamLead = user.role_code === 'TEAM_LEAD' && Boolean(project && project.team_lead_id === user.id);
   const canExecute = current.assigned_to_id === user.id || canManage || isProjectTeamLead || ownAdditional;
-  if (!canExecute) return { error: 'forbidden' as const };
+  const canToggleHidden =
+    canExecute || ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+  if (!canExecute) {
+    if (!canToggleHidden || body.sheet_hidden === undefined) return { error: 'forbidden' as const };
+    const nextHidden: Task = {
+      ...current,
+      sheet_hidden: Boolean(body.sheet_hidden),
+      updated_at: new Date().toISOString(),
+    };
+    tasks[index] = nextHidden;
+    store.saveTasks(tasks);
+    return { task: nextHidden };
+  }
   if (
     current.review_status === 'PENDING_TL_REVIEW' &&
     current.assigned_to_id === user.id &&
@@ -425,6 +437,8 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     if (body.title) next.title = String(body.title).trim();
     if (body.description !== undefined) next.description = String(body.description);
     if (body.due_date !== undefined) next.due_date = String(body.due_date || '') || undefined;
+    if (body.start_date !== undefined) next.start_date = String(body.start_date || '') || undefined;
+    if (body.sheet_hidden !== undefined) next.sheet_hidden = Boolean(body.sheet_hidden);
     if (body.project_name !== undefined || body.project_id !== undefined) {
       const resolved = resolveProjectFromBody(body);
       if (resolved.project) {
@@ -445,7 +459,6 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   }
   if (canManage) {
     if (body.priority) next.priority = body.priority as Task['priority'];
-    if (body.start_date !== undefined) next.start_date = String(body.start_date || '') || undefined;
     if (body.assigned_to_id) {
       const assignee = store.findUserById(String(body.assigned_to_id));
       if (assignee && assignee.id !== current.assigned_to_id) {

@@ -7,8 +7,9 @@ import {
   EmailReportHistoryEntry,
   EmailReportScheduleConfig,
 } from '@/lib/dailyStatusApi';
-import { SnapshotPeriod, inferDefaultEmailPeriod } from '@/lib/dailyStatus';
+import { SnapshotPeriod, inferDefaultEmailPeriod, appTodayIso, readStoredWorkDate, writeStoredWorkDate } from '@/lib/dailyStatus';
 import { StorageService } from '@/lib/storage';
+import SheetDateFilter from '@/components/work/SheetDateFilter';
 
 function friendlyError(message?: string) {
   if (!message || /axios|sql|undefined|json/i.test(message)) return 'Unable to load the email report.';
@@ -59,11 +60,18 @@ export default function EmailReportsPage() {
   const [schedule, setSchedule] = useState<EmailReportScheduleConfig>(emptyScheduleConfig);
   const [history, setHistory] = useState<EmailReportHistoryEntry[]>([]);
   const [scheduleBusy, setScheduleBusy] = useState(false);
+  const [workDate, setWorkDate] = useState(appTodayIso);
 
-  const loadPreview = useCallback(async (nextPeriod: SnapshotPeriod, showBusy = false) => {
+  const changeWorkDate = (date: string) => {
+    const next = date || appTodayIso();
+    setWorkDate(next);
+    writeStoredWorkDate(next);
+  };
+
+  const loadPreview = useCallback(async (nextPeriod: SnapshotPeriod, date = workDate, showBusy = false) => {
     if (showBusy) setBusy(true);
     setError('');
-    const preview = await DailyStatusApi.emailPreview(nextPeriod);
+    const preview = await DailyStatusApi.emailPreview(nextPeriod, date);
     if (showBusy) setBusy(false);
     if (!preview.ok) {
       setError(friendlyError(preview.message));
@@ -73,7 +81,7 @@ export default function EmailReportsPage() {
     setHtml(preview.data.html || '');
     setSubject(preview.data.subject || '');
     setMessage(preview.data.message || '');
-  }, []);
+  }, [workDate]);
 
   const loadScheduleAndHistory = useCallback(async () => {
     const [scheduleResult, historyResult] = await Promise.all([
@@ -89,13 +97,17 @@ export default function EmailReportsPage() {
   }, []);
 
   useEffect(() => {
-    void loadPreview(period, true);
+    setWorkDate(readStoredWorkDate());
+  }, []);
+
+  useEffect(() => {
+    void loadPreview(period, workDate, true);
     void loadScheduleAndHistory();
-  }, [period, loadPreview, loadScheduleAndHistory]);
+  }, [period, workDate, loadPreview, loadScheduleAndHistory]);
 
   useEffect(() => {
     const refresh = () => {
-      void loadPreview(period);
+      void loadPreview(period, workDate);
       void loadScheduleAndHistory();
     };
     window.addEventListener('focus', refresh);
@@ -104,7 +116,7 @@ export default function EmailReportsPage() {
       window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [period, loadPreview, loadScheduleAndHistory]);
+  }, [period, workDate, loadPreview, loadScheduleAndHistory]);
 
   const saveSchedule = async () => {
     setScheduleBusy(true);
@@ -193,7 +205,8 @@ export default function EmailReportsPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <SheetDateFilter value={workDate} onChange={changeWorkDate} variant="dark" />
           <button
             type="button"
             onClick={() => setPeriod('morning')}
@@ -251,7 +264,8 @@ export default function EmailReportsPage() {
               setBusy(true);
               const result = await DailyStatusApi.emailSend(
                 period,
-                schedule.toEmail || user?.email
+                schedule.toEmail || user?.email,
+                workDate
               );
               setBusy(false);
               if (!result.ok) {

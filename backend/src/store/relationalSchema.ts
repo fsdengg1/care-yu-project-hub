@@ -552,6 +552,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
       f('is_additional', 'boolean'),
       f('pending_action', 'boolean'),
       f('progress_manual_override', 'boolean'),
+      f('sheet_hidden', 'boolean'),
       f('reminder_count', 'integer'),
       f('comments', 'jsonb'),
       ...ts(

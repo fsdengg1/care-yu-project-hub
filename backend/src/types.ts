@@ -859,6 +859,8 @@ export interface Task {
   requested_by_name?: string;
   requested_from_task_id?: string;
   progress_manual_override?: boolean;
+  /** When true, the task is hidden from Daily Work Updates (all dashboards) but not deleted. */
+  sheet_hidden?: boolean;
   created_at: string;
   updated_at: string;
 }

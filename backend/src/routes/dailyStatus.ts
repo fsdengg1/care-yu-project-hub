@@ -44,6 +44,11 @@ function todayDate() {
   return dateInAppTimezone();
 }
 
+function readIsoDate(value: unknown, fallback = todayDate()) {
+  const raw = String(value || '').trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : fallback;
+}
+
 router.use(requireAuth);
 
 router.get(
@@ -51,10 +56,12 @@ router.get(
   requirePermission('view:daily-updates', 'submit:daily-update', 'view:dashboard:ceo'),
   (req: AuthedRequest, res) => {
     const user = req.user!;
-    const rows = buildDailyStatusRows(user);
+    const date = readIsoDate(req.query.date);
+    const rows = buildDailyStatusRows(user, { date });
     return res.json({
       rows,
-      kpis: buildDailyStatusKpis(user, rows),
+      date,
+      kpis: buildDailyStatusKpis(user, rows.filter((row) => !row.sheetHidden)),
       people: peopleForDailySheet(rows),
       projects: visibleProjects(user).map((project) => ({
         id: project.id,
@@ -76,7 +83,7 @@ router.post(
       });
     }
     const period = readPeriod(req.body?.period);
-    const date = typeof req.body?.date === 'string' && req.body.date ? req.body.date : todayDate();
+    const date = readIsoDate(req.body?.date);
     const result = saveDailyStatusSnapshot(req.user!, period, date);
     return res.json({
       message: `${period === 'morning' ? 'Morning' : 'Evening'} snapshot saved.`,
@@ -90,7 +97,7 @@ router.get(
   requirePermission('view:daily-updates', 'submit:daily-update', 'view:dashboard:ceo'),
   (req: AuthedRequest, res) => {
     const period = readPeriod(req.query.period);
-    const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : todayDate();
+    const date = readIsoDate(req.query.date);
     const packed = rowsForPeriod(req.user!, period, date);
     return res.json({
       date,
@@ -123,18 +130,8 @@ router.get(
   requirePermission('view:daily-updates', 'view:dashboard:ceo'),
   (req: AuthedRequest, res) => {
     const period = readPeriod(req.query.period);
-    const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : todayDate();
+    const date = readIsoDate(req.query.date);
     const packed = rowsForPeriod(req.user!, period, date);
-    if (!packed.available) {
-      return res.json({
-        available: false,
-        message: 'Morning and evening updates are not yet available.',
-        html: '',
-        rows: [],
-        period,
-        date,
-      });
-    }
     const rendered = renderDailyStatusEmailHtml({
       period,
       date,
@@ -164,7 +161,7 @@ router.post(
       (typeof req.body?.toEmail === 'string' && req.body.toEmail.trim()) ||
       configured.toEmail ||
       undefined;
-    const date = typeof req.body?.date === 'string' && req.body.date ? req.body.date : todayDate();
+    const date = readIsoDate(req.body?.date);
     const splitList = (raw: string) =>
       raw
         .split(/[,;]+/)
@@ -291,6 +288,7 @@ router.patch(
   '/rows/:id',
   requirePermission('view:daily-updates', 'create:task', 'submit:daily-update'),
   (req: AuthedRequest, res) => {
+    const date = readIsoDate(req.query.date || req.body?.work_date);
     const body: Record<string, unknown> = { ...(req.body || {}) };
     if (
       typeof body.status === 'string' &&
@@ -300,7 +298,12 @@ router.patch(
     }
 
     if (body.hours_worked !== undefined) {
-      const hoursResult = upsertLoggedHoursForTask(req.user!, String(req.params.id), Number(body.hours_worked));
+      const hoursResult = upsertLoggedHoursForTask(
+        req.user!,
+        String(req.params.id),
+        Number(body.hours_worked),
+        readIsoDate(body.work_date, date)
+      );
       if (!hoursResult.ok) {
         return res.status(hoursResult.status || 400).json({
           message:
@@ -312,10 +315,12 @@ router.patch(
         });
       }
       delete body.hours_worked;
+      delete body.work_date;
       if (Object.keys(body).length === 0) {
-        return res.json({ update: hoursResult.update, rows: buildDailyStatusRows(req.user!) });
+        return res.json({ update: hoursResult.update, rows: buildDailyStatusRows(req.user!, { date }) });
       }
     }
+    delete body.work_date;
 
     const result = updateWorkTask(req.user!, String(req.params.id), body);
     if ('error' in result && result.error === 'not_found') {
@@ -329,7 +334,7 @@ router.patch(
             : result.error,
       });
     }
-    return res.json({ task: result.task, rows: buildDailyStatusRows(req.user!) });
+    return res.json({ task: result.task, rows: buildDailyStatusRows(req.user!, { date }) });
   }
 );
 

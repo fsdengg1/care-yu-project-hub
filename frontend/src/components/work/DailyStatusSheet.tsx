@@ -10,12 +10,15 @@ import {
   deadlineCellStyle,
   deadlineTone,
   parseSheetDate,
+  appTodayIso,
 } from '@/lib/dailyStatus';
 import UserDropdown from './UserDropdown';
 import DependencyMultiSelect from './DependencyMultiSelect';
 import StatusDropdown from './StatusDropdown';
+import SheetDateFilter from './SheetDateFilter';
+import RowMoreMenu from './RowMoreMenu';
 
-export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional';
+export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional' | 'hidden';
 
 const CHIPS: Array<{ id: SheetChip; label: string }> = [
   { id: 'all', label: 'All' },
@@ -26,10 +29,11 @@ const CHIPS: Array<{ id: SheetChip; label: string }> = [
   { id: 'completed', label: 'Completed' },
   { id: 'hold', label: 'Hold' },
   { id: 'additional', label: 'Additional Tasks' },
+  { id: 'hidden', label: 'Hidden' },
 ];
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return appTodayIso();
 }
 
 function isoToInput(value?: string) {
@@ -89,6 +93,12 @@ export default function DailyStatusSheet({
   onAddSubtask,
   onEditSubtask,
   onDeleteSubtask,
+  workDate,
+  onWorkDateChange,
+  onEditUpdate,
+  onHideRow,
+  onRestoreRow,
+  onDeleteRow,
   readOnly = false,
 }: {
   rows: DailyStatusRow[];
@@ -106,12 +116,18 @@ export default function DailyStatusSheet({
   onAddSubtask?: (parentId: string) => void;
   onEditSubtask?: (subtask: DailyStatusSubtask, parentId: string) => void;
   onDeleteSubtask?: (subtask: DailyStatusSubtask, parentId: string) => void;
+  workDate: string;
+  onWorkDateChange: (date: string) => void;
+  onEditUpdate?: (row: DailyStatusRow) => void;
+  onHideRow?: (row: DailyStatusRow) => void;
+  onRestoreRow?: (row: DailyStatusRow) => void;
+  onDeleteRow?: (row: DailyStatusRow) => void;
   readOnly?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [chip, setChip] = useState<SheetChip>('all');
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
-  const today = todayIso();
+  const today = workDate || todayIso();
 
   const toggleExpand = (id: string) => {
     setExpandedIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
@@ -121,6 +137,11 @@ export default function DailyStatusSheet({
     const needle = query.trim().toLowerCase();
     return rows
       .filter((row) => {
+        if (chip === 'hidden') {
+          if (!row.sheetHidden) return false;
+        } else if (row.sheetHidden) {
+          return false;
+        }
         if (needle) {
           const hay = `${row.person} ${row.project} ${row.taskDescription}`.toLowerCase();
           if (!hay.includes(needle)) return false;
@@ -196,6 +217,7 @@ export default function DailyStatusSheet({
   return (
     <section className={`daily-status-workspace min-w-0 overflow-hidden rounded-xl ${readOnly ? 'daily-status-workspace-readonly' : ''}`}>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-[#e2e8f0] px-3 py-2">
+        <SheetDateFilter value={workDate} onChange={onWorkDateChange} />
         <div className="relative min-w-[200px] flex-1">
           <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-[#94a3b8]" />
           <input
@@ -269,6 +291,7 @@ export default function DailyStatusSheet({
             <col className="col-deadline" />
             <col className="col-hours" />
             <col className="col-delay" />
+            {!readOnly && <col className="col-actions" />}
           </colgroup>
           <thead>
             <tr>
@@ -291,12 +314,13 @@ export default function DailyStatusSheet({
               <th>Task Deadline</th>
               <th>Logged Hours</th>
               <th>Reason For Delay</th>
+              {!readOnly && <th aria-label="Actions" />}
             </tr>
           </thead>
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={showSelect ? 10 : 9} className="py-10 text-center text-[#64748b]">
+                <td colSpan={(showSelect ? 10 : 9) + (readOnly ? 0 : 1)} className="py-10 text-center text-[#64748b]">
                   No tasks found.
                 </td>
               </tr>
@@ -512,7 +536,7 @@ export default function DailyStatusSheet({
                         onBlur={(event) => {
                           const next = Math.max(0, Number(event.target.value) || 0);
                           if (next !== (row.hoursWorked ?? 0)) {
-                            void onPatch(row.id, { hours_worked: next });
+                            void onPatch(row.id, { hours_worked: next, work_date: workDate });
                           }
                         }}
                         title="Logged hours (decimal, e.g. 6.5)"
@@ -537,6 +561,43 @@ export default function DailyStatusSheet({
                       <span className="sheet-text">{row.reasonForDelay}</span>
                     )}
                     </td>
+                    {!readOnly && (
+                      <td className="actions-cell">
+                        {editable ? (
+                          <RowMoreMenu
+                            variant="sheet"
+                            items={[
+                              {
+                                id: 'edit',
+                                label: 'Edit Update',
+                                onSelect: () => onEditUpdate?.(row),
+                                disabled: !onEditUpdate,
+                              },
+                              row.sheetHidden
+                                ? {
+                                    id: 'restore',
+                                    label: 'Restore Task',
+                                    onSelect: () => onRestoreRow?.(row),
+                                    disabled: !onRestoreRow,
+                                  }
+                                : {
+                                    id: 'hide',
+                                    label: 'Hide Task',
+                                    onSelect: () => onHideRow?.(row),
+                                    disabled: !onHideRow,
+                                  },
+                              {
+                                id: 'delete',
+                                label: 'Delete Task',
+                                onSelect: () => onDeleteRow?.(row),
+                                danger: true,
+                                disabled: !onDeleteRow || !canDelete,
+                              },
+                            ]}
+                          />
+                        ) : null}
+                      </td>
+                    )}
                   </tr>
                 );
               })

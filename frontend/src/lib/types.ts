@@ -857,6 +857,7 @@ export interface Task {
   requested_by_name?: string;
   requested_from_task_id?: string;
   progress_manual_override?: boolean;
+  sheet_hidden?: boolean;
   created_at: string;
   updated_at: string;
 }

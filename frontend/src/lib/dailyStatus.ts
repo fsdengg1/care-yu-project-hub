@@ -46,6 +46,7 @@ export interface DailyStatusRow {
   eveningStatus?: DailySheetStatus;
   subtasks?: DailyStatusSubtask[];
   hasSubtasks?: boolean;
+  sheetHidden?: boolean;
 }
 
 export interface DailyStatusKpis {
@@ -184,4 +185,34 @@ export interface CompareItem {
 export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
   // Morning until 4:00 PM; Evening from 4:00 PM onward (local time).
   return now.getHours() >= 16 ? 'evening' : 'morning';
+}
+
+/** Calendar date in Asia/Kolkata as YYYY-MM-DD. */
+export function appTodayIso() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+const WORK_DATE_KEY = 'careyu.dailyWorkDate';
+
+export function readStoredWorkDate(): string {
+  try {
+    const stored = sessionStorage.getItem(WORK_DATE_KEY);
+    if (stored && /^\d{4}-\d{2}-\d{2}$/.test(stored)) return stored;
+  } catch {
+    /* ignore */
+  }
+  return appTodayIso();
+}
+
+export function writeStoredWorkDate(date: string) {
+  try {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) sessionStorage.setItem(WORK_DATE_KEY, date);
+  } catch {
+    /* ignore */
+  }
 }

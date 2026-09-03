@@ -9,14 +9,15 @@ import { TasksApi } from '@/lib/tasksApi';
 import { StorageService } from '@/lib/storage';
 import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
 import { LEAD_STATUS_LABELS } from '@/lib/format';
-import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus } from '@/lib/dailyStatus';
+import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus, appTodayIso } from '@/lib/dailyStatus';
 import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
 import RequestDependencyForm from '@/components/work/RequestDependencyForm';
+import RowMoreMenu from '@/components/work/RowMoreMenu';
 import {
-  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle, Pencil, Trash2
+  CheckSquare, ArrowRight, Inbox, Plus, RotateCcw, FileText, Handshake, Scan, Calculator, Building2, AlertTriangle
 } from 'lucide-react';
 
 const GROUP_META: Record<string, { title: string; icon: React.ReactNode }> = {
@@ -62,7 +63,7 @@ function assignmentType(item: WorkAssignment) {
 }
 
 function matchesFilter(item: WorkAssignment, filter: WorkFilter) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = appTodayIso();
   const type = assignmentType(item);
   const done = item.current_status === 'COMPLETED' || item.current_status === 'DONE';
   if (filter === 'PROJECT') return type === 'PROJECT_TASK';
@@ -192,7 +193,7 @@ export default function MyAssignedWorkPage() {
   const actionable = items.filter((item) => item.category !== 'CREATE');
   const isCommercial = ['BUSINESS_HEAD', 'ENG_DIRECTOR', 'SALES'].includes(currentUser.role_code);
   const canCreateLeads = canCreateLead(currentUser);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = appTodayIso();
 
   return (
     <div className="space-y-6 text-xs">
@@ -291,16 +292,17 @@ export default function MyAssignedWorkPage() {
             ))}
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left">
+            <table className="w-full min-w-[980px] table-fixed text-left">
               <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
                 <tr>
-                  <th className="p-2">Project</th>
-                  <th className="p-2">Task Description</th>
-                  <th className="p-2">Dependencies</th>
-                  <th className="p-2">Status</th>
-                  <th className="p-2">Current Date</th>
-                  <th className="p-2">Task Deadline</th>
-                  <th className="p-2" />
+                  <th className="w-[14%] p-2">Project</th>
+                  <th className="w-[22%] p-2">Task Description</th>
+                  <th className="w-[12%] p-2">Dependencies</th>
+                  <th className="w-[9%] whitespace-nowrap p-2">Start Date</th>
+                  <th className="w-[9%] whitespace-nowrap p-2">Current Date</th>
+                  <th className="w-[9%] whitespace-nowrap p-2">Task Deadline</th>
+                  <th className="w-[9%] p-2">Status</th>
+                  <th className="w-[16%] p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -311,6 +313,10 @@ export default function MyAssignedWorkPage() {
                   const isAssignee = item.assigned_to_id === currentUser.id;
                   const isReviewer = currentUser.role_code === 'TEAM_LEAD' && item.review_status === 'PENDING_TL_REVIEW';
                   const sheetStatus = toSheetStatus(item.current_status);
+                  const done = item.current_status === 'DONE' || item.current_status === 'COMPLETED';
+                  const canDaily = Boolean(currentUser && canSubmitDailyUpdate(currentUser) && item.acceptance_status !== 'REQUESTED');
+                  const canComplete =
+                    Boolean(taskId && isAssignee && !done && item.acceptance_status !== 'REQUESTED' && item.review_status !== 'PENDING_TL_REVIEW');
                   return (
                   <tr
                     key={item.id}
@@ -322,25 +328,39 @@ export default function MyAssignedWorkPage() {
                           : undefined
                     }
                   >
-                    <td className="p-2">
+                    <td className="align-top p-2">
                       {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
                       {assignmentType(item) === 'NON_PROJECT_TASK' ? '—' : item.project_name || '—'}
                     </td>
-                    <td className="p-2 font-semibold text-slate-100">
-                      {item.description || item.task_title}
+                    <td className="align-top p-2 font-semibold text-slate-100">
+                      <div className="line-clamp-3 whitespace-normal break-words leading-snug">
+                        {item.description || item.task_title}
+                      </div>
                       {item.acceptance_status === 'REQUESTED' && (
-                        <span className="ml-2 rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
+                        <span className="mt-1 inline-block rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
                           Dependency request
                         </span>
                       )}
                       {item.parent_task_id && (
-                        <span className="ml-2 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+                        <span className="mt-1 ml-1 inline-block rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
                           Subtask
                         </span>
                       )}
                     </td>
-                    <td className="p-2">{item.depends_on_title || item.dependency || '—'}</td>
-                    <td className="p-2">
+                    <td className="align-top p-2">
+                      <div className="line-clamp-3 break-words">{item.depends_on_title || item.dependency || '—'}</div>
+                    </td>
+                    <td className="align-top whitespace-nowrap p-2 tabular-nums text-slate-200">
+                      {formatSheetDate(item.start_date)}
+                    </td>
+                    <td className="align-top whitespace-nowrap p-2 tabular-nums text-slate-200">
+                      {formatSheetDate(today)}
+                    </td>
+                    <td className={`align-top whitespace-nowrap p-2 tabular-nums ${deadlineCellClass(deadlineTone(sheetStatus, item.due_date, today))}`}>
+                      {overdue && <AlertTriangle className="mr-1 inline h-3 w-3" />}
+                      {formatSheetDate(item.due_date)}
+                    </td>
+                    <td className="align-top p-2">
                       <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${sheetStatusClass(sheetStatus)}`}>
                         {sheetStatus}
                       </span>
@@ -350,162 +370,150 @@ export default function MyAssignedWorkPage() {
                         </div>
                       )}
                     </td>
-                    <td className="p-2">{formatSheetDate(today)}</td>
-                    <td className={`p-2 ${deadlineCellClass(deadlineTone(sheetStatus, item.due_date, today))}`}>
-                      {overdue && <AlertTriangle className="mr-1 inline h-3 w-3" />}
-                      {formatSheetDate(item.due_date)}
-                    </td>
-                    <td className="p-2 text-right">
-                      <div className="flex flex-wrap justify-end gap-1">
-                        {taskId && isAssignee && item.parent_task_id && item.acceptance_status !== 'REQUESTED' && (
-                          <>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setEditingSubtask({
-                                  id: taskId,
-                                  parentId: item.parent_task_id || '',
-                                  title: item.task_title || item.description || '',
-                                  description: item.description || item.task_title || '',
-                                  assignedToId: item.assigned_to_id || currentUser.id,
-                                  dueDate: item.due_date ? String(item.due_date).slice(0, 10) : '',
-                                  status:
-                                    item.current_status === 'DONE' || item.current_status === 'COMPLETED'
-                                      ? 'DONE'
-                                      : item.current_status === 'IN_PROGRESS'
-                                        ? 'IN_PROGRESS'
-                                        : item.current_status === 'BLOCKED' || item.current_status === 'WAITING'
-                                          ? 'WAITING'
-                                          : item.current_status === 'HOLD'
-                                            ? 'HOLD'
-                                            : 'TODO',
-                                });
-                                setSubtaskOpen(true);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
-                            >
-                              <Pencil className="h-3 w-3" /> Edit Subtask
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                if (!window.confirm('Delete this subtask?')) return;
-                                void (async () => {
-                                  setTaskBusy(taskId);
-                                  const result = await TasksApi.bulkDelete([taskId]);
-                                  setTaskBusy(null);
-                                  if (!result.ok) {
-                                    setNotice(result.message || 'Unable to delete subtask.');
-                                    return;
-                                  }
-                                  setNotice(result.data.message || 'Subtask deleted.');
-                                  await refreshWork();
-                                })();
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
-                            >
-                              <Trash2 className="h-3 w-3" /> Delete
-                            </button>
-                          </>
+                    <td className="align-top p-2">
+                      <div className="flex flex-nowrap items-start justify-end gap-1">
+                        {canComplete && (
+                          <button
+                            disabled={busy}
+                            onClick={() => {
+                              if (!window.confirm('Are you sure you want to mark this task as completed?')) return;
+                              void updateTask(item, {
+                                status: 'DONE',
+                                progress_percent: 100,
+                                review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined,
+                              });
+                            }}
+                            className="h-7 shrink-0 rounded-md bg-emerald-700 px-2 text-[10px] font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                          >
+                            {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Complete'}
+                          </button>
+                        )}
+                        {canDaily && (
+                          <Link
+                            href={`/daily-updates/new?assignment=${encodeURIComponent(item.id)}`}
+                            className="inline-flex h-7 shrink-0 items-center rounded-md bg-cyan-600 px-2 text-[10px] font-bold text-white hover:bg-cyan-500"
+                          >
+                            Daily Update
+                          </Link>
                         )}
                         {taskId && isAssignee && item.acceptance_status === 'REQUESTED' && (
                           <>
                             <button
                               disabled={busy}
                               onClick={() => void acceptOrReject(item, 'accept')}
-                              className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+                              className="h-7 rounded-md bg-emerald-700 px-2 text-[10px] font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
                             >
                               Accept
                             </button>
                             <button
                               disabled={busy}
                               onClick={() => void acceptOrReject(item, 'reject')}
-                              className="rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
+                              className="h-7 rounded-md border border-rose-800 px-2 text-[10px] font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
                             >
                               Reject
                             </button>
                           </>
                         )}
-                        {taskId && isAssignee && item.acceptance_status !== 'REQUESTED' && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDependencyFor({
-                                id: taskId,
-                                label: item.description || item.task_title || 'Task',
-                              })
-                            }
-                            className="rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700"
-                          >
-                            Request Dependency
-                          </button>
-                        )}
-                        {taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && item.acceptance_status !== 'REQUESTED' && (
-                          <button
-                            disabled={busy}
-                            onClick={() => void updateTask(item, { status: 'IN_PROGRESS' })}
-                            className="rounded-lg border border-slate-700 px-2.5 py-1 font-bold text-slate-100 hover:border-cyan-700 disabled:opacity-60"
-                          >
-                            Start Task
-                          </button>
-                        )}
-                        {taskId && isAssignee && item.current_status === 'IN_PROGRESS' && !item.blocked && item.review_status !== 'PENDING_TL_REVIEW' && (
-                          <>
-                            <button
-                              disabled={busy}
-                              onClick={() => {
-                                const reason = window.prompt('Describe the issue or doubt') || '';
-                                if (!reason.trim()) return;
-                                void updateTask(item, { status: 'BLOCKED', blocked_reason: reason.trim() });
-                              }}
-                              className="rounded-lg border border-amber-800 px-2.5 py-1 font-bold text-amber-100 hover:bg-amber-950 disabled:opacity-60"
-                            >
-                              Raise Issue / Doubt
-                            </button>
-                            <button
-                              disabled={busy}
-                              onClick={() => {
-                                if (!window.confirm('Are you sure you want to mark this task as completed?')) return;
-                                void updateTask(item, { status: 'DONE', progress_percent: 100, review_action: item.review_status === 'CORRECTION_REQUIRED' ? 'resubmit' : undefined });
-                              }}
-                              className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
-                            >
-                              {item.review_status === 'CORRECTION_REQUIRED' ? 'Resubmit' : 'Mark Task Completed'}
-                            </button>
-                          </>
-                        )}
-                        {taskId && isReviewer && (
-                          <>
-                            <button
-                              disabled={busy}
-                              onClick={() => void updateTask(item, { review_action: 'approve' })}
-                              className="rounded-lg bg-emerald-700 px-2.5 py-1 font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              disabled={busy}
-                              onClick={() => {
-                                const comments = window.prompt('Comments for send-back (required)') || '';
-                                if (!comments.trim()) return;
-                                void updateTask(item, { review_action: 'return', review_comments: comments.trim() });
-                              }}
-                              className="rounded-lg border border-rose-800 px-2.5 py-1 font-bold text-rose-200 hover:bg-rose-950 disabled:opacity-60"
-                            >
-                              Send Back
-                            </button>
-                          </>
-                        )}
-                        {currentUser && canSubmitDailyUpdate(currentUser) && item.acceptance_status !== 'REQUESTED' && (
-                          <Link
-                            href={`/daily-updates/new?assignment=${encodeURIComponent(item.id)}`}
-                            className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-2.5 py-1 font-bold text-white hover:bg-cyan-500"
-                          >
-                            <Plus className="h-3 w-3" /> Add Daily Update
-                          </Link>
-                        )}
+                        <RowMoreMenu
+                          items={[
+                            ...(taskId && isAssignee && item.acceptance_status !== 'REQUESTED'
+                              ? [{
+                                  id: 'dep',
+                                  label: 'Request Dependency',
+                                  onSelect: () =>
+                                    setDependencyFor({
+                                      id: taskId,
+                                      label: item.description || item.task_title || 'Task',
+                                    }),
+                                }]
+                              : []),
+                            ...(taskId && isAssignee && !done && item.acceptance_status !== 'REQUESTED'
+                              ? [{
+                                  id: 'issue',
+                                  label: 'Raise Issue / Doubt',
+                                  onSelect: () => {
+                                    const reason = window.prompt('Describe the issue or doubt') || '';
+                                    if (!reason.trim()) return;
+                                    void updateTask(item, { status: 'BLOCKED', blocked_reason: reason.trim() });
+                                  },
+                                }]
+                              : []),
+                            ...(taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && item.acceptance_status !== 'REQUESTED'
+                              ? [{
+                                  id: 'start',
+                                  label: 'Start Task',
+                                  onSelect: () => void updateTask(item, { status: 'IN_PROGRESS' }),
+                                }]
+                              : []),
+                            ...(taskId && isAssignee && item.parent_task_id && item.acceptance_status !== 'REQUESTED'
+                              ? [
+                                  {
+                                    id: 'edit-sub',
+                                    label: 'Edit Subtask',
+                                    onSelect: () => {
+                                      setEditingSubtask({
+                                        id: taskId,
+                                        parentId: item.parent_task_id || '',
+                                        title: item.task_title || item.description || '',
+                                        description: item.description || item.task_title || '',
+                                        assignedToId: item.assigned_to_id || currentUser.id,
+                                        dueDate: item.due_date ? String(item.due_date).slice(0, 10) : '',
+                                        status:
+                                          item.current_status === 'DONE' || item.current_status === 'COMPLETED'
+                                            ? 'DONE'
+                                            : item.current_status === 'IN_PROGRESS'
+                                              ? 'IN_PROGRESS'
+                                              : item.current_status === 'BLOCKED' || item.current_status === 'WAITING'
+                                                ? 'WAITING'
+                                                : item.current_status === 'HOLD'
+                                                  ? 'HOLD'
+                                                  : 'TODO',
+                                      });
+                                      setSubtaskOpen(true);
+                                    },
+                                  },
+                                  {
+                                    id: 'del-sub',
+                                    label: 'Delete Subtask',
+                                    danger: true,
+                                    onSelect: () => {
+                                      if (!window.confirm('Delete this subtask?')) return;
+                                      void (async () => {
+                                        setTaskBusy(taskId);
+                                        const result = await TasksApi.bulkDelete([taskId]);
+                                        setTaskBusy(null);
+                                        if (!result.ok) {
+                                          setNotice(result.message || 'Unable to delete subtask.');
+                                          return;
+                                        }
+                                        setNotice(result.data.message || 'Subtask deleted.');
+                                        await refreshWork();
+                                      })();
+                                    },
+                                  },
+                                ]
+                              : []),
+                            ...(taskId && isReviewer
+                              ? [
+                                  {
+                                    id: 'approve',
+                                    label: 'Approve',
+                                    onSelect: () => void updateTask(item, { review_action: 'approve' }),
+                                  },
+                                  {
+                                    id: 'return',
+                                    label: 'Send Back',
+                                    danger: true,
+                                    onSelect: () => {
+                                      const comments = window.prompt('Comments for send-back (required)') || '';
+                                      if (!comments.trim()) return;
+                                      void updateTask(item, { review_action: 'return', review_comments: comments.trim() });
+                                    },
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -513,12 +521,17 @@ export default function MyAssignedWorkPage() {
                 })}
                 {visibleAssignments.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-4 text-center text-slate-500">No tasks in this filter.</td>
+                    <td colSpan={8} className="p-4 text-center text-slate-500">No tasks in this filter.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
+          {(groups.TASK || []).length > 0 && (
+            <p className="text-[11px] text-slate-500">
+              {groups.TASK.length} open assigned {groups.TASK.length === 1 ? 'task is' : 'tasks are'} shown in the table above.
+            </p>
+          )}
         </div>
 
       {isCommercial && (
@@ -537,7 +550,7 @@ export default function MyAssignedWorkPage() {
         </div>
       )}
 
-      {ORDER.filter((key) => (groups[key] || []).length > 0).map((key) => {
+      {ORDER.filter((key) => key !== 'TASK' && (groups[key] || []).length > 0).map((key) => {
         const meta = GROUP_META[key];
         const list = groups[key] || [];
         return (

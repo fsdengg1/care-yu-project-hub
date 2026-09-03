@@ -41,13 +41,15 @@ export type EmailReportHistoryEntry = {
 };
 
 export const DailyStatusApi = {
-  async sheet() {
+  async sheet(date?: string) {
+    const query = date ? `?date=${encodeURIComponent(date)}` : '';
     const result = await apiRequest<{
       rows: DailyStatusRow[];
       kpis: DailyStatusKpis;
       people: DailyStatusPerson[];
       projects: Array<{ id: string; name: string; code: string }>;
-    }>('/api/daily-status/sheet');
+      date?: string;
+    }>(`/api/daily-status/sheet${query}`);
     if (!result.ok) {
       return {
         ok: false as const,

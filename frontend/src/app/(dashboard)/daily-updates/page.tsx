@@ -1,12 +1,13 @@
 'use client';
 
 import React, { Suspense, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { FileText, GitCompare, ListPlus, Moon, Plus, RefreshCw, Sun, X } from 'lucide-react';
 import { StorageService } from '@/lib/storage';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { TasksApi } from '@/lib/tasksApi';
 import { canAddDailyWorkTask, canCreateWorkTask, canEditDailySheet } from '@/lib/rbac';
-import { CompareItem, DailyStatusPerson, DailyStatusRow, DailyStatusSubtask } from '@/lib/dailyStatus';
+import { CompareItem, DailyStatusPerson, DailyStatusRow, DailyStatusSubtask, appTodayIso, readStoredWorkDate, writeStoredWorkDate } from '@/lib/dailyStatus';
 import { User } from '@/lib/types';
 import ConfirmDialog from '@/components/work/ConfirmDialog';
 import CompareView from '@/components/work/CompareView';
@@ -21,16 +22,7 @@ function friendlyError(error: unknown, fallback: string) {
   return text;
 }
 
-/** Calendar date in Asia/Kolkata as YYYY-MM-DD. */
-function appTodayIso() {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
+/** Previous calendar date in Asia/Kolkata as YYYY-MM-DD. */
 function appYesterdayIso() {
   const today = appTodayIso();
   const [y, m, d] = today.split('-').map(Number);
@@ -48,6 +40,7 @@ export default function DailyWorkUpdatesPage() {
 }
 
 function DailyWorkUpdatesInner() {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [rows, setRows] = useState<DailyStatusRow[]>([]);
   const [people, setPeople] = useState<DailyStatusPerson[]>([]);
@@ -72,10 +65,18 @@ function DailyWorkUpdatesInner() {
   const [subtaskParentId, setSubtaskParentId] = useState<string | undefined>(undefined);
   const [editingSubtask, setEditingSubtask] = useState<EditableSubtask | null>(null);
   const [confirmSubtaskDelete, setConfirmSubtaskDelete] = useState<DailyStatusSubtask | null>(null);
+  const [deleteRow, setDeleteRow] = useState<DailyStatusRow | null>(null);
+  const [workDate, setWorkDate] = useState(appTodayIso);
 
   const canManageTasks = canCreateWorkTask(user);
   const canEditSheet = canEditDailySheet(user);
   const canAddTask = canAddDailyWorkTask(user);
+
+  const changeWorkDate = (date: string) => {
+    const next = date || appTodayIso();
+    setWorkDate(next);
+    writeStoredWorkDate(next);
+  };
 
   const loadCompare = async (date?: string) => {
     setCompareBusy(true);
@@ -93,8 +94,8 @@ function DailyWorkUpdatesInner() {
     }
   };
 
-  const loadSheet = async () => {
-    const sheet = await DailyStatusApi.sheet();
+  const loadSheet = async (date = workDate) => {
+    const sheet = await DailyStatusApi.sheet(date);
     if (!sheet.ok) {
       setError(sheet.message || 'Unable to load daily work updates.');
       return;
@@ -108,22 +109,24 @@ function DailyWorkUpdatesInner() {
     const current = StorageService.getCurrentUser();
     if (!current) return;
     setUser(current);
-    void loadSheet().catch((err) => setError(friendlyError(err, 'Unable to load daily work updates.')));
+    const initialDate = readStoredWorkDate();
+    setWorkDate(initialDate);
+    void loadSheet(initialDate).catch((err) => setError(friendlyError(err, 'Unable to load daily work updates.')));
   }, []);
 
   useEffect(() => {
     if (!user) return;
+    void loadSheet(workDate).catch(() => undefined);
     const refresh = () => {
-      void loadSheet().catch(() => undefined);
+      void loadSheet(workDate).catch(() => undefined);
     };
-    const onFocus = () => refresh();
-    window.addEventListener('focus', onFocus);
+    window.addEventListener('focus', refresh);
     const timer = window.setInterval(refresh, 12000);
     return () => {
-      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('focus', refresh);
       window.clearInterval(timer);
     };
-  }, [user]);
+  }, [user, workDate]);
 
   const refreshSheet = async () => {
     await loadSheet();
@@ -245,7 +248,7 @@ function DailyWorkUpdatesInner() {
               disabled={busy || !canEditSheet}
               onClick={async () => {
                 setBusy(true);
-                const result = await DailyStatusApi.snapshot('morning');
+                const result = await DailyStatusApi.snapshot('morning', workDate);
                 setBusy(false);
                 setNotice(result.ok ? result.data.message : result.message);
               }}
@@ -258,7 +261,7 @@ function DailyWorkUpdatesInner() {
               disabled={busy || !canEditSheet}
               onClick={async () => {
                 setBusy(true);
-                const result = await DailyStatusApi.snapshot('evening');
+                const result = await DailyStatusApi.snapshot('evening', workDate);
                 setBusy(false);
                 setNotice(result.ok ? result.data.message : result.message);
               }}
@@ -269,7 +272,7 @@ function DailyWorkUpdatesInner() {
             <button
               type="button"
               disabled={compareBusy}
-              onClick={() => void loadCompare()}
+              onClick={() => void loadCompare(workDate)}
               className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-cyan-600 disabled:opacity-50"
             >
               <GitCompare className="h-3.5 w-3.5" /> Compare
@@ -294,6 +297,8 @@ function DailyWorkUpdatesInner() {
         saved={saved}
         selectedIds={selectedIds}
         onSelectedIds={setSelectedIds}
+        workDate={workDate}
+        onWorkDateChange={changeWorkDate}
         onAddSubtask={canAddTask ? openAddSubtask : undefined}
         onEditSubtask={canAddTask ? openEditSubtask : undefined}
         onDeleteSubtask={
@@ -303,9 +308,31 @@ function DailyWorkUpdatesInner() {
               }
             : undefined
         }
+        onEditUpdate={(row) => router.push(`/daily-updates/new?assignment=${encodeURIComponent(row.id)}`)}
+        onHideRow={async (row) => {
+          setError(null);
+          const result = await DailyStatusApi.updateRow(row.id, { sheet_hidden: true, work_date: workDate });
+          if (!result.ok) {
+            setError(result.message || 'Unable to hide this task.');
+            return;
+          }
+          setRows(result.data.rows);
+          setNotice('Task hidden from Daily Work Updates on every dashboard.');
+        }}
+        onRestoreRow={async (row) => {
+          setError(null);
+          const result = await DailyStatusApi.updateRow(row.id, { sheet_hidden: false, work_date: workDate });
+          if (!result.ok) {
+            setError(result.message || 'Unable to restore this task.');
+            return;
+          }
+          setRows(result.data.rows);
+          setNotice('Task restored to Daily Work Updates.');
+        }}
+        onDeleteRow={(row) => setDeleteRow(row)}
         onPatch={async (id, body) => {
           setError(null);
-          const result = await DailyStatusApi.updateRow(id, body);
+          const result = await DailyStatusApi.updateRow(id, { ...body, work_date: workDate });
           if (!result.ok) {
             setError(result.message || 'Unable to save this change.');
             return;
@@ -430,6 +457,28 @@ function DailyWorkUpdatesInner() {
               return;
             }
             setNotice(result.data.message || 'Subtask deleted.');
+            await refreshSheet();
+          }}
+        />
+      )}
+
+      {deleteRow && (
+        <ConfirmDialog
+          title="Delete this daily work update?"
+          body="Are you sure you want to permanently delete this daily work update?"
+          busy={busy}
+          onCancel={() => setDeleteRow(null)}
+          onConfirm={async () => {
+            const id = deleteRow.id;
+            setBusy(true);
+            const result = await TasksApi.bulkDelete([id]);
+            setBusy(false);
+            setDeleteRow(null);
+            if (!result.ok) {
+              setError(result.message);
+              return;
+            }
+            setNotice(result.data.message || 'Daily work update deleted.');
             await refreshSheet();
           }}
         />

@@ -278,7 +278,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet {
   width: 100%;
-  min-width: 1704px;
+  min-width: 1748px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #ffffff;
@@ -320,6 +320,10 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet col.col-delay {
   width: 160px;
+}
+
+.daily-status-sheet col.col-actions {
+  width: 44px;
 }
 
 .daily-status-sheet.daily-status-compare {
@@ -473,6 +477,12 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 .daily-status-sheet td.delay-cell {
   min-width: 160px;
   vertical-align: middle;
+}
+
+.daily-status-sheet td.actions-cell {
+  text-align: center;
+  vertical-align: middle;
+  width: 44px;
 }
 
 .daily-status-sheet .sheet-project-field {
