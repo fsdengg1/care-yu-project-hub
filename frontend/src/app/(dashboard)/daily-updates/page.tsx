@@ -21,6 +21,24 @@ function friendlyError(error: unknown, fallback: string) {
   return text;
 }
 
+/** Calendar date in Asia/Kolkata as YYYY-MM-DD. */
+function appTodayIso() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function appYesterdayIso() {
+  const today = appTodayIso();
+  const [y, m, d] = today.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  utc.setUTCDate(utc.getUTCDate() - 1);
+  return utc.toISOString().slice(0, 10);
+}
+
 export default function DailyWorkUpdatesPage() {
   return (
     <Suspense fallback={<div className="text-xs text-slate-400">Loading daily work updates…</div>}>
@@ -39,6 +57,7 @@ function DailyWorkUpdatesInner() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [compareOpen, setCompareOpen] = useState(false);
+  const [compareBusy, setCompareBusy] = useState(false);
   const [compare, setCompare] = useState<{
     items: CompareItem[];
     available: boolean;
@@ -57,6 +76,22 @@ function DailyWorkUpdatesInner() {
   const canManageTasks = canCreateWorkTask(user);
   const canEditSheet = canEditDailySheet(user);
   const canAddTask = canAddDailyWorkTask(user);
+
+  const loadCompare = async (date?: string) => {
+    setCompareBusy(true);
+    setError(null);
+    try {
+      const result = await DailyStatusApi.compare(date);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setCompare(result.data);
+      setCompareOpen(true);
+    } finally {
+      setCompareBusy(false);
+    }
+  };
 
   const loadSheet = async () => {
     const sheet = await DailyStatusApi.sheet();
@@ -233,16 +268,9 @@ function DailyWorkUpdatesInner() {
             </button>
             <button
               type="button"
-              onClick={async () => {
-                const result = await DailyStatusApi.compare();
-                if (!result.ok) {
-                  setError(result.message);
-                  return;
-                }
-                setCompare(result.data);
-                setCompareOpen(true);
-              }}
-              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-cyan-600"
+              disabled={compareBusy}
+              onClick={() => void loadCompare()}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2.5 py-1.5 font-bold text-slate-100 hover:border-cyan-600 disabled:opacity-50"
             >
               <GitCompare className="h-3.5 w-3.5" /> Compare
             </button>
@@ -295,17 +323,43 @@ function DailyWorkUpdatesInner() {
             className="flex h-full w-full max-w-none flex-col overflow-hidden border-l border-[#cbd5e1] bg-[#f8fafc] shadow-2xl sm:max-w-[min(100vw,1100px)]"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-[#e2e8f0] bg-white px-4 py-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 border-b border-[#e2e8f0] bg-white px-4 py-3">
+              <div className="min-w-0">
                 <h2 className="text-sm font-bold text-[#0f172a]">Compare — Morning vs Evening</h2>
                 <p className="text-[11px] text-[#64748b]">Task Description from morning mail · Current Updates from evening mail</p>
               </div>
-              <button type="button" onClick={() => setCompareOpen(false)} className="rounded-md p-1 text-[#64748b] hover:text-[#0f172a]">
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="inline-flex rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-0.5 text-[11px] font-semibold">
+                  <button
+                    type="button"
+                    disabled={compareBusy}
+                    onClick={() => void loadCompare(appTodayIso())}
+                    className={`rounded px-2.5 py-1 disabled:opacity-50 ${
+                      compare.date === appTodayIso() ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    disabled={compareBusy}
+                    onClick={() => void loadCompare(appYesterdayIso())}
+                    className={`rounded px-2.5 py-1 disabled:opacity-50 ${
+                      compare.date === appYesterdayIso() ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'
+                    }`}
+                  >
+                    Previous day
+                  </button>
+                </div>
+                <button type="button" onClick={() => setCompareOpen(false)} className="rounded-md p-1 text-[#64748b] hover:text-[#0f172a]">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3">
-              {!compare.available ? (
+              {compareBusy ? (
+                <div className="rounded-xl border border-[#e2e8f0] bg-white p-8 text-center text-sm text-[#64748b]">Loading comparison…</div>
+              ) : !compare.available ? (
                 <div className="rounded-xl border border-[#e2e8f0] bg-white p-8 text-center text-sm text-[#64748b]">
                   {compare.message || 'Morning and evening updates are not yet available.'}
                 </div>

@@ -94,6 +94,20 @@ function todayIso(): string {
   return dateInAppTimezone();
 }
 
+/** Previous calendar day (app timezone) as YYYY-MM-DD. */
+function yesterdayIso(): string {
+  const today = todayIso();
+  const [y, m, d] = today.split('-').map(Number);
+  const utc = new Date(Date.UTC(y, m - 1, d));
+  utc.setUTCDate(utc.getUTCDate() - 1);
+  return utc.toISOString().slice(0, 10);
+}
+
+function periodRowsAvailable(date: string, period: SnapshotPeriod): boolean {
+  const rows = loadMailedOrSnapshotRows(date, period);
+  return Boolean(rows && rows.length);
+}
+
 /** Calendar date in app timezone (default Asia/Kolkata) as YYYY-MM-DD. */
 export function dateInAppTimezone(when = new Date(), timezone = env.appTimezone || 'Asia/Kolkata'): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -521,8 +535,12 @@ function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): Compa
 
 function resolveCompareDate(requested?: string): string {
   if (requested && /^\d{4}-\d{2}-\d{2}$/.test(requested)) return requested;
-  // Always default to today's mail (IST). Yesterday is only used when date= is passed.
-  return todayIso();
+  const today = todayIso();
+  const yesterday = yesterdayIso();
+  // Prefer today when morning (or evening) mail exists; otherwise fall back to previous day.
+  if (periodRowsAvailable(today, 'morning') || periodRowsAvailable(today, 'evening')) return today;
+  if (periodRowsAvailable(yesterday, 'morning') && periodRowsAvailable(yesterday, 'evening')) return yesterday;
+  return today;
 }
 
 export function compareSnapshots(
@@ -545,7 +563,7 @@ export function compareSnapshots(
       date: resolved,
       message:
         resolved === todayIso()
-          ? 'Today morning mail/snapshot is not available yet. Send or save Morning first, then Compare.'
+          ? 'Today morning mail/snapshot is not available yet. Send or save Morning first, or switch to Previous day.'
           : 'Morning and evening updates are not yet available for this date.',
     };
   }
