@@ -16,9 +16,24 @@ export function leadWorkLabel(item: Pick<WorkAssignment, 'lead_number' | 'lead_n
 export function assignmentStatusLabel(item: Pick<WorkAssignment, 'acceptance_status' | 'current_status'>) {
   if (item.acceptance_status === 'REQUESTED') return 'Pending Acceptance';
   if (item.acceptance_status === 'REJECTED') return 'Declined';
+  if (item.acceptance_status === 'ACCEPTED') return 'Accepted';
   if (item.current_status === 'COMPLETED' || item.current_status === 'DONE') return 'Completed';
   if (item.current_status === 'IN_PROGRESS') return 'In Progress';
   if (item.current_status === 'HOLD') return 'Hold';
   if (item.current_status === 'WAITING' || item.current_status === 'BLOCKED') return 'Waiting';
   return 'Yet to Start';
+}
+
+export function createdByLabel(name?: string) {
+  const trimmed = (name || '').trim();
+  return trimmed ? `Created by ${trimmed}` : '';
+}
+
+export function canAssigneeEditAssignment(
+  userId: string,
+  item: Pick<WorkAssignment, 'assigned_to_id' | 'created_by_id' | 'assigned_by_id' | 'acceptance_status'>
+) {
+  const isCreator = item.created_by_id === userId || item.assigned_by_id === userId;
+  if (item.acceptance_status === 'REQUESTED' && item.assigned_to_id === userId && !isCreator) return false;
+  return item.assigned_to_id === userId || isCreator;
 }

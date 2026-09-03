@@ -15,7 +15,7 @@ export function canCreateWorkTask(user: User) {
 }
 
 export function canCreateLeadPipelineTask(user: User) {
-  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'TEAM_LEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function isLeadBasedTask(task: Pick<Task, 'task_type' | 'lead_id' | 'project_id'>) {
@@ -213,11 +213,42 @@ export function canViewTask(user: User, task: Task) {
   if (['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)) {
     return true;
   }
+  if (isLeadBasedTask(task) && ['TEAM_LEAD', 'PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code)) {
+    return true;
+  }
   if (task.project_id) {
     const project = store.getProjects().find((item) => item.id === task.project_id);
     return Boolean(project && canViewProject(user, project));
   }
   return false;
+}
+
+export function isPendingAcceptance(task: Pick<Task, 'acceptance_status'>) {
+  return task.acceptance_status === 'REQUESTED';
+}
+
+export function isTaskCreator(user: User, task: Pick<Task, 'created_by_id' | 'assigned_by_id'>) {
+  return task.created_by_id === user.id || task.assigned_by_id === user.id;
+}
+
+export function canAcceptAssignedTask(user: User, task: Pick<Task, 'assigned_to_id' | 'acceptance_status'>) {
+  return task.assigned_to_id === user.id && isPendingAcceptance(task);
+}
+
+/** Same task record is shared across Lead / My Assigned Work / Daily Work Updates. Edit access is role-based. */
+export function canMutateWorkTask(user: User, task: Task): boolean {
+  const assignee = task.assigned_to_id === user.id;
+  const creator = isTaskCreator(user, task);
+  if (isPendingAcceptance(task) && assignee && !creator) return false;
+  const canManage =
+    creator ||
+    hasPermission(user, 'create:task') ||
+    ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code) ||
+    (isLeadBasedTask(task) && ['TEAM_LEAD', 'PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code));
+  const ownAdditional = Boolean(task.is_additional) && assignee;
+  const project = task.project_id ? store.getProjects().find((item) => item.id === task.project_id) : undefined;
+  const isProjectTeamLead = user.role_code === 'TEAM_LEAD' && Boolean(project && project.team_lead_id === user.id);
+  return assignee || canManage || isProjectTeamLead || ownAdditional;
 }
 
 type CreateWorkTaskResult = { error: string; status?: number } | { task: Task; tasks: Task[] };
@@ -258,7 +289,7 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     return { error: 'Lead was not found.' };
   }
   if (lead && !canCreateLeadPipelineTask(user)) {
-    return { error: 'Only a Project Manager can create a task against a Lead.', status: 403 as const };
+    return { error: 'You do not have permission to create a task against a Lead.', status: 403 as const };
   }
   if (lead && !String(body.assigned_to_id || '').trim()) {
     return { error: 'Select a team member to assign this lead task.' };
@@ -402,7 +433,7 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
       dueDate: task.due_date,
       assignedBy: user.name,
       message: isLeadTask
-        ? `New lead task assigned to you for ${lead?.lead_number || ''} ${lead?.title || ''}. Accept it to add it to My Assigned Work.`
+        ? `New lead task assigned to you for ${lead?.lead_number || ''} ${lead?.title || ''}. It is already visible in My Assigned Work and Daily Work Updates. Accept it to start editing.`
         : `New task assigned to you for ${project?.name || task.title}. Please review the requirements and begin execution.`,
       actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
       eventKey: `TASK_ASSIGNED:${task.id}:${assignee.id}:${now}`,
@@ -457,15 +488,20 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   if (index === -1) return { error: 'not_found' as const };
   const current = tasks[index];
   if (!canViewTask(user, current)) return { error: 'forbidden' as const };
+  if (isPendingAcceptance(current) && canAcceptAssignedTask(user, current) && !isTaskCreator(user, current)) {
+    return {
+      error: 'Accept this task before editing details. You can view it in My Assigned Work and Daily Work Updates.',
+      status: 403 as const,
+    };
+  }
   const canManage =
-    current.created_by_id === user.id ||
-    current.assigned_by_id === user.id ||
+    isTaskCreator(user, current) ||
     hasPermission(user, 'create:task') ||
     ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
   const ownAdditional = Boolean(current.is_additional) && current.assigned_to_id === user.id;
   const project = current.project_id ? store.getProjects().find((item) => item.id === current.project_id) : undefined;
   const isProjectTeamLead = user.role_code === 'TEAM_LEAD' && Boolean(project && project.team_lead_id === user.id);
-  const canExecute = current.assigned_to_id === user.id || canManage || isProjectTeamLead || ownAdditional;
+  const canExecute = canMutateWorkTask(user, current);
   const canToggleHidden =
     canExecute || ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
   if (!canExecute) {
@@ -494,7 +530,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   }
 
   const next: Task = { ...current, updated_at: new Date().toISOString() };
-  const canEditSheetFields = canManage || ownAdditional || current.assigned_to_id === user.id;
+  const canEditSheetFields = canExecute || canManage || ownAdditional || current.assigned_to_id === user.id;
   if (canEditSheetFields) {
     if (body.title) next.title = String(body.title).trim();
     if (body.description !== undefined) next.description = String(body.description);
@@ -523,13 +559,18 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
       }
     }
   }
-  if (canManage) {
+  if (canManage || canExecute) {
     if (body.priority) next.priority = body.priority as Task['priority'];
     if (body.assigned_to_id) {
       const assignee = store.findUserById(String(body.assigned_to_id));
       if (assignee && assignee.id !== current.assigned_to_id) {
         const transferred = transferTaskResponsibility(next, assignee, user, 'Task reassigned');
         Object.assign(next, transferred.task);
+        if (isLeadBasedTask(current) && assignee.id !== user.id) {
+          next.acceptance_status = 'REQUESTED';
+          next.requested_by_id = user.id;
+          next.requested_by_name = user.name;
+        }
         void notificationService.notifyForward({
           entityType: 'TASK',
           entityId: next.id,
@@ -548,8 +589,8 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
       }
     }
   }
-  if (body.status && ['TODO', 'IN_PROGRESS', 'DONE', 'BLOCKED', 'WAITING', 'HOLD'].includes(String(body.status))) {
-    next.status = body.status as Task['status'];
+  if (body.status !== undefined && String(body.status).trim()) {
+    next.status = taskStatusFromBody(body.status);
   }
   if (
     current.status === 'BLOCKED' &&
@@ -706,6 +747,8 @@ export function deleteWorkTasks(user: User, ids: string[]) {
   const selected = tasks.filter((task) => {
     if (!uniqueIds.includes(task.id) || !canViewTask(user, task)) return false;
     if (canManage) return true;
+    if (isTaskCreator(user, task) || canMutateWorkTask(user, task)) return true;
+    if (isLeadBasedTask(task) && canCreateLeadPipelineTask(user)) return true;
     // Any user can delete their own subtasks (assignee or creator).
     const ownSubtask =
       Boolean(task.parent_task_id) &&

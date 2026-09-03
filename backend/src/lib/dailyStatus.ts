@@ -2,6 +2,7 @@ import { store } from '../store/db.js';
 import { env } from '../config/env.js';
 import { DailyUpdate, Project, Task, User } from '../types.js';
 import { canViewProject } from './dailyUpdates.js';
+import { canAcceptAssignedTask, canMutateWorkTask, isLeadBasedTask } from './workTasks.js';
 import { formatEmployeeDisplayName, dedupeByStableId, personGivenKey } from './people.js';
 import { sendEmail } from './email.js';
 
@@ -57,6 +58,11 @@ export interface DailyStatusRow {
   taskType?: 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
   leadNumber?: string;
   leadName?: string;
+  acceptanceStatus?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  createdById?: string;
+  createdByName?: string;
+  canEdit?: boolean;
+  canAccept?: boolean;
 }
 
 export interface DailyStatusKpis {
@@ -288,7 +294,7 @@ export function canSeeAllDailyStatusRows(user: User) {
 /** Shared Daily Work Updates visibility: leadership sees every row; others see assigned/created tasks. */
 export function canSeeDailyStatusTask(user: User, task: Task): boolean {
   if (task.is_milestone) return false;
-  if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') return false;
+  if (task.acceptance_status === 'REJECTED') return false;
   // Global shared sheet for CEO / Engineering Director / Arivan (PM) / admin.
   if (canSeeAllDailyStatusRows(user)) return true;
   return (
@@ -328,7 +334,7 @@ export function buildDailyStatusRows(
   const childrenByParent = new Map<string, Task[]>();
   for (const task of store.getTasks()) {
     if (task.is_milestone) continue;
-    if (task.acceptance_status === 'REQUESTED' || task.acceptance_status === 'REJECTED') continue;
+    if (task.acceptance_status === 'REJECTED') continue;
     if (!task.parent_task_id || !visibleRootIds.has(task.parent_task_id)) continue;
     const list = childrenByParent.get(task.parent_task_id) || [];
     list.push(task);
@@ -372,7 +378,7 @@ export function buildDailyStatusRows(
         }, 0);
         progressPercent = Math.round((doneWeight / children.length) * 100);
       }
-      const isLeadTask = task.task_type === 'LEAD_TASK';
+      const isLeadTask = isLeadBasedTask(task) || task.task_type === 'LEAD_TASK';
       const lead = task.lead_id ? store.getLeads().find((item) => item.id === task.lead_id) : undefined;
       const leadLabel = isLeadTask
         ? [lead?.lead_number, task.lead_name || lead?.title].filter(Boolean).join(' • ')
@@ -408,6 +414,11 @@ export function buildDailyStatusRows(
         taskType: task.task_type || (task.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK'),
         leadNumber: lead?.lead_number,
         leadName: task.lead_name || lead?.title,
+        acceptanceStatus: task.acceptance_status,
+        createdById: task.created_by_id,
+        createdByName: task.created_by || task.assigned_by,
+        canEdit: canMutateWorkTask(user, task),
+        canAccept: canAcceptAssignedTask(user, task),
       } satisfies DailyStatusRow;
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
@@ -776,6 +787,13 @@ export function upsertLoggedHoursForTask(
   if (!task) return { ok: false, error: 'not_found', status: 404 };
   if (!canSeeDailyStatusTask(actor, task) && task.assigned_to_id !== actor.id) {
     return { ok: false, error: 'forbidden', status: 403 };
+  }
+  if (!canMutateWorkTask(actor, task)) {
+    return {
+      ok: false,
+      error: 'Accept this task before logging hours or editing it.',
+      status: 403,
+    };
   }
   const period: SnapshotPeriod = inferDefaultEmailPeriod();
   const date = /^\d{4}-\d{2}-\d{2}$/.test(workDate) ? workDate : todayIso();

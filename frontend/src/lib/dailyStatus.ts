@@ -51,6 +51,11 @@ export interface DailyStatusRow {
   taskType?: 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
   leadNumber?: string;
   leadName?: string;
+  acceptanceStatus?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
+  createdById?: string;
+  createdByName?: string;
+  canEdit?: boolean;
+  canAccept?: boolean;
 }
 
 export interface DailyStatusKpis {

@@ -11,10 +11,11 @@ import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
 import { LEAD_STATUS_LABELS } from '@/lib/format';
 import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus, appTodayIso } from '@/lib/dailyStatus';
 import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
-import { isLeadTask, leadWorkLabel } from '@/lib/leadTasks';
+import { isLeadTask, leadWorkLabel, assignmentStatusLabel, canAssigneeEditAssignment } from '@/lib/leadTasks';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import LeadTaskBadge from '@/components/work/LeadTaskBadge';
+import TaskAccessBadges from '@/components/work/TaskAccessBadges';
 import PendingTaskAssignmentCard from '@/components/work/PendingTaskAssignmentCard';
 import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
 import RequestDependencyForm from '@/components/work/RequestDependencyForm';
@@ -142,10 +143,7 @@ export default function MyAssignedWorkPage() {
   const visibleAssignments = useMemo(
     () =>
       assignments.filter(
-        (item) =>
-          item.acceptance_status !== 'REJECTED' &&
-          item.acceptance_status !== 'REQUESTED' &&
-          matchesFilter(item, filter)
+        (item) => item.acceptance_status !== 'REJECTED' && matchesFilter(item, filter)
       ),
     [assignments, filter]
   );
@@ -190,7 +188,7 @@ export default function MyAssignedWorkPage() {
       setNotice(result.message || 'Unable to update dependency request.');
       return;
     }
-    setNotice(result.data.message || (action === 'accept' ? 'Dependency accepted.' : 'Dependency rejected.'));
+    setNotice(result.data.message || (action === 'accept' ? 'Task accepted. You can now edit it in My Assigned Work and Daily Work Updates.' : 'Task declined.'));
     await refreshWork();
   };
 
@@ -335,12 +333,16 @@ export default function MyAssignedWorkPage() {
                   const taskId = item.task_id || (item.source === 'TASK' ? item.id : '');
                   const busy = taskBusy === taskId;
                   const isAssignee = item.assigned_to_id === currentUser.id;
+                  const canEditDetails = canAssigneeEditAssignment(currentUser.id, item);
                   const isReviewer = currentUser.role_code === 'TEAM_LEAD' && item.review_status === 'PENDING_TL_REVIEW';
                   const sheetStatus = toSheetStatus(item.current_status);
                   const done = item.current_status === 'DONE' || item.current_status === 'COMPLETED';
-                  const canDaily = Boolean(currentUser && canSubmitDailyUpdate(currentUser) && item.acceptance_status !== 'REQUESTED');
+                  const pendingAccept = item.acceptance_status === 'REQUESTED';
+                  const canDaily = Boolean(
+                    currentUser && canSubmitDailyUpdate(currentUser) && isAssignee && canEditDetails && !pendingAccept
+                  );
                   const canComplete =
-                    Boolean(taskId && isAssignee && !done && item.acceptance_status !== 'REQUESTED' && item.review_status !== 'PENDING_TL_REVIEW');
+                    Boolean(taskId && isAssignee && !done && canEditDetails && item.review_status !== 'PENDING_TL_REVIEW');
                   const leadBased = isLeadTask(item);
                   return (
                   <tr
@@ -359,7 +361,17 @@ export default function MyAssignedWorkPage() {
                       {leadBased ? (
                         <div>
                           <div className="font-semibold text-slate-100">{leadWorkLabel(item)}</div>
-                          <LeadTaskBadge className="mt-1" />
+                          <div className="mt-1">
+                            <TaskAccessBadges
+                              leadTask
+                              acceptanceStatus={item.acceptance_status}
+                              createdByName={item.created_by || item.assigned_by}
+                              viewOnly={pendingAccept && isAssignee && !canEditDetails}
+                            />
+                          </div>
+                          {!isAssignee && item.assigned_to ? (
+                            <div className="mt-1 text-[10px] text-slate-400">Assigned to {item.assigned_to}</div>
+                          ) : null}
                         </div>
                       ) : (
                         <>
@@ -398,7 +410,7 @@ export default function MyAssignedWorkPage() {
                     </td>
                     <td className="align-top p-2">
                       <span className={`inline-flex rounded border px-2 py-0.5 text-[10px] font-bold ${sheetStatusClass(sheetStatus)}`}>
-                        {sheetStatus}
+                        {pendingAccept ? assignmentStatusLabel(item) : sheetStatus}
                       </span>
                       {item.blocked && item.blocker && (
                         <div className="mt-0.5 flex items-center gap-1 text-[10px] text-rose-300">
@@ -442,7 +454,7 @@ export default function MyAssignedWorkPage() {
                               onClick={() => void acceptOrReject(item, 'accept')}
                               className="h-7 rounded-md bg-emerald-700 px-2 text-[10px] font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
                             >
-                              Accept
+                              Accept Task
                             </button>
                             <button
                               disabled={busy}
@@ -455,7 +467,7 @@ export default function MyAssignedWorkPage() {
                         )}
                         <RowMoreMenu
                           items={[
-                            ...(taskId && isAssignee && item.acceptance_status !== 'REQUESTED'
+                            ...(taskId && isAssignee && canEditDetails
                               ? [{
                                   id: 'dep',
                                   label: 'Request Dependency',
@@ -466,7 +478,7 @@ export default function MyAssignedWorkPage() {
                                     }),
                                 }]
                               : []),
-                            ...(taskId && isAssignee && !done && item.acceptance_status !== 'REQUESTED'
+                            ...(taskId && isAssignee && !done && canEditDetails
                               ? [{
                                   id: 'issue',
                                   label: 'Raise Issue / Doubt',
@@ -477,14 +489,14 @@ export default function MyAssignedWorkPage() {
                                   },
                                 }]
                               : []),
-                            ...(taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && item.acceptance_status !== 'REQUESTED'
+                            ...(taskId && isAssignee && (item.current_status === 'TODO' || item.current_status === 'NOT_STARTED') && !item.blocked && canEditDetails
                               ? [{
                                   id: 'start',
                                   label: 'Start Task',
                                   onSelect: () => void updateTask(item, { status: 'IN_PROGRESS' }),
                                 }]
                               : []),
-                            ...(taskId && isAssignee && item.parent_task_id && item.acceptance_status !== 'REQUESTED'
+                            ...(taskId && isAssignee && item.parent_task_id && canEditDetails
                               ? [
                                   {
                                     id: 'edit-sub',

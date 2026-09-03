@@ -36,7 +36,15 @@ export const TasksApi = {
     });
   },
 
-  async update(id: string, body: Partial<Task> & { review_action?: 'approve' | 'return' | 'resubmit'; review_comments?: string }) {
+  async update(
+    id: string,
+    body: Partial<Task> & {
+      review_action?: 'approve' | 'return' | 'resubmit';
+      review_comments?: string;
+      status?: string;
+      depends_on_ids?: string[];
+    }
+  ) {
     return apiRequest<{ task: Task }>(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(body),

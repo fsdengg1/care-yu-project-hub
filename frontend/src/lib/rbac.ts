@@ -218,7 +218,7 @@ export function canCreateWorkTask(user: User | null | undefined): boolean {
 
 export function canCreateLeadTask(user: User | null | undefined): boolean {
   if (!user) return false;
-  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
+  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'TEAM_LEAD', 'SYSTEM_ADMIN'].includes(user.role_code);
 }
 
 export function canEditDailySheet(user: User | null | undefined): boolean {

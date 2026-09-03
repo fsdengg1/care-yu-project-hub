@@ -1,4 +1,4 @@
-import { store } from '../src/store/db.js';
+import { initStore, store } from '../src/store/db.js';
 import { createAnnouncement, createGroup, deleteConversation, getConversation, getOrCreateDirect, listConversations, postAttachment, postMessage, updateGroupMembers } from '../src/lib/chat.js';
 import { addEntityDocument, getEntityDocumentFile } from '../src/lib/documents.js';
 import {
@@ -14,7 +14,9 @@ import {
 import { listLiveMessages, postLiveMessage } from '../src/lib/forumLive.js';
 import { heartbeat, listPresence } from '../src/lib/presence.js';
 import { notifyStageCompleted } from '../src/lib/stages.js';
-import { canViewTask, createWorkTask, acceptWorkTask } from '../src/lib/workTasks.js';
+import { canMutateWorkTask, canViewTask, createWorkTask, acceptWorkTask, updateWorkTask } from '../src/lib/workTasks.js';
+import { buildDailyStatusRows } from '../src/lib/dailyStatus.js';
+import { listAssignmentsForUser } from '../src/lib/dailyUpdates.js';
 import { User } from '../src/types.js';
 
 type Check = { name: string; ok: boolean; detail?: string };
@@ -40,6 +42,8 @@ function employeeNamed(skipId?: string): User {
   if (!user) throw new Error('No employee found');
   return user;
 }
+
+await initStore();
 
 const snapshot = {
   conversations: store.getConversations(),
@@ -221,8 +225,36 @@ try {
     assert('Lead task stays linked to the lead', Boolean(leadTask.task.lead_id) && leadTask.task.lead_id === lead?.id);
     assert('Lead task starts pending acceptance', leadTask.task.acceptance_status === 'REQUESTED');
     assert('Lead task does not attach a project', !leadTask.task.project_id);
+    assert('Pending assignee cannot edit details', !canMutateWorkTask(employee, leadTask.task));
+    assert('Creator can edit before acceptance', canMutateWorkTask(pm, leadTask.task));
+    const blockedEdit = updateWorkTask(employee, leadTask.task.id, { description: 'Should not save' });
+    assert('Assignee update is rejected before accept', 'error' in blockedEdit);
+    const creatorEdit = updateWorkTask(pm, leadTask.task.id, { description: 'Prepare shuttle feasibility calculation based on customer requirement.' });
+    assert('Creator can update pending lead task', !('error' in creatorEdit));
+    const assigneeRows = buildDailyStatusRows(employee);
+    assert(
+      'Pending lead task appears in assignee Daily Work Updates',
+      assigneeRows.some((row) => row.id === leadTask.task.id && row.canAccept && !row.canEdit)
+    );
+    const creatorRows = buildDailyStatusRows(pm);
+    assert(
+      'Pending lead task appears in creator Daily Work Updates as editable',
+      creatorRows.some((row) => row.id === leadTask.task.id && row.canEdit)
+    );
+    assert(
+      'Assignee sees the same task in My Assigned Work',
+      listAssignmentsForUser(employee).some((item) => item.task_id === leadTask.task.id || item.id === leadTask.task.id)
+    );
+    assert(
+      'Creator sees the same task in My Assigned Work',
+      listAssignmentsForUser(pm).some((item) => item.task_id === leadTask.task.id || item.id === leadTask.task.id)
+    );
     const accepted = acceptWorkTask(employee, leadTask.task.id);
     assert('Assignee can accept a lead task', !('error' in accepted) && accepted.task.acceptance_status === 'ACCEPTED');
+    if (!('error' in accepted)) {
+      assert('Accepted assignee can edit', canMutateWorkTask(employee, accepted.task));
+      assert('Creator still can edit after accept', canMutateWorkTask(pm, accepted.task));
+    }
     const previousLeadStatus = lead?.status;
     assert('Accepting a lead task does not change lead stage', store.getLeads().find((item) => item.id === lead?.id)?.status === previousLeadStatus);
   }

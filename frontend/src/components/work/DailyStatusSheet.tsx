@@ -17,6 +17,7 @@ import DependencyMultiSelect from './DependencyMultiSelect';
 import StatusDropdown from './StatusDropdown';
 import SheetDateFilter from './SheetDateFilter';
 import RowMoreMenu from './RowMoreMenu';
+import TaskAccessBadges from './TaskAccessBadges';
 
 export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional' | 'lead' | 'hidden';
 
@@ -100,6 +101,7 @@ export default function DailyStatusSheet({
   onHideRow,
   onRestoreRow,
   onDeleteRow,
+  onAccept,
   readOnly = false,
 }: {
   rows: DailyStatusRow[];
@@ -123,6 +125,7 @@ export default function DailyStatusSheet({
   onHideRow?: (row: DailyStatusRow) => void;
   onRestoreRow?: (row: DailyStatusRow) => void;
   onDeleteRow?: (row: DailyStatusRow) => void;
+  onAccept?: (row: DailyStatusRow) => void;
   readOnly?: boolean;
 }) {
   const [query, setQuery] = useState('');
@@ -202,8 +205,15 @@ export default function DailyStatusSheet({
 
   const allSelected = visible.length > 0 && visible.every((row) => selectedIds.includes(row.id));
   const selectedVisible = selectedIds.filter((id) => visible.some((row) => row.id === id)).length;
-  const canEditRow = (row: DailyStatusRow) =>
-    !readOnly && (canEditAll || row.personId === userId);
+  const canEditRow = (row: DailyStatusRow) => {
+    if (readOnly) return false;
+    if (row.canEdit !== undefined) return row.canEdit;
+    const pending = row.acceptanceStatus === 'REQUESTED';
+    const isCreator = row.createdById === userId;
+    const isAssignee = row.personId === userId;
+    if (pending && isAssignee && !isCreator) return false;
+    return canEditAll || isAssignee || isCreator;
+  };
   const showSelect = !readOnly;
   const tableRef = useRef<HTMLTableElement>(null);
 
@@ -386,7 +396,12 @@ export default function DailyStatusSheet({
                     <td className="project-cell">
                     {row.isLeadTask ? (
                       <div className="space-y-1">
-                        <span className="lead-task-badge">Lead Task</span>
+                        <TaskAccessBadges
+                          leadTask
+                          acceptanceStatus={row.acceptanceStatus}
+                          createdByName={row.createdByName}
+                          viewOnly={!editable && row.acceptanceStatus === 'REQUESTED'}
+                        />
                         <span className="sheet-text">{row.project || '—'}</span>
                       </div>
                     ) : editable ? (
@@ -421,9 +436,18 @@ export default function DailyStatusSheet({
                       )}
                       <div className="min-w-0 flex-1">
                         {row.isLeadTask && (
-                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                            <span className="lead-task-badge">Lead Task</span>
-                            {row.leadNumber ? <span className="text-[10px] font-bold" style={{ color: 'var(--lead-task-badge-fg)' }}>{row.leadNumber}</span> : null}
+                          <div className="mb-1">
+                            <TaskAccessBadges
+                              leadTask
+                              acceptanceStatus={row.acceptanceStatus}
+                              createdByName={row.createdByName}
+                              viewOnly={!editable && row.acceptanceStatus === 'REQUESTED'}
+                            />
+                            {row.leadNumber ? (
+                              <span className="ml-1.5 text-[10px] font-bold" style={{ color: 'var(--lead-task-badge-fg)' }}>
+                                {row.leadNumber}
+                              </span>
+                            ) : null}
                           </div>
                         )}
                         <div className="flex items-start gap-1">
@@ -444,7 +468,7 @@ export default function DailyStatusSheet({
                               <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
                             )}
                           </div>
-                          {onAddSubtask && !readOnly && (canEditAll || row.personId === userId) && (
+                          {onAddSubtask && editable && (
                             <button
                               type="button"
                               onClick={() => onAddSubtask(row.id)}
@@ -592,7 +616,15 @@ export default function DailyStatusSheet({
                     </td>
                     {!readOnly && (
                       <td className="actions-cell">
-                        {editable ? (
+                        {row.canAccept && onAccept ? (
+                          <button
+                            type="button"
+                            onClick={() => onAccept(row)}
+                            className="rounded-md bg-emerald-700 px-2 py-1 text-[10px] font-bold text-white hover:bg-emerald-600"
+                          >
+                            Accept Task
+                          </button>
+                        ) : editable ? (
                           <RowMoreMenu
                             variant="sheet"
                             items={[

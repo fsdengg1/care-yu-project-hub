@@ -79,6 +79,9 @@ function NewDailyUpdateInner() {
       }
       if (found) {
         setAssignment(found);
+        if (found.acceptance_status === 'REQUESTED' && found.assigned_to_id === current.id && found.created_by_id !== current.id) {
+          setError('Accept this lead task in My Assigned Work or Daily Work Updates before submitting a daily update. This form stays attached to the same task.');
+        }
         setForm((prev) => ({ ...prev, progress_percent: prev.progress_percent || found.progress_percent || 0 }));
       }
     })();
@@ -97,6 +100,14 @@ function NewDailyUpdateInner() {
     setError(null);
     if (!payload.assignment_id) {
       setError('Select an assigned task from My Assigned Work.');
+      return;
+    }
+    if (
+      assignment?.acceptance_status === 'REQUESTED' &&
+      assignment.assigned_to_id === user?.id &&
+      assignment.created_by_id !== user?.id
+    ) {
+      setError('Accept this lead task before submitting a daily update. The update stays attached to the same task.');
       return;
     }
     if (submit && blocked && (!form.blocker.trim() || !form.dependency.trim() || !form.support_required.trim())) {

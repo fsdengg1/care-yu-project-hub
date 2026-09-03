@@ -7,10 +7,10 @@ import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { WorkAssignment } from '@/lib/types';
 import { PROJECT_ACTION_SUCCESS } from '@/lib/format';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
-import { isLeadTask, leadWorkLabel } from '@/lib/leadTasks';
+import { isLeadTask, leadWorkLabel, assignmentStatusLabel } from '@/lib/leadTasks';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
-import LeadTaskBadge from './LeadTaskBadge';
+import TaskAccessBadges from './TaskAccessBadges';
 
 function fmt(value?: string) {
   if (!value) return '—';
@@ -25,6 +25,7 @@ function dateOnly(value?: string) {
 }
 
 function statusLabel(assignment: WorkAssignment) {
+  if (assignment.acceptance_status === 'REQUESTED') return assignmentStatusLabel(assignment);
   if (assignment.blocked || assignment.current_status === 'BLOCKED') return 'Issue / Blocked';
   if (assignment.review_status === 'PENDING_TL_REVIEW' || assignment.current_status === 'PENDING_TL_REVIEW') {
     return 'Completed / Pending Team Lead Review';
@@ -90,7 +91,8 @@ export default function MemberTaskCard({
     !completed &&
     (assignment.current_status === 'IN_PROGRESS' || assignment.current_status === 'CORRECTION_REQUIRED');
   const assigned = !blocked && !completed && !inProgress;
-  const viewOnly = completed;
+  const pendingAccept = assignment.acceptance_status === 'REQUESTED';
+  const viewOnly = completed || pendingAccept;
 
   async function run(key: string, work: () => Promise<void>, success: string) {
     setBusy(key);
@@ -118,7 +120,16 @@ export default function MemberTaskCard({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            {isLeadTask(assignment) ? <LeadTaskBadge /> : <div className="text-xs uppercase tracking-wider text-slate-500">{assignment.project_code || 'No project'}</div>}
+            {isLeadTask(assignment) ? (
+              <TaskAccessBadges
+                leadTask
+                acceptanceStatus={assignment.acceptance_status}
+                createdByName={assignment.created_by || assignment.assigned_by}
+                viewOnly={pendingAccept}
+              />
+            ) : (
+              <div className="text-xs uppercase tracking-wider text-slate-500">{assignment.project_code || 'No project'}</div>
+            )}
           </div>
           <h3 className="text-lg font-bold text-white">
             {assignment.task_title}
@@ -167,6 +178,27 @@ export default function MemberTaskCard({
       ) : assignment.lead_id ? (
         <div className="mt-4">
           <SmartEmailNotificationPanel entityType="LEAD" entityId={assignment.lead_id} compact />
+        </div>
+      ) : null}
+
+      {pendingAccept && assignment.task_id ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            onClick={() =>
+              void run(
+                'accept',
+                async () => {
+                  await requireOk(await TasksApi.accept(assignment.task_id || assignment.id));
+                },
+                'Task accepted. You can now edit this lead task in My Assigned Work and Daily Work Updates.'
+              )
+            }
+            className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-600 disabled:opacity-60"
+          >
+            Accept Task
+          </button>
         </div>
       ) : null}
 

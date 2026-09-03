@@ -182,6 +182,9 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     review_status: task.review_status,
     description: task.description,
     assigned_by: task.assigned_by,
+    assigned_by_id: task.assigned_by_id,
+    created_by: task.created_by,
+    created_by_id: task.created_by_id,
     team_lead_name: project?.team_lead_name,
     depends_on_title: dependsOn?.title || dependencyNames || undefined,
     remarks: task.remarks,
@@ -211,6 +214,17 @@ export function listAssignmentsForUser(user: User): WorkAssignment[] {
     seen.add(item.id);
     if (task.employee_allocation_id) seen.add(task.employee_allocation_id);
     if (task.feasibility_team_assignment_id) seen.add(task.feasibility_team_assignment_id);
+  }
+
+  for (const task of tasks) {
+    if (seen.has(task.id) || task.acceptance_status === 'REJECTED') continue;
+    const ownsLeadTask =
+      (task.task_type === 'LEAD_TASK' || Boolean(task.lead_id && !task.project_id)) &&
+      (task.created_by_id === user.id || task.assigned_by_id === user.id);
+    if (!ownsLeadTask) continue;
+    const item = assignmentFromTask(task, byProject.get(task.project_id || ''), byLead.get(task.lead_id));
+    items.push(item);
+    seen.add(item.id);
   }
 
   if (user.role_code === 'TEAM_LEAD') {

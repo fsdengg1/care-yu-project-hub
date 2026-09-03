@@ -139,6 +139,16 @@ router.post(
     if (!assignment) {
       return res.status(400).json({ message: 'You can only submit updates for work assigned to you.' });
     }
+    if (
+      assignment.acceptance_status === 'REQUESTED' &&
+      assignment.assigned_to_id === user.id &&
+      assignment.created_by_id !== user.id &&
+      assignment.assigned_by_id !== user.id
+    ) {
+      return res.status(403).json({
+        message: 'Accept this task before submitting a daily update. The same lead task is already linked here.',
+      });
+    }
 
     const workStatus = parseStatus(body.work_status);
     const submit = String(body.submission_status || body.action || '').toUpperCase() === 'SUBMITTED' || body.submit === true;

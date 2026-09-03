@@ -1241,6 +1241,9 @@ export interface WorkAssignment {
   review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
   description?: string;
   assigned_by?: string;
+  assigned_by_id?: string;
+  created_by?: string;
+  created_by_id?: string;
   team_lead_name?: string;
   depends_on_title?: string;
   remarks?: string;

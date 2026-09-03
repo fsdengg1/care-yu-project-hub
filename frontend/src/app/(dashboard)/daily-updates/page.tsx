@@ -337,6 +337,16 @@ function DailyWorkUpdatesInner() {
           setNotice('Task restored to Daily Work Updates.');
         }}
         onDeleteRow={(row) => setDeleteRow(row)}
+        onAccept={async (row) => {
+          setError(null);
+          const result = await TasksApi.accept(row.id);
+          if (!result.ok) {
+            setError(result.message || 'Unable to accept this task.');
+            return;
+          }
+          setNotice('Task accepted. You can now edit this lead task here and in My Assigned Work.');
+          await refreshSheet();
+        }}
         onPatch={async (id, body) => {
           setError(null);
           const result = await DailyStatusApi.updateRow(id, { ...body, work_date: workDate });

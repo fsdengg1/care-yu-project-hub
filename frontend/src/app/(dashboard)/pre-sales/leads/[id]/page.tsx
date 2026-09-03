@@ -9,10 +9,12 @@ import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
 import ProjectStageFlow from '@/components/leads/ProjectStageFlow';
 import CreateLeadTaskForm from '@/components/work/CreateLeadTaskForm';
 import LeadTasksPanel from '@/components/work/LeadTasksPanel';
+import ConfirmDialog from '@/components/work/ConfirmDialog';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import WorkflowStatusBanner, { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import { NotificationsApi } from '@/lib/notificationsApi';
+import { TasksApi } from '@/lib/tasksApi';
 import { formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
 import { projectStageFlowSummary } from '@/lib/projectStageFlow';
 import { canCreateLead, canCreateLeadTask } from '@/lib/rbac';
@@ -45,6 +47,10 @@ export default function LeadDetailPage() {
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [leadTasks, setLeadTasks] = useState<Task[]>([]);
   const [showCreateLeadTask, setShowCreateLeadTask] = useState(false);
+  const [editingLeadTask, setEditingLeadTask] = useState<Task | null>(null);
+  const [deletingLeadTask, setDeletingLeadTask] = useState<Task | null>(null);
+  const [leadTaskBusy, setLeadTaskBusy] = useState<string | null>(null);
+  const [leadTaskNotice, setLeadTaskNotice] = useState<string | null>(null);
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -158,6 +164,15 @@ export default function LeadDetailPage() {
   const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
   const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isAdmin;
   const canCreateLeadWork = canCreateLeadTask(currentUser);
+  const leadTaskPeople = allUsers
+    .filter((user) => user.status === 'ACTIVE')
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      displayName: user.name,
+      email: user.email || '',
+      role_name: user.role_name,
+    }));
   const currentStageLabel = projectStageFlowSummary(lead).stageLabel;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
   const isBH = currentUser.role_code === 'BUSINESS_HEAD';
@@ -474,7 +489,10 @@ export default function LeadDetailPage() {
             {canCreateLeadWork && (
               <button
                 type="button"
-                onClick={() => setShowCreateLeadTask(true)}
+                onClick={() => {
+                  setEditingLeadTask(null);
+                  setShowCreateLeadTask(true);
+                }}
                 className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-cyan-500"
               >
                 <Plus className="h-3.5 w-3.5" /> Create Task
@@ -518,27 +536,59 @@ export default function LeadDetailPage() {
       <LeadTasksPanel
         tasks={leadTasks}
         canCreate={canCreateLeadWork}
-        onCreate={() => setShowCreateLeadTask(true)}
+        currentUser={currentUser}
+        busyId={leadTaskBusy}
+        onCreate={() => {
+          setEditingLeadTask(null);
+          setShowCreateLeadTask(true);
+        }}
+        onEdit={(task) => {
+          setEditingLeadTask(task);
+          setShowCreateLeadTask(true);
+        }}
+        onDelete={(task) => setDeletingLeadTask(task)}
       />
+      {leadTaskNotice && (
+        <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-xs text-emerald-200">{leadTaskNotice}</div>
+      )}
 
       <CreateLeadTaskForm
         open={showCreateLeadTask}
         lead={lead}
-        people={allUsers
-          .filter((user) => user.status === 'ACTIVE')
-          .map((user) => ({
-            id: user.id,
-            name: user.name,
-            displayName: user.name,
-            email: user.email || '',
-            role_name: user.role_name,
-          }))}
+        people={leadTaskPeople}
         currentUserId={currentUser.id}
-        onClose={() => setShowCreateLeadTask(false)}
-        onCreated={() => {
+        editing={editingLeadTask}
+        onClose={() => {
+          setShowCreateLeadTask(false);
+          setEditingLeadTask(null);
+        }}
+        onCreated={(message) => {
+          setLeadTaskNotice(message);
           void loadData();
         }}
       />
+
+      {deletingLeadTask && (
+        <ConfirmDialog
+          title="Delete this lead task?"
+          body={`"${deletingLeadTask.description || deletingLeadTask.title}" will be removed from this lead, My Assigned Work, and Daily Work Updates.`}
+          busy={leadTaskBusy === deletingLeadTask.id}
+          onCancel={() => setDeletingLeadTask(null)}
+          onConfirm={async () => {
+            const id = deletingLeadTask.id;
+            setLeadTaskBusy(id);
+            const result = await TasksApi.bulkDelete([id]);
+            setLeadTaskBusy(null);
+            setDeletingLeadTask(null);
+            if (!result.ok) {
+              setActionError(result.message || 'Unable to delete this lead task.');
+              return;
+            }
+            setLeadTaskNotice('Lead task deleted.');
+            await loadData();
+          }}
+        />
+      )}
 
       {/* Accepted-for-feasibility banner — PM action prompt */}
       {lead.status === 'ACCEPTED_FOR_FEASIBILITY' && isPM && (

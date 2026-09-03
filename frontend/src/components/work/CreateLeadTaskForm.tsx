@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { DailySheetStatus, DailyStatusPerson, SHEET_STATUSES, formatSheetDate } from '@/lib/dailyStatus';
+import React, { useEffect, useMemo, useState } from 'react';
+import { DailySheetStatus, DailyStatusPerson, SHEET_STATUSES, formatSheetDate, toSheetStatus } from '@/lib/dailyStatus';
 import { TasksApi } from '@/lib/tasksApi';
-import { Lead } from '@/lib/types';
+import { Lead, Task } from '@/lib/types';
 import { projectStageFlowSummary } from '@/lib/projectStageFlow';
 import DependencyMultiSelect from './DependencyMultiSelect';
 import StatusDropdown from './StatusDropdown';
@@ -18,6 +18,7 @@ export default function CreateLeadTaskForm({
   lead,
   people,
   currentUserId: _currentUserId,
+  editing,
   onClose,
   onCreated,
 }: {
@@ -25,6 +26,7 @@ export default function CreateLeadTaskForm({
   lead: Lead;
   people: DailyStatusPerson[];
   currentUserId: string;
+  editing?: Task | null;
   onClose: () => void;
   onCreated: (message: string) => void;
 }) {
@@ -37,6 +39,27 @@ export default function CreateLeadTaskForm({
   const [deadline, setDeadline] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const isEdit = Boolean(editing?.id);
+
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setDescription(editing.description || editing.title || '');
+      setAssigneeId(editing.assigned_to_id || '');
+      setDependsOn(Array.isArray(editing.depends_on_ids) ? editing.depends_on_ids : editing.depends_on_id ? [editing.depends_on_id] : []);
+      setStatus(toSheetStatus(editing.status));
+      setDeadline(editing.due_date ? String(editing.due_date).slice(0, 10) : '');
+      setError('');
+      return;
+    }
+    setDescription('');
+    setAssigneeId('');
+    setDependsOn([]);
+    setStatus('Yet to Start');
+    setDeadline('');
+    setError('');
+  }, [open, editing]);
 
   if (!open) return null;
 
@@ -64,24 +87,33 @@ export default function CreateLeadTaskForm({
       return;
     }
     setBusy(true);
-    const result = await TasksApi.create({
+    const body = {
       title: description.trim().slice(0, 120),
       description: description.trim(),
-      task_type: 'LEAD_TASK',
-      lead_id: lead.id,
       assigned_to_id: assigneeId,
-      start_date: today,
       due_date: deadline,
       depends_on_ids: dependsOn,
       status,
-    });
+    };
+    const result = isEdit && editing
+      ? await TasksApi.update(editing.id, body)
+      : await TasksApi.create({
+          ...body,
+          task_type: 'LEAD_TASK',
+          lead_id: lead.id,
+          start_date: today,
+        });
     setBusy(false);
     if (!result.ok) {
-      setError(result.message || 'Unable to create the lead task.');
+      setError(result.message || (isEdit ? 'Unable to update the lead task.' : 'Unable to create the lead task.'));
       return;
     }
     reset();
-    onCreated('Lead task created. The assignee must accept it before it appears in My Assigned Work.');
+    onCreated(
+      isEdit
+        ? 'Lead task updated. The same task is shown in My Assigned Work and Daily Work Updates.'
+        : 'Lead task created. The assignee must accept it before they can edit it.'
+    );
     onClose();
   };
 
@@ -89,7 +121,7 @@ export default function CreateLeadTaskForm({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
       <div className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-5 text-xs shadow-xl">
         <div className="flex items-start justify-between gap-3">
-          <h3 className="text-sm font-bold text-slate-100">Create Lead Task</h3>
+          <h3 className="text-sm font-bold text-slate-100">{isEdit ? 'Edit Lead Task' : 'Create Lead Task'}</h3>
           <button type="button" onClick={() => { reset(); onClose(); }} className="text-slate-400 hover:text-slate-100" aria-label="Close">
             ✕
           </button>
@@ -184,7 +216,7 @@ export default function CreateLeadTaskForm({
             onClick={() => void submit()}
             className="rounded-lg bg-cyan-600 px-3 py-2 font-bold text-white hover:bg-cyan-500 disabled:opacity-60"
           >
-            Create Task
+            {isEdit ? 'Save Changes' : 'Create Task'}
           </button>
         </div>
       </div>

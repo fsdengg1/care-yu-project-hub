@@ -4,7 +4,7 @@ import React from 'react';
 import { WorkAssignment } from '@/lib/types';
 import { formatSheetDate } from '@/lib/dailyStatus';
 import { isLeadTask, leadWorkLabel } from '@/lib/leadTasks';
-import LeadTaskBadge from './LeadTaskBadge';
+import TaskAccessBadges from './TaskAccessBadges';
 
 export default function PendingTaskAssignmentCard({
   item,
@@ -24,8 +24,17 @@ export default function PendingTaskAssignmentCard({
         {leadBased ? 'New Task Assigned' : 'Dependency request'}
       </div>
       {leadBased && (
+        <div className="mt-2">
+          <TaskAccessBadges
+            leadTask
+            acceptanceStatus={item.acceptance_status}
+            createdByName={item.created_by || item.assigned_by}
+            viewOnly
+          />
+        </div>
+      )}
+      {leadBased && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <LeadTaskBadge />
           <span className="font-mono text-cyan-300">{leadWorkLabel(item)}</span>
         </div>
       )}
@@ -33,6 +42,11 @@ export default function PendingTaskAssignmentCard({
         <div className="mt-1 text-[11px] text-slate-400">{item.lead_stage_at_creation}</div>
       )}
       <div className="mt-2 font-semibold text-slate-100">{item.description || item.task_title}</div>
+      {leadBased && (
+        <p className="mt-1 text-[11px] text-amber-200/90">
+          You can view this lead task in My Assigned Work and Daily Work Updates. Accept it to edit details and log work.
+        </p>
+      )}
       <div className="mt-2 space-y-0.5 text-[11px] text-slate-400">
         {item.assigned_by && <div>Assigned by: {item.assigned_by}</div>}
         <div>Deadline: {formatSheetDate(item.due_date)}</div>
