@@ -6,6 +6,7 @@ import {
   buildDailyStatusRows,
   canSeeAllDailyStatusRows,
   compareSnapshots,
+  dateInAppTimezone,
   peopleForDailySheet,
   fromSheetStatus,
   loadDailyStatusSnapshot,
@@ -40,7 +41,7 @@ function readSlot(value: unknown): EmailReportSlot {
 }
 
 function todayDate() {
-  return new Date().toISOString().slice(0, 10);
+  return dateInAppTimezone();
 }
 
 router.use(requireAuth);

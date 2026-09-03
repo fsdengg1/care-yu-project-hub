@@ -562,9 +562,14 @@ export function rowsForPeriod(user: User, period: SnapshotPeriod, date = todayIs
   source: 'snapshot' | 'live';
   available: boolean;
 } {
+  const today = todayIso();
+  // Today: always use the live Daily Work Updates sheet so mail/preview matches
+  // the hub after edits. Sending still freezes a snapshot for Compare.
+  if (date === today) {
+    return { rows: buildDailyStatusRows(user), source: 'live', available: true };
+  }
   const snap = loadMailedOrSnapshotRows(date, period);
   if (snap) return { rows: scopedDailyStatusRows(user, snap), source: 'snapshot', available: true };
-  if (date === todayIso()) return { rows: buildDailyStatusRows(user), source: 'live', available: true };
   return { rows: [], source: 'snapshot', available: false };
 }
 
@@ -654,8 +659,9 @@ export function compareSnapshots(
   let morningRaw = loadMailedOrSnapshotRows(resolved, 'morning');
   let eveningRaw = loadMailedOrSnapshotRows(resolved, 'evening');
 
-  // Today: if evening mail/snapshot is missing, use current sheet as evening (latest updates).
-  if ((!eveningRaw || !eveningRaw.length) && resolved === today) {
+  // Today: evening side always tracks the live sheet so latest hub edits show in Compare
+  // (morning stays frozen from Morning save/mail).
+  if (resolved === today) {
     eveningRaw = buildDailyStatusRows(user);
   }
   // Previous day: if evening mail/snapshot is missing, rebuild from that day's submitted updates.
