@@ -74,6 +74,46 @@ export function stageFromStatus(status: LeadStatus): PipelineStage {
   }
 }
 
+/** Visual lead-pipeline stage label. Independent of any task status. */
+export function leadPipelineStageLabel(lead: Pick<Lead, 'status' | 'pipeline_stage'>): string {
+  const status = lead.status;
+  const pipeline = lead.pipeline_stage || '';
+  if (status === 'ORDER_CONVERTED' || status === 'WON' || pipeline === 'CONVERTED') return 'Project';
+  if (status === 'QUOTATION' || status === 'NEGOTIATION' || pipeline === 'QUOTATION' || pipeline === 'NEGOTIATION') {
+    return 'PO Conversion';
+  }
+  if (
+    status === 'COSTING_IN_PROGRESS' ||
+    status === 'COSTING_SUBMITTED' ||
+    status === 'COSTING_RETURNED' ||
+    status === 'COSTING_REJECTED' ||
+    pipeline === 'COSTING'
+  ) {
+    return 'Procurement';
+  }
+  if (
+    status === 'ACCEPTED_FOR_FEASIBILITY' ||
+    status === 'FEASIBILITY_IN_PROGRESS' ||
+    status === 'FEASIBILITY_SUBMITTED' ||
+    status === 'FEASIBILITY_RETURNED' ||
+    status === 'FEASIBILITY_REJECTED' ||
+    pipeline === 'FEASIBILITY'
+  ) {
+    return 'Feasibility Study';
+  }
+  if (
+    status === 'SUBMITTED_TO_PM' ||
+    status === 'UNDER_PM_REVIEW' ||
+    status === 'RETURNED_TO_SALES' ||
+    status === 'ADDITIONAL_INFORMATION_REQUIRED' ||
+    status === 'RESUBMITTED_TO_PM' ||
+    pipeline === 'PM_REVIEW'
+  ) {
+    return 'PM Review';
+  }
+  return 'Lead';
+}
+
 export function alignSeedLead(lead: Lead): Lead {
   const stage = lead.pipeline_stage;
   if (lead.status === 'WON') {

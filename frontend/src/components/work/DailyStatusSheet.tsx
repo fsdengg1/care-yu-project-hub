@@ -18,7 +18,7 @@ import StatusDropdown from './StatusDropdown';
 import SheetDateFilter from './SheetDateFilter';
 import RowMoreMenu from './RowMoreMenu';
 
-export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional' | 'hidden';
+export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional' | 'lead' | 'hidden';
 
 const CHIPS: Array<{ id: SheetChip; label: string }> = [
   { id: 'all', label: 'All' },
@@ -29,6 +29,7 @@ const CHIPS: Array<{ id: SheetChip; label: string }> = [
   { id: 'completed', label: 'Completed' },
   { id: 'hold', label: 'Hold' },
   { id: 'additional', label: 'Additional Tasks' },
+  { id: 'lead', label: 'Lead Tasks' },
   { id: 'hidden', label: 'Hidden' },
 ];
 
@@ -143,7 +144,7 @@ export default function DailyStatusSheet({
           return false;
         }
         if (needle) {
-          const hay = `${row.person} ${row.project} ${row.taskDescription}`.toLowerCase();
+          const hay = `${row.person} ${row.project} ${row.taskDescription} ${row.leadNumber || ''} ${row.leadName || ''}`.toLowerCase();
           if (!hay.includes(needle)) return false;
         }
         if (chip === 'mine') return row.personId === userId;
@@ -153,6 +154,7 @@ export default function DailyStatusSheet({
         if (chip === 'completed') return row.status === 'Completed';
         if (chip === 'hold') return row.status === 'Hold';
         if (chip === 'additional') return row.isAdditional;
+        if (chip === 'lead') return Boolean(row.isLeadTask);
         return true;
       })
       .slice()
@@ -344,7 +346,7 @@ export default function DailyStatusSheet({
                 const editable = canEditRow(row);
                 const tone = deadlineTone(row.status, row.deadlineIso || row.deadline, today);
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={row.isLeadTask ? 'lead-task' : undefined}>
                     {showSelect && (
                       <td>
                         <input
@@ -382,7 +384,12 @@ export default function DailyStatusSheet({
                       </td>
                     )}
                     <td className="project-cell">
-                    {editable ? (
+                    {row.isLeadTask ? (
+                      <div className="space-y-1">
+                        <span className="lead-task-badge">Lead Task</span>
+                        <span className="sheet-text">{row.project || '—'}</span>
+                      </div>
+                    ) : editable ? (
                       <AutoResizeTextarea
                         key={`${row.id}-${row.project}`}
                         defaultValue={row.project === '—' ? '' : row.project}
@@ -413,6 +420,12 @@ export default function DailyStatusSheet({
                         <span className="mt-0.5 inline-block h-5 w-5 shrink-0" aria-hidden />
                       )}
                       <div className="min-w-0 flex-1">
+                        {row.isLeadTask && (
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                            <span className="lead-task-badge">Lead Task</span>
+                            {row.leadNumber ? <span className="text-[10px] font-bold" style={{ color: 'var(--lead-task-badge-fg)' }}>{row.leadNumber}</span> : null}
+                          </div>
+                        )}
                         <div className="flex items-start gap-1">
                           <div className="min-w-0 flex-1">
                             {editable ? (

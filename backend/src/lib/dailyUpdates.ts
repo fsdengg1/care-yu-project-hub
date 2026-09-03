@@ -130,7 +130,8 @@ function latestUpdateFor(assignmentId: string, taskId?: string): DailyUpdate | u
 function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAssignment {
   const latest = latestUpdateFor(task.id, task.id);
   const taskType = task.task_type || (task.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK');
-  const isNonProject = (taskType === 'NON_PROJECT_TASK' || !task.project_id) && !task.project_name;
+  const isLeadTask = taskType === 'LEAD_TASK';
+  const isNonProject = !isLeadTask && (taskType === 'NON_PROJECT_TASK' || !task.project_id) && !task.project_name;
   const dependsOn = task.depends_on_id ? store.getTasks().find((item) => item.id === task.depends_on_id) : undefined;
   const dependencyIds = [...new Set([...(Array.isArray(task.depends_on_ids) ? task.depends_on_ids : []), task.depends_on_id].filter(Boolean))] as string[];
   const dependencyNames = dependencyIds
@@ -141,18 +142,27 @@ function assignmentFromTask(task: Task, project?: Project, lead?: Lead): WorkAss
     })
     .filter(Boolean)
     .join(', ');
+  const leadName = task.lead_name || lead?.title;
+  const leadNumber = lead?.lead_number;
+  const leadLabel = [leadNumber, leadName].filter(Boolean).join(' – ');
   return {
     id: task.id,
     source: 'TASK',
     task_id: task.id,
     lead_id: task.lead_id || project?.lead_id || lead?.id,
-    lead_number: lead?.lead_number,
-    project_id: isNonProject ? undefined : task.project_id || project?.id,
-    project_code: isNonProject ? undefined : project?.code,
-    project_name: project?.name || task.project_name || (isNonProject ? '—' : lead?.title || task.title),
-    customer_name: isNonProject ? '' : project?.customer_name || lead?.customer_name || '',
+    lead_number: leadNumber,
+    lead_name: leadName,
+    lead_stage_at_creation: task.lead_stage_at_creation,
+    project_id: isNonProject || isLeadTask ? undefined : task.project_id || project?.id,
+    project_code: isNonProject || isLeadTask ? undefined : project?.code,
+    project_name: isLeadTask
+      ? leadLabel || leadName || task.title
+      : project?.name || task.project_name || (isNonProject ? '—' : lead?.title || task.title),
+    customer_name: isNonProject ? '' : task.customer_name || project?.customer_name || lead?.customer_name || '',
     task_title: task.title,
-    workflow_stage: lead?.pipeline_stage || (project && !isNonProject ? 'EXECUTION' : 'ASSIGNED'),
+    workflow_stage: isLeadTask
+      ? task.lead_stage_at_creation || lead?.pipeline_stage || 'LEAD'
+      : lead?.pipeline_stage || (project && !isNonProject ? 'EXECUTION' : 'ASSIGNED'),
     due_date: task.due_date,
     priority: task.priority,
     current_status:

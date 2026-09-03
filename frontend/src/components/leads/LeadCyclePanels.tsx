@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
 import { canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, canPrepareQuotation, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
 import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
-import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS, workflowStatusPresentation } from '@/lib/format';
+import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS } from '@/lib/format';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
 import AutoGrowTextarea, { AUTO_GROW_COMPACT_HEIGHT, AUTO_GROW_DEFAULT_HEIGHT } from '@/components/ui/AutoGrowTextarea';
@@ -129,8 +129,6 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     });
   };
 
-  const stage = workflowStatusPresentation(lead.status);
-
   const run = async (
     fn: () => Promise<unknown>,
     fail = 'Unable to update this lead.',
@@ -203,16 +201,6 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-2 rounded-xl border border-slate-800 bg-slate-950/70 p-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-500">Current stage</div>
-          <div className={`mt-1 inline-flex rounded-full border px-2.5 py-0.5 font-bold ${stage.badgeClass}`}>{stage.label}</div>
-        </div>
-        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Current owner</div><div className="font-semibold text-slate-100">{lead.current_owner_name || lead.responsible_user_name || '—'}</div></div>
-        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Assigned by</div><div className="font-semibold text-slate-100">{lead.assigned_by_name || '—'}</div></div>
-        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Action required</div><div className="font-semibold text-cyan-300">{lead.action_required || '—'}</div></div>
-        <div><div className="text-[10px] uppercase tracking-wider text-slate-500">Due / next</div><div className="font-semibold text-slate-100">{lead.due_date || lead.next_action || '—'}</div></div>
-      </div>
       {error && (
         <div className="rounded-xl border border-rose-800 bg-rose-950/70 p-3 text-rose-300">{error}</div>
       )}

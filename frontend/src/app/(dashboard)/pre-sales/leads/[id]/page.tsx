@@ -6,15 +6,19 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
+import ProjectStageFlow from '@/components/leads/ProjectStageFlow';
+import CreateLeadTaskForm from '@/components/work/CreateLeadTaskForm';
+import LeadTasksPanel from '@/components/work/LeadTasksPanel';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import WorkflowStatusBanner, { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import { NotificationsApi } from '@/lib/notificationsApi';
-import { formatRelativeTime, formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
-import { canCreateLead } from '@/lib/rbac';
+import { formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
+import { projectStageFlowSummary } from '@/lib/projectStageFlow';
+import { canCreateLead, canCreateLeadTask } from '@/lib/rbac';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
-  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory, EntityDocument
+  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory, EntityDocument, Task
 } from '@/lib/types';
 import {
     ArrowLeft, CheckCircle2, AlertTriangle, Send, Plus, X,
@@ -39,6 +43,8 @@ export default function LeadDetailPage() {
   const [teamAssignments, setTeamAssignments] = useState<FeasibilityTeamAssignment[]>([]);
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [leadTasks, setLeadTasks] = useState<Task[]>([]);
+  const [showCreateLeadTask, setShowCreateLeadTask] = useState(false);
   const [assignmentHistory, setAssignmentHistory] = useState<AssignmentHistory[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
@@ -110,6 +116,7 @@ export default function LeadDetailPage() {
       setAllTeams(payload.teams?.length ? payload.teams : StorageService.getTeams());
       setAllUsers(payload.users?.length ? payload.users : StorageService.getUsers());
       setAssignmentHistory(payload.assignmentHistory || []);
+      setLeadTasks(payload.tasks || []);
       return;
     }
     setAllTeams(StorageService.getTeams());
@@ -150,6 +157,8 @@ export default function LeadDetailPage() {
   const isCEO = currentUser.role_code === 'CEO';
   const isAdmin = currentUser.role_code === 'SYSTEM_ADMIN';
   const isPM = currentUser.role_code === 'PROJECT_MANAGER' || isAdmin;
+  const canCreateLeadWork = canCreateLeadTask(currentUser);
+  const currentStageLabel = projectStageFlowSummary(lead).stageLabel;
   const isTL = currentUser.role_code === 'TEAM_LEAD';
   const isBH = currentUser.role_code === 'BUSINESS_HEAD';
   const isSalesOwner = lead.created_by_id === currentUser.id || lead.sales_owner_id === currentUser.id
@@ -462,6 +471,15 @@ export default function LeadDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {canCreateLeadWork && (
+              <button
+                type="button"
+                onClick={() => setShowCreateLeadTask(true)}
+                className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-cyan-500"
+              >
+                <Plus className="h-3.5 w-3.5" /> Create Task
+              </button>
+            )}
             {isCEO && (
               <span className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">
                 View only
@@ -471,6 +489,7 @@ export default function LeadDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-6 pt-3 border-t border-slate-800/80 text-[11px] text-slate-400">
+          <div>Current Stage: <span className="font-bold text-violet-300">{currentStageLabel}</span></div>
           <div>Customer: <span className="font-bold text-slate-200">{lead.customer_name}</span></div>
           <div>Sales Owner: <span className="font-medium text-slate-300">{lead.sales_owner}</span></div>
           <div>Priority: <span className="font-semibold text-amber-400">{lead.priority}</span></div>
@@ -486,41 +505,40 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} />
+      <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} showStage={false} />
 
       <SmartEmailNotificationPanel entityType="LEAD" entityId={lead.id} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-cyan-800/70 bg-cyan-950/20 p-4 lg:col-span-2">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-cyan-400">Current Owner</div>
-          <div className="mt-1 text-lg font-bold text-slate-100">{lead.current_owner_name || lead.responsible_user_name || 'Not assigned'}</div>
-          <div className="mt-1 text-xs text-slate-400">
-            {lead.responsible_role_code ? lead.responsible_role_code.replace(/_/g, ' ') : 'Awaiting assignment'}
-            {lead.pending_action !== false && lead.responsible_user_id ? ' · Action Required' : ''}
-          </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-400 sm:grid-cols-4">
-            <div>Assigned<br/><span className="font-medium text-slate-200">{lead.assigned_at ? formatRelativeTime(lead.assigned_at) : '—'}</span></div>
-            <div>Accepted<br/><span className="font-medium text-slate-200">{lead.accepted_at ? formatRelativeTime(lead.accepted_at) : '—'}</span></div>
-            <div>Forwarded<br/><span className="font-medium text-slate-200">{lead.forwarded_at ? formatRelativeTime(lead.forwarded_at) : '—'}</span></div>
-            <div>Reminders<br/><span className="font-medium text-slate-200">{lead.reminder_count || 0}</span></div>
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Created By</div>
-          <div className="mt-1 font-semibold text-slate-100">{lead.created_by}</div>
-          <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-slate-500">Current stage</div>
-          <div className={`mt-1 inline-flex rounded-full border px-2.5 py-1 font-bold ${leadStage.badgeClass}`}>{leadStage.label}</div>
-          {canForward && (
-            <button
-              type="button"
-              onClick={() => setShowForwardModal(true)}
-              className="mt-4 w-full rounded-lg border border-cyan-700 px-3 py-2 text-xs font-bold text-cyan-300 hover:bg-cyan-950"
-            >
-              Forward / Assign
-            </button>
-          )}
-        </div>
-      </div>
+      <ProjectStageFlow
+        lead={lead}
+        canForward={canForward}
+        onForward={() => setShowForwardModal(true)}
+      />
+
+      <LeadTasksPanel
+        tasks={leadTasks}
+        canCreate={canCreateLeadWork}
+        onCreate={() => setShowCreateLeadTask(true)}
+      />
+
+      <CreateLeadTaskForm
+        open={showCreateLeadTask}
+        lead={lead}
+        people={allUsers
+          .filter((user) => user.status === 'ACTIVE')
+          .map((user) => ({
+            id: user.id,
+            name: user.name,
+            displayName: user.name,
+            email: user.email || '',
+            role_name: user.role_name,
+          }))}
+        currentUserId={currentUser.id}
+        onClose={() => setShowCreateLeadTask(false)}
+        onCreated={() => {
+          void loadData();
+        }}
+      />
 
       {/* Accepted-for-feasibility banner — PM action prompt */}
       {lead.status === 'ACCEPTED_FOR_FEASIBILITY' && isPM && (

@@ -53,6 +53,10 @@ export interface DailyStatusRow {
   hasSubtasks?: boolean;
   /** Hidden from the default Daily Work Updates view on every dashboard. */
   sheetHidden?: boolean;
+  isLeadTask?: boolean;
+  taskType?: 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
+  leadNumber?: string;
+  leadName?: string;
 }
 
 export interface DailyStatusKpis {
@@ -368,12 +372,17 @@ export function buildDailyStatusRows(
         }, 0);
         progressPercent = Math.round((doneWeight / children.length) * 100);
       }
+      const isLeadTask = task.task_type === 'LEAD_TASK';
+      const lead = task.lead_id ? store.getLeads().find((item) => item.id === task.lead_id) : undefined;
+      const leadLabel = isLeadTask
+        ? [lead?.lead_number, task.lead_name || lead?.title].filter(Boolean).join(' • ')
+        : '';
       return {
         id: task.id,
         personId: task.assigned_to_id,
         person: formatEmployeeDisplayName(assignee || task.assigned_to),
-        projectId: task.project_id,
-        project: project?.name || task.project_name || update?.project_name || '—',
+        projectId: isLeadTask ? undefined : task.project_id,
+        project: isLeadTask ? leadLabel || task.lead_name || task.title : project?.name || task.project_name || update?.project_name || '—',
         taskDescription: (update?.work_completed || task.description || task.title || '').trim() || task.title,
         dependencyIds: deps,
         dependencies: formatDependencies(deps, allUsers, update?.dependency),
@@ -395,6 +404,10 @@ export function buildDailyStatusRows(
         subtasks,
         hasSubtasks: subtasks.length > 0,
         sheetHidden: task.sheet_hidden === true,
+        isLeadTask,
+        taskType: task.task_type || (task.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK'),
+        leadNumber: lead?.lead_number,
+        leadName: task.lead_name || lead?.title,
       } satisfies DailyStatusRow;
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));

@@ -94,6 +94,7 @@ function payloadFor(lead: Lead) {
     assignmentHistory: store
       .getAssignmentHistory()
       .filter((item) => item.entity_type === 'LEAD' && item.entity_id === hydrated.id),
+    tasks: store.getTasks().filter((item) => item.lead_id === hydrated.id && item.task_type === 'LEAD_TASK'),
   };
 }
 

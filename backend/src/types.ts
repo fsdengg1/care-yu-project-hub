@@ -809,9 +809,14 @@ export interface ProjectPhase {
   updated_at: string;
 }
 
+export type WorkTaskType = 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
+
 export interface Task {
   id: string;
   lead_id: string;
+  lead_name?: string;
+  lead_stage_at_creation?: string;
+  customer_name?: string;
   project_id?: string;
   project_name?: string;
   feasibility_team_assignment_id?: string;
@@ -839,7 +844,7 @@ export interface Task {
   is_additional?: boolean;
   is_milestone?: boolean;
   remarks?: string;
-  task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
+  task_type?: WorkTaskType;
   assigned_by?: string;
   assigned_by_id?: string;
   review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
@@ -861,6 +866,7 @@ export interface Task {
   progress_manual_override?: boolean;
   /** When true, the task is hidden from Daily Work Updates (all dashboards) but not deleted. */
   sheet_hidden?: boolean;
+  completed_at?: string;
   created_at: string;
   updated_at: string;
 }
@@ -1084,6 +1090,8 @@ export interface WorkAssignment {
   task_id?: string;
   lead_id?: string;
   lead_number?: string;
+  lead_name?: string;
+  lead_stage_at_creation?: string;
   project_id?: string;
   project_code?: string;
   project_name: string;
@@ -1099,7 +1107,7 @@ export interface WorkAssignment {
   progress_percent: number;
   blocked: boolean;
   blocker?: string;
-  task_type?: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
+  task_type?: WorkTaskType;
   start_date?: string;
   review_status?: 'NONE' | 'PENDING_TL_REVIEW' | 'CORRECTION_REQUIRED' | 'COMPLETED';
   description?: string;

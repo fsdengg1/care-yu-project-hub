@@ -6,6 +6,11 @@
     --bg-main: #0B0F17;
     --card-bg: #131B2A;
     --border-color: #1E293B;
+    --lead-task-bg: rgba(139, 92, 246, 0.12);
+    --lead-task-border: rgba(167, 139, 250, 0.38);
+    --lead-task-badge-bg: rgba(139, 92, 246, 0.22);
+    --lead-task-badge-fg: #ddd6fe;
+    --lead-task-accent: #c4b5fd;
   }
 
   html.dark {
@@ -30,6 +35,11 @@
     --bg-main: #F4F7FB;
     --card-bg: #FFFFFF;
     --border-color: #E2E8F0;
+    --lead-task-bg: rgba(109, 40, 217, 0.06);
+    --lead-task-border: rgba(109, 40, 217, 0.18);
+    --lead-task-badge-bg: rgba(109, 40, 217, 0.1);
+    --lead-task-badge-fg: #5b21b6;
+    --lead-task-accent: #6d28d9;
 
     --color-slate-50: #020617;
     --color-slate-100: #0f172a;
@@ -403,6 +413,14 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   background: #eef6ff;
 }
 
+.daily-status-sheet tbody tr.lead-task td:not(.tone-cell) {
+  background: var(--lead-task-bg) !important;
+}
+
+.daily-status-sheet tbody tr.lead-task:hover td:not(.tone-cell) {
+  background: color-mix(in srgb, var(--lead-task-bg) 80%, #eef6ff) !important;
+}
+
 .daily-status-sheet td.person-cell {
   font-weight: 600;
   text-align: center;
@@ -625,4 +643,23 @@ html.light .theme-app .form-control:-webkit-autofill:focus {
   overflow-wrap: break-word;
   transition: height 0.18s ease;
   box-sizing: border-box;
+}
+
+.lead-task {
+  background-color: var(--lead-task-bg);
+  border-color: var(--lead-task-border);
+}
+
+.lead-task-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--lead-task-border);
+  background: var(--lead-task-badge-bg);
+  color: var(--lead-task-badge-fg);
+  padding: 0.1rem 0.5rem;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }

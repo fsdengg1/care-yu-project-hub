@@ -14,7 +14,7 @@ import {
 import { listLiveMessages, postLiveMessage } from '../src/lib/forumLive.js';
 import { heartbeat, listPresence } from '../src/lib/presence.js';
 import { notifyStageCompleted } from '../src/lib/stages.js';
-import { canViewTask, createWorkTask } from '../src/lib/workTasks.js';
+import { canViewTask, createWorkTask, acceptWorkTask } from '../src/lib/workTasks.js';
 import { User } from '../src/types.js';
 
 type Check = { name: string; ok: boolean; detail?: string };
@@ -204,6 +204,27 @@ try {
     assert('Assigned user sees project task', canViewTask(employee, projectTask.task));
     assert('Assigned user sees non-project task', canViewTask(other, nonProjectTask.task));
     assert('Unassigned user does not see private assigned task', !canViewTask(employee, nonProjectTask.task));
+  }
+
+  const lead = store.getLeads().find((item) => item.status !== 'CANCELLED' && item.status !== 'LOST');
+  const leadTask = createWorkTask(pm, {
+    title: 'Prepare shuttle feasibility calculation based on LD-001 requirement.',
+    description: 'Prepare shuttle feasibility calculation based on customer requirement.',
+    task_type: 'LEAD_TASK',
+    lead_id: lead?.id,
+    assigned_to_id: employee.id,
+    due_date: '2026-09-05',
+    status: 'Yet to Start',
+  });
+  assert('Lead task can be created against a lead', !('error' in leadTask) && leadTask.task?.task_type === 'LEAD_TASK');
+  if (!('error' in leadTask)) {
+    assert('Lead task stays linked to the lead', Boolean(leadTask.task.lead_id) && leadTask.task.lead_id === lead?.id);
+    assert('Lead task starts pending acceptance', leadTask.task.acceptance_status === 'REQUESTED');
+    assert('Lead task does not attach a project', !leadTask.task.project_id);
+    const accepted = acceptWorkTask(employee, leadTask.task.id);
+    assert('Assignee can accept a lead task', !('error' in accepted) && accepted.task.acceptance_status === 'ACCEPTED');
+    const previousLeadStatus = lead?.status;
+    assert('Accepting a lead task does not change lead stage', store.getLeads().find((item) => item.id === lead?.id)?.status === previousLeadStatus);
   }
 
   const uploadTarget = !('error' in nonProjectTask) ? nonProjectTask.task.id : 'missing';

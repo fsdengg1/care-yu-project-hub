@@ -47,6 +47,10 @@ export interface DailyStatusRow {
   subtasks?: DailyStatusSubtask[];
   hasSubtasks?: boolean;
   sheetHidden?: boolean;
+  isLeadTask?: boolean;
+  taskType?: 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
+  leadNumber?: string;
+  leadName?: string;
 }
 
 export interface DailyStatusKpis {

@@ -7,8 +7,10 @@ import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { WorkAssignment } from '@/lib/types';
 import { PROJECT_ACTION_SUCCESS } from '@/lib/format';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
+import { isLeadTask, leadWorkLabel } from '@/lib/leadTasks';
 import SmartEmailNotificationPanel from '@/components/notifications/SmartEmailNotificationPanel';
 import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
+import LeadTaskBadge from './LeadTaskBadge';
 
 function fmt(value?: string) {
   if (!value) return '—';
@@ -112,10 +114,12 @@ export default function MemberTaskCard({
   }
 
   return (
-    <article className="rounded-xl border border-slate-800 bg-slate-950/80 p-4">
+    <article className={`rounded-xl border p-4 ${isLeadTask(assignment) ? 'lead-task' : 'border-slate-800 bg-slate-950/80'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-xs uppercase tracking-wider text-slate-500">{assignment.project_code || 'No project'}</div>
+          <div className="flex flex-wrap items-center gap-2">
+            {isLeadTask(assignment) ? <LeadTaskBadge /> : <div className="text-xs uppercase tracking-wider text-slate-500">{assignment.project_code || 'No project'}</div>}
+          </div>
           <h3 className="text-lg font-bold text-white">
             {assignment.task_title}
             {assignment.parent_task_id ? (
@@ -124,7 +128,7 @@ export default function MemberTaskCard({
               </span>
             ) : null}
           </h3>
-          <p className="text-sm text-slate-400">{assignment.project_name}</p>
+          <p className="text-sm text-slate-400">{isLeadTask(assignment) ? leadWorkLabel(assignment) : assignment.project_name}</p>
         </div>
         <span className={`rounded-full px-3 py-1 text-[11px] font-bold ${blocked ? 'bg-rose-500/15 text-rose-300' : inProgress ? 'bg-cyan-500/15 text-cyan-300' : completed ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
           {statusLabel(assignment)}
@@ -132,8 +136,8 @@ export default function MemberTaskCard({
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Project Name" value={assignment.project_name} />
-        <Field label="Project ID" value={assignment.project_code} />
+        <Field label={isLeadTask(assignment) ? 'Lead' : 'Project Name'} value={isLeadTask(assignment) ? leadWorkLabel(assignment) : assignment.project_name} />
+        <Field label={isLeadTask(assignment) ? 'Lead Stage' : 'Project ID'} value={isLeadTask(assignment) ? assignment.lead_stage_at_creation || assignment.workflow_stage : assignment.project_code} />
         <Field label="Task Name" value={assignment.task_title} />
         <Field label="Task Description" value={assignment.description} />
         <Field label="Assigned By" value={assignment.assigned_by} />

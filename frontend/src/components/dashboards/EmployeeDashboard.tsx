@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { User, WorkAssignment, DailyUpdateSummary } from '@/lib/types';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
 import { DailyStatusApi } from '@/lib/dailyStatusApi';
+import { TasksApi } from '@/lib/tasksApi';
 import { formatLongDate } from '@/lib/format';
 import { CheckSquare, Inbox, Plus } from 'lucide-react';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
@@ -16,6 +17,7 @@ import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
 import AddSubtaskForm from '@/components/work/AddSubtaskForm';
 import MySubtasksPanel from '@/components/work/MySubtasksPanel';
+import PendingTaskAssignmentCard from '@/components/work/PendingTaskAssignmentCard';
 import { DailyStatusPerson, DailyStatusRow } from '@/lib/dailyStatus';
 import { canCreateWorkTask } from '@/lib/rbac';
 
@@ -29,6 +31,7 @@ export default function EmployeeDashboard({ user }: { user: User }) {
   const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
   const [sheetRows, setSheetRows] = useState<DailyStatusRow[]>([]);
   const [notice, setNotice] = useState('');
+  const [taskBusy, setTaskBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [nextAssignments, nextSummary, sheet] = await Promise.all([
@@ -50,10 +53,29 @@ export default function EmployeeDashboard({ user }: { user: User }) {
   }, [load]);
 
   const nextDue = [...assignments]
-    .filter((item) => item.due_date && item.current_status !== 'COMPLETED' && item.review_status !== 'PENDING_TL_REVIEW')
+    .filter((item) => item.due_date && item.current_status !== 'COMPLETED' && item.review_status !== 'PENDING_TL_REVIEW' && item.acceptance_status !== 'REQUESTED')
     .sort((a, b) => (a.due_date || '').localeCompare(b.due_date || ''))[0];
   const submittedToday = (summary?.submittedToday ?? 0) > 0;
   const ganttProjectId = assignments.find((item) => item.project_id)?.project_id;
+  const pendingLead = assignments.filter((item) => item.acceptance_status === 'REQUESTED' && item.assigned_to_id === user.id);
+  const activeAssignments = assignments.filter((item) => item.acceptance_status !== 'REQUESTED' && item.acceptance_status !== 'REJECTED');
+
+  const acceptOrReject = async (assignment: WorkAssignment, action: 'accept' | 'reject') => {
+    const taskId = assignment.task_id || (assignment.source === 'TASK' ? assignment.id : '');
+    if (!taskId) return;
+    setTaskBusy(taskId);
+    const result =
+      action === 'accept'
+        ? await TasksApi.accept(taskId)
+        : await TasksApi.reject(taskId, window.prompt('Reason for decline (optional)') || undefined);
+    setTaskBusy(null);
+    if (!result.ok) {
+      setNotice(result.message || 'Unable to update the assignment.');
+      return;
+    }
+    setNotice(result.data.message || (action === 'accept' ? 'Task accepted.' : 'Task declined.'));
+    await load();
+  };
 
   return (
     <div className="space-y-6">
@@ -100,7 +122,7 @@ export default function EmployeeDashboard({ user }: { user: User }) {
         <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-4">
           <div className="text-xs font-medium text-slate-400">Assigned Active Tasks</div>
           <div className="mt-2 text-2xl font-bold text-slate-100">
-            {assignments.filter((item) => item.current_status !== 'COMPLETED' && item.review_status !== 'PENDING_TL_REVIEW').length}
+            {assignments.filter((item) => item.current_status !== 'COMPLETED' && item.review_status !== 'PENDING_TL_REVIEW' && item.acceptance_status !== 'REQUESTED').length}
           </div>
           <div className="mt-1 text-[11px] text-slate-500">From your project and team assignments</div>
         </div>
@@ -118,6 +140,23 @@ export default function EmployeeDashboard({ user }: { user: User }) {
         </div>
       </div>
 
+      {pendingLead.length > 0 && (
+        <div className="space-y-3">
+          {pendingLead.map((item) => {
+            const taskId = item.task_id || item.id;
+            return (
+              <PendingTaskAssignmentCard
+                key={item.id}
+                item={item}
+                busy={taskBusy === taskId}
+                onAccept={() => void acceptOrReject(item, 'accept')}
+                onDecline={() => void acceptOrReject(item, 'reject')}
+              />
+            );
+          })}
+        </div>
+      )}
+
       <div className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
         <div className="mb-3 flex items-center justify-between border-b border-slate-800 pb-2">
           <h2 className="text-sm font-bold text-slate-100">My Assigned Work</h2>
@@ -131,14 +170,14 @@ export default function EmployeeDashboard({ user }: { user: User }) {
             <Link href="/my-work" className="text-xs text-cyan-400 hover:underline">View all</Link>
           </div>
         </div>
-        {assignments.length === 0 ? (
+        {activeAssignments.length === 0 ? (
           <div className="space-y-2 p-8 text-center">
             <Inbox className="mx-auto h-6 w-6 text-slate-600" />
             <p className="text-xs font-medium text-slate-300">No assigned tasks found.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {assignments.map((item) => (
+            {activeAssignments.map((item) => (
               <MemberTaskCard
                 key={item.id}
                 assignment={item}

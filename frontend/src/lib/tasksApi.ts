@@ -4,7 +4,7 @@ import { Task, TaskComment, WorkAssignment } from './types';
 export interface CreateTaskPayload {
   title: string;
   description?: string;
-  task_type: 'PROJECT_TASK' | 'NON_PROJECT_TASK';
+  task_type: 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
   project_id?: string;
   assigned_to_id?: string;
   assigned_to_ids?: string[];
@@ -17,6 +17,7 @@ export interface CreateTaskPayload {
   status?: string;
   project_name?: string;
   parent_task_id?: string;
+  lead_id?: string;
   acceptance_status?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
   requested_from_task_id?: string;
 }

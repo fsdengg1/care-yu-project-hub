@@ -19,6 +19,7 @@ interface Props {
   status: string;
   feedback?: WorkflowActionFeedback | null;
   error?: string | null;
+  showStage?: boolean;
 }
 
 const FEEDBACK_STYLE: Record<WorkflowActionKind, string> = {
@@ -33,11 +34,13 @@ const FEEDBACK_ICON: Record<WorkflowActionKind, React.ReactNode> = {
   reject: <XCircle className="h-5 w-5 shrink-0 text-rose-300" />,
 };
 
-export default function WorkflowStatusBanner({ status, feedback, error }: Props) {
+export default function WorkflowStatusBanner({ status, feedback, error, showStage = true }: Props) {
   const current = workflowStatusPresentation(status);
   const displayedStage = feedback ? WORKFLOW_STAGE_FOR_ACTION[feedback.kind] : current.label;
   const previous = feedback?.previousStatus ? workflowStatusPresentation(feedback.previousStatus) : null;
   const highlight = Boolean(feedback);
+
+  if (!error && !feedback && !showStage) return null;
 
   return (
     <div className="space-y-3">
@@ -59,23 +62,25 @@ export default function WorkflowStatusBanner({ status, feedback, error }: Props)
           </div>
         </div>
       )}
-      <div
-        className={`rounded-xl border px-4 py-3 ${current.bannerClass} ${
-          highlight ? 'ring-2 ring-offset-2 ring-offset-slate-950 ring-cyan-400' : ''
-        }`}
-      >
-        <div className="text-[10px] font-bold uppercase tracking-wider opacity-70">Current stage</div>
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          <span className={`rounded-full border px-3 py-1 text-sm font-bold ${current.badgeClass}`}>
-            {displayedStage}
-          </span>
-          {previous && previous.label !== displayedStage && (
-            <span className="text-xs opacity-70">
-              Previous: <span className="line-through">{previous.label}</span>
+      {showStage && (
+        <div
+          className={`rounded-xl border px-4 py-3 ${current.bannerClass} ${
+            highlight ? 'ring-2 ring-offset-2 ring-offset-slate-950 ring-cyan-400' : ''
+          }`}
+        >
+          <div className="text-[10px] font-bold uppercase tracking-wider opacity-70">Current stage</div>
+          <div className="mt-1 flex flex-wrap items-center gap-3">
+            <span className={`rounded-full border px-3 py-1 text-sm font-bold ${current.badgeClass}`}>
+              {displayedStage}
             </span>
-          )}
+            {previous && previous.label !== displayedStage && (
+              <span className="text-xs opacity-70">
+                Previous: <span className="line-through">{previous.label}</span>
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

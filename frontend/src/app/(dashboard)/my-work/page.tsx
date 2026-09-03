@@ -11,8 +11,11 @@ import { MyWorkItem, User, WorkAssignment } from '@/lib/types';
 import { LEAD_STATUS_LABELS } from '@/lib/format';
 import { deadlineCellClass, deadlineTone, DailyStatusPerson, DailyStatusRow, formatSheetDate, sheetStatusClass, toSheetStatus, appTodayIso } from '@/lib/dailyStatus';
 import { canCreateLead, canCreateWorkTask, canSubmitDailyUpdate } from '@/lib/rbac';
+import { isLeadTask, leadWorkLabel } from '@/lib/leadTasks';
 import AdditionalTaskForm from '@/components/work/AdditionalTaskForm';
 import CreateTaskForm from '@/components/work/CreateTaskForm';
+import LeadTaskBadge from '@/components/work/LeadTaskBadge';
+import PendingTaskAssignmentCard from '@/components/work/PendingTaskAssignmentCard';
 import AddSubtaskForm, { EditableSubtask } from '@/components/work/AddSubtaskForm';
 import RequestDependencyForm from '@/components/work/RequestDependencyForm';
 import RowMoreMenu from '@/components/work/RowMoreMenu';
@@ -56,7 +59,7 @@ const ORDER = [
   'ESCALATION',
 ];
 
-type WorkFilter = 'ALL' | 'PROJECT' | 'NON_PROJECT' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED';
+type WorkFilter = 'ALL' | 'PROJECT' | 'LEAD' | 'NON_PROJECT' | 'OVERDUE' | 'TODAY' | 'UPCOMING' | 'COMPLETED';
 
 function assignmentType(item: WorkAssignment) {
   return item.task_type || (item.project_id ? 'PROJECT_TASK' : 'NON_PROJECT_TASK');
@@ -67,6 +70,7 @@ function matchesFilter(item: WorkAssignment, filter: WorkFilter) {
   const type = assignmentType(item);
   const done = item.current_status === 'COMPLETED' || item.current_status === 'DONE';
   if (filter === 'PROJECT') return type === 'PROJECT_TASK';
+  if (filter === 'LEAD') return type === 'LEAD_TASK';
   if (filter === 'NON_PROJECT') return type === 'NON_PROJECT_TASK';
   if (filter === 'COMPLETED') return done;
   if (filter === 'OVERDUE') return Boolean(item.due_date && item.due_date < today && !done && item.current_status !== 'PENDING_TL_REVIEW');
@@ -150,6 +154,8 @@ export default function MyAssignedWorkPage() {
     () => assignments.filter((item) => item.acceptance_status === 'REQUESTED' && item.assigned_to_id === currentUser?.id),
     [assignments, currentUser]
   );
+  const pendingLeadAssignments = pendingRequests.filter((item) => isLeadTask(item));
+  const pendingDependencyRequests = pendingRequests.filter((item) => !isLeadTask(item));
 
   const refreshWork = async () => {
     const result = await LeadApi.myWork();
@@ -230,13 +236,29 @@ export default function MyAssignedWorkPage() {
               <Link href="/daily-updates" className="text-cyan-400 hover:underline">Daily Work Updates</Link>
             </div>
           </div>
-          {pendingRequests.length > 0 && (
+          {pendingLeadAssignments.length > 0 && (
+            <div className="space-y-2">
+              {pendingLeadAssignments.map((item) => {
+                const taskId = item.task_id || item.id;
+                return (
+                  <PendingTaskAssignmentCard
+                    key={item.id}
+                    item={item}
+                    busy={taskBusy === taskId}
+                    onAccept={() => void acceptOrReject(item, 'accept')}
+                    onDecline={() => void acceptOrReject(item, 'reject')}
+                  />
+                );
+              })}
+            </div>
+          )}
+          {pendingDependencyRequests.length > 0 && (
             <div className="rounded-lg border border-amber-800/60 bg-amber-950/20 p-3">
               <div className="mb-2 text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                Dependency requests awaiting your response ({pendingRequests.length})
+                Dependency requests awaiting your response ({pendingDependencyRequests.length})
               </div>
               <div className="space-y-2">
-                {pendingRequests.map((item) => {
+                {pendingDependencyRequests.map((item) => {
                   const taskId = item.task_id || item.id;
                   const busy = taskBusy === taskId;
                   return (
@@ -274,6 +296,7 @@ export default function MyAssignedWorkPage() {
             {([
               ['ALL', 'All'],
               ['PROJECT', 'Project Tasks'],
+              ['LEAD', 'Lead Tasks'],
               ['NON_PROJECT', 'Non-Project Tasks'],
               ['OVERDUE', 'Overdue'],
               ['TODAY', 'Today'],
@@ -295,14 +318,15 @@ export default function MyAssignedWorkPage() {
             <table className="w-full min-w-[980px] table-fixed text-left">
               <thead className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
                 <tr>
-                  <th className="w-[14%] p-2">Project</th>
-                  <th className="w-[22%] p-2">Task Description</th>
-                  <th className="w-[12%] p-2">Dependencies</th>
-                  <th className="w-[9%] whitespace-nowrap p-2">Start Date</th>
-                  <th className="w-[9%] whitespace-nowrap p-2">Current Date</th>
-                  <th className="w-[9%] whitespace-nowrap p-2">Task Deadline</th>
-                  <th className="w-[9%] p-2">Status</th>
-                  <th className="w-[16%] p-2 text-right">Actions</th>
+                  <th className="w-[16%] p-2">Project / Lead</th>
+                  <th className="w-[20%] p-2">Task Description</th>
+                  <th className="w-[11%] p-2">Dependencies</th>
+                  <th className="w-[8%] whitespace-nowrap p-2">Start Date</th>
+                  <th className="w-[8%] whitespace-nowrap p-2">Current Date</th>
+                  <th className="w-[8%] whitespace-nowrap p-2">Task Deadline</th>
+                  <th className="w-[8%] p-2">Status</th>
+                  <th className="w-[8%] p-2">Type</th>
+                  <th className="w-[12%] p-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
@@ -317,26 +341,38 @@ export default function MyAssignedWorkPage() {
                   const canDaily = Boolean(currentUser && canSubmitDailyUpdate(currentUser) && item.acceptance_status !== 'REQUESTED');
                   const canComplete =
                     Boolean(taskId && isAssignee && !done && item.acceptance_status !== 'REQUESTED' && item.review_status !== 'PENDING_TL_REVIEW');
+                  const leadBased = isLeadTask(item);
                   return (
                   <tr
                     key={item.id}
                     className={
                       focusTaskId && (item.task_id === focusTaskId || item.id === focusTaskId)
                         ? 'bg-cyan-950/40'
+                        : leadBased
+                          ? 'lead-task'
                         : overdue
                           ? 'bg-rose-950/20'
                           : undefined
                     }
                   >
                     <td className="align-top p-2">
-                      {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
-                      {assignmentType(item) === 'NON_PROJECT_TASK' ? '—' : item.project_name || '—'}
+                      {leadBased ? (
+                        <div>
+                          <div className="font-semibold text-slate-100">{leadWorkLabel(item)}</div>
+                          <LeadTaskBadge className="mt-1" />
+                        </div>
+                      ) : (
+                        <>
+                          {item.lead_number && <span className="mr-1 font-mono text-cyan-400">{item.lead_number}</span>}
+                          {assignmentType(item) === 'NON_PROJECT_TASK' ? '—' : item.project_name || '—'}
+                        </>
+                      )}
                     </td>
                     <td className="align-top p-2 font-semibold text-slate-100">
                       <div className="line-clamp-3 whitespace-normal break-words leading-snug">
                         {item.description || item.task_title}
                       </div>
-                      {item.acceptance_status === 'REQUESTED' && (
+                      {item.acceptance_status === 'REQUESTED' && !leadBased && (
                         <span className="mt-1 inline-block rounded border border-amber-700 bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-200">
                           Dependency request
                         </span>
@@ -369,6 +405,9 @@ export default function MyAssignedWorkPage() {
                           <AlertTriangle className="h-3 w-3" /> {item.blocker}
                         </div>
                       )}
+                    </td>
+                    <td className="align-top p-2">
+                      {leadBased ? <LeadTaskBadge /> : assignmentType(item) === 'NON_PROJECT_TASK' ? 'Non-Project' : 'Project Task'}
                     </td>
                     <td className="align-top p-2">
                       <div className="flex flex-nowrap items-start justify-end gap-1">

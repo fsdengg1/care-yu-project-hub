@@ -8,9 +8,19 @@ import { reminderScheduleFields, transferTaskResponsibility } from './responsibi
 import { emitWorkflowEvent, WorkflowEventKey } from './workflowEngine.js';
 import { intakeStatusOf, markAcceptedInExecution, persistProject, stampProjectAction } from './projectWorkflow.js';
 import { persistComputedProgress } from './projectProgress.js';
+import { leadPipelineStageLabel } from './leadWorkflow.js';
 
 export function canCreateWorkTask(user: User) {
   return hasPermission(user, 'create:task') || hasPermission(user, 'assign:task');
+}
+
+export function canCreateLeadPipelineTask(user: User) {
+  return ['PROJECT_MANAGER', 'ENG_DIRECTOR', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
+export function isLeadBasedTask(task: Pick<Task, 'task_type' | 'lead_id' | 'project_id'>) {
+  if (task.task_type === 'LEAD_TASK') return true;
+  return Boolean(task.lead_id) && !task.project_id && task.task_type !== 'PROJECT_TASK' && task.task_type !== 'NON_PROJECT_TASK';
 }
 
 function resolveProjectFromBody(body: Record<string, unknown>) {
@@ -183,6 +193,7 @@ export function applyTaskLifecycle(
     next.pending_action = false;
     next.last_action_at = now;
     next.next_reminder_at = undefined;
+    next.completed_at = next.completed_at || now;
     if (previous.status !== 'DONE' || previous.review_status === 'PENDING_TL_REVIEW') {
       notifyTaskHandover(next, user, [reviewer?.id, next.assigned_by_id], {
         event: 'TASK_COMPLETED',
@@ -237,7 +248,23 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
   }
 
   const title = String(body.title || '').trim() || 'Untitled task';
-  const resolved = resolveProjectFromBody(body);
+  const requestedLeadId = String(body.lead_id || '').trim();
+  const requestedType = String(body.task_type || '').toUpperCase();
+  const lead =
+    requestedLeadId || requestedType === 'LEAD_TASK'
+      ? store.getLeads().find((item) => item.id === requestedLeadId)
+      : undefined;
+  if ((requestedLeadId || requestedType === 'LEAD_TASK') && !lead) {
+    return { error: 'Lead was not found.' };
+  }
+  if (lead && !canCreateLeadPipelineTask(user)) {
+    return { error: 'Only a Project Manager can create a task against a Lead.', status: 403 as const };
+  }
+  if (lead && !String(body.assigned_to_id || '').trim()) {
+    return { error: 'Select a team member to assign this lead task.' };
+  }
+
+  const resolved = lead ? { project: undefined, typedName: '' } : resolveProjectFromBody(body);
   let project = resolved.project;
   const typedProjectName = resolved.typedName;
   if (project) {
@@ -269,14 +296,19 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     if (!canViewTask(user, parent) && parent.assigned_to_id !== user.id) {
       return { error: 'You do not have permission to add a subtask to this parent.', status: 403 as const };
     }
-    if (!project && parent.project_id) {
+    if (!project && parent.project_id && !lead) {
       project = store.getProjects().find((item) => item.id === parent.project_id);
     }
   } else {
     parentTaskId = '';
   }
 
-  const taskType = project || typedProjectName ? 'PROJECT_TASK' : 'NON_PROJECT_TASK';
+  const isLeadTask = Boolean(lead);
+  const taskType: Task['task_type'] = isLeadTask
+    ? 'LEAD_TASK'
+    : project || typedProjectName
+      ? 'PROJECT_TASK'
+      : 'NON_PROJECT_TASK';
 
   const now = new Date().toISOString();
   const initialStatus = taskStatusFromBody(body.status);
@@ -285,16 +317,23 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
     (initialStatus === 'DONE' ? 100 : initialStatus === 'IN_PROGRESS' ? 10 : 0);
 
   const acceptanceRaw = String(body.acceptance_status || '').toUpperCase();
-  const acceptanceStatus =
-    acceptanceRaw === 'REQUESTED' || acceptanceRaw === 'ACCEPTED' || acceptanceRaw === 'REJECTED'
-      ? (acceptanceRaw as Task['acceptance_status'])
-      : undefined;
+  const acceptanceStatus: Task['acceptance_status'] =
+    isLeadTask && assignee.id !== user.id
+      ? 'REQUESTED'
+      : acceptanceRaw === 'REQUESTED' || acceptanceRaw === 'ACCEPTED' || acceptanceRaw === 'REJECTED'
+        ? (acceptanceRaw as Task['acceptance_status'])
+        : isLeadTask
+          ? 'ACCEPTED'
+          : undefined;
 
   const task: Task = {
     id: newId('task'),
-    lead_id: project?.lead_id || '',
-    project_id: project?.id,
-    project_name: project?.name || typedProjectName || undefined,
+    lead_id: lead?.id || project?.lead_id || '',
+    lead_name: lead?.title,
+    lead_stage_at_creation: lead ? leadPipelineStageLabel(lead) : undefined,
+    customer_name: lead?.customer_name || project?.customer_name,
+    project_id: isLeadTask ? undefined : project?.id,
+    project_name: isLeadTask ? lead?.title : project?.name || typedProjectName || undefined,
     title,
     description: String(body.description || '').trim() || undefined,
     status: initialStatus,
@@ -358,11 +397,13 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
       entityId: task.id,
       entityName: task.title,
       recipientIds: [assignee.id],
-      customer: project?.customer_name,
-      status: 'Task Assigned',
+      customer: lead?.customer_name || project?.customer_name,
+      status: isLeadTask ? 'Pending Acceptance' : 'Task Assigned',
       dueDate: task.due_date,
       assignedBy: user.name,
-      message: `New task assigned to you for ${project?.name || task.title}. Please review the requirements and begin execution.`,
+      message: isLeadTask
+        ? `New lead task assigned to you for ${lead?.lead_number || ''} ${lead?.title || ''}. Accept it to add it to My Assigned Work.`
+        : `New task assigned to you for ${project?.name || task.title}. Please review the requirements and begin execution.`,
       actionUrl: `/my-work?task=${encodeURIComponent(task.id)}`,
       eventKey: `TASK_ASSIGNED:${task.id}:${assignee.id}:${now}`,
     });
@@ -461,6 +502,9 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     if (body.start_date !== undefined) next.start_date = String(body.start_date || '') || undefined;
     if (body.sheet_hidden !== undefined) next.sheet_hidden = body.sheet_hidden === true;
     if (body.project_name !== undefined || body.project_id !== undefined) {
+      if (isLeadBasedTask(current)) {
+        // Lead relationship is immutable; do not convert a lead task into a project task.
+      } else {
       const resolved = resolveProjectFromBody(body);
       if (resolved.project) {
         next.project_id = resolved.project.id;
@@ -475,6 +519,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
         next.project_id = undefined;
         next.project_name = undefined;
         next.task_type = 'NON_PROJECT_TASK';
+      }
       }
     }
   }
@@ -757,16 +802,20 @@ export function acceptWorkTask(user: User, id: string) {
   tasks[index] = next;
   store.saveTasks(tasks);
   if (next.project_id) persistComputedProgress(next.project_id);
-  if (current.requested_by_id) {
+  const notifyIds = [...new Set([current.requested_by_id, current.assigned_by_id].filter(Boolean))] as string[];
+  if (notifyIds.length) {
+    const leadTask = isLeadBasedTask(current);
     emitWorkflowEvent({
       event: 'TASK_ASSIGNED',
       actor: user,
       entityType: 'TASK',
       entityId: next.id,
       entityName: next.title,
-      recipientIds: [current.requested_by_id],
-      status: 'Dependency Accepted',
-      message: `${user.name} accepted dependency "${next.title}".`,
+      recipientIds: notifyIds,
+      status: leadTask ? 'Lead Task Accepted' : 'Dependency Accepted',
+      message: leadTask
+        ? `${user.name} accepted lead task "${next.title}".`
+        : `${user.name} accepted dependency "${next.title}".`,
       actionUrl: `/my-work?task=${encodeURIComponent(next.id)}`,
       eventKey: `TASK_ACCEPTED:${next.id}:${user.id}:${next.updated_at}`,
     });

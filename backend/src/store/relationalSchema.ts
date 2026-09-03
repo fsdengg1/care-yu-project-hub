@@ -512,6 +512,9 @@ export const RELATIONAL_TABLES: TableDef[] = [
     fields: [
       ...text(
         'lead_id',
+        'lead_name',
+        'lead_stage_at_creation',
+        'customer_name',
         'project_id',
         'feasibility_team_assignment_id',
         'employee_allocation_id',
@@ -561,6 +564,7 @@ export const RELATIONAL_TABLES: TableDef[] = [
         'last_reminder_at',
         'next_reminder_at',
         'escalated_at',
+        'completed_at',
         'created_at',
         'updated_at'
       ),
