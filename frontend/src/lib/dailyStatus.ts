@@ -92,6 +92,14 @@ export function toSheetStatus(status?: string): DailySheetStatus {
   return 'Yet to Start';
 }
 
+export function fromSheetStatus(status: string): 'TODO' | 'IN_PROGRESS' | 'DONE' | 'WAITING' | 'HOLD' {
+  if (status === 'Completed' || status === 'DONE' || status === 'COMPLETED') return 'DONE';
+  if (status === 'In Progress' || status === 'IN_PROGRESS') return 'IN_PROGRESS';
+  if (status === 'Hold' || status === 'HOLD') return 'HOLD';
+  if (status === 'Waiting' || status === 'WAITING' || status === 'BLOCKED') return 'WAITING';
+  return 'TODO';
+}
+
 export function sheetStatusClass(status: string): string {
   if (status === 'Completed') return 'border-[#86efac] bg-[#dcfce7] text-[#166534]';
   if (status === 'In Progress') return 'border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]';

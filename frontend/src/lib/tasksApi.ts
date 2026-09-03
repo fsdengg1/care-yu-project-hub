@@ -39,7 +39,7 @@ export const TasksApi = {
 
   async update(
     id: string,
-    body: Partial<Task> & {
+    body: Omit<Partial<Task>, 'status'> & {
       review_action?: 'approve' | 'return' | 'resubmit';
       review_comments?: string;
       status?: string;

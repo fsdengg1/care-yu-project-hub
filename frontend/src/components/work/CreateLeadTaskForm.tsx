@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { DailySheetStatus, DailyStatusPerson, SHEET_STATUSES, formatSheetDate, toSheetStatus } from '@/lib/dailyStatus';
+import { DailySheetStatus, DailyStatusPerson, SHEET_STATUSES, formatSheetDate, fromSheetStatus, toSheetStatus } from '@/lib/dailyStatus';
 import { TasksApi } from '@/lib/tasksApi';
 import { Lead, Task } from '@/lib/types';
 import { projectStageFlowSummary } from '@/lib/projectStageFlow';
@@ -93,7 +93,7 @@ export default function CreateLeadTaskForm({
       assigned_to_id: assigneeId,
       due_date: deadline,
       depends_on_ids: dependsOn,
-      status,
+      status: fromSheetStatus(status),
     };
     const result = isEdit && editing
       ? await TasksApi.update(editing.id, body)
