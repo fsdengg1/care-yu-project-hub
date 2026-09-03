@@ -2,12 +2,27 @@
 
 @layer base {
   :root {
+    color-scheme: dark;
     --bg-main: #0B0F17;
     --card-bg: #131B2A;
     --border-color: #1E293B;
   }
 
+  html.dark {
+    color-scheme: dark;
+  }
+
   html.light {
+    color-scheme: light;
+  }
+
+  /* Native date/time popups follow the input's color-scheme, not the page chrome.
+     Keep them dark in dark mode even when they sit on the light Excel-style sheet. */
+  html.dark :is(input[type="date"], input[type="datetime-local"], input[type="time"], input[type="month"], input[type="week"]) {
+    color-scheme: dark;
+  }
+
+  html.light :is(input[type="date"], input[type="datetime-local"], input[type="time"], input[type="month"], input[type="week"]) {
     color-scheme: light;
   }
 
