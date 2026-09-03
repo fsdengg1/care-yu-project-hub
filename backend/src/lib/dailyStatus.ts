@@ -804,7 +804,7 @@ export function compareSnapshots(
         id: task.id,
         person: personName,
         project: projectName,
-        taskDescription: morningText,
+        taskDescription: staticTaskDesc,
         morningUpdate: morningText,
         eveningUpdate: eveningText,
         morningStatus,

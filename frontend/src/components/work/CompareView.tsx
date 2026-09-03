@@ -75,12 +75,13 @@ export default function CompareView({
       <div className="daily-status-table-wrap daily-status-compare-scroll">
         <table className="daily-status-sheet daily-status-compare">
           <colgroup>
-            <col style={{ width: '10%' }} />
-            <col style={{ width: '11%' }} />
-            <col style={{ width: '25%' }} />
-            <col style={{ width: '25%' }} />
             <col style={{ width: '8%' }} />
-            <col style={{ width: '7%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '6%' }} />
             <col style={{ width: '5%' }} />
             <col style={{ width: '5%' }} />
             <col style={{ width: '4%' }} />
@@ -90,6 +91,7 @@ export default function CompareView({
               <th>Person</th>
               <th>Project</th>
               <th>Task Description</th>
+              <th>Morning Update</th>
               <th>Current Update</th>
               <th>Status</th>
               <th>On Time / Delay</th>
@@ -103,7 +105,8 @@ export default function CompareView({
               group.rows.map((item, index) => {
                 const progress = progressLabel(item);
                 const taskDescText = item.taskDescription || '—';
-                const currentText = item.currentUpdate || 'No Evening Update Submitted';
+                const morningText = item.morningUpdate || 'No Morning Update Submitted';
+                const currentText = item.eveningUpdate || item.currentUpdate || 'No Evening Update Submitted';
                 return (
                   <tr key={item.id}>
                     {index === 0 && (
@@ -115,7 +118,10 @@ export default function CompareView({
                       <span className="sheet-text">{item.project || '—'}</span>
                     </td>
                     <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field text-[#475569]">{taskDescText}</span>
+                      <span className="sheet-text sheet-task-field">{taskDescText}</span>
+                    </td>
+                    <td className="task-desc-cell">
+                      <span className="sheet-text sheet-task-field text-[#475569]">{morningText}</span>
                     </td>
                     <td className="task-desc-cell">
                       <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{currentText}</span>
