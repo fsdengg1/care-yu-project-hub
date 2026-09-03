@@ -13,6 +13,7 @@ export type EditableSubtask = {
   assignedToId: string;
   dueDate?: string;
   status: Task['status'];
+  progressPercent?: number;
 };
 
 function statusToApi(status: string): Task['status'] {
@@ -24,6 +25,12 @@ function statusToApi(status: string): Task['status'] {
   return 'TODO';
 }
 
+function clampProgress(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export function subtaskToEditable(sub: DailyStatusSubtask, fallbackParentId?: string): EditableSubtask {
   return {
     id: sub.id,
@@ -33,6 +40,7 @@ export function subtaskToEditable(sub: DailyStatusSubtask, fallbackParentId?: st
     assignedToId: sub.assignedToId || '',
     dueDate: sub.deadlineIso || parseSheetDate(sub.deadline) || '',
     status: statusToApi(sub.status),
+    progressPercent: clampProgress(sub.progressPercent),
   };
 }
 
@@ -62,6 +70,7 @@ export default function AddSubtaskForm({
   const [assignedToId, setAssignedToId] = useState(editing?.assignedToId || currentUserId);
   const [dueDate, setDueDate] = useState(editing?.dueDate || '');
   const [status, setStatus] = useState<Task['status']>(editing?.status || 'TODO');
+  const [progress, setProgress] = useState(clampProgress(editing?.progressPercent));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -73,9 +82,11 @@ export default function AddSubtaskForm({
       setAssignedToId(editing.assignedToId || currentUserId);
       setDueDate(editing.dueDate || '');
       setStatus(editing.status || 'TODO');
+      setProgress(clampProgress(editing.progressPercent));
       return;
     }
     if (defaultParentId) setParentId(defaultParentId);
+    setProgress(0);
   }, [editing, defaultParentId, parents, currentUserId]);
 
   useEffect(() => {
@@ -92,12 +103,17 @@ export default function AddSubtaskForm({
     setBusy(true);
     setError('');
     const assignee = canAssignOthers ? assignedToId || currentUserId : assignedToId || currentUserId;
+    const progressPercent = clampProgress(progress);
+    let nextStatus = status;
+    if (progressPercent >= 100) nextStatus = 'DONE';
+    else if (progressPercent > 0 && status === 'TODO') nextStatus = 'IN_PROGRESS';
     if (isEdit && editing) {
       const result = await TasksApi.update(editing.id, {
         title: title.trim(),
         description: description.trim() || title.trim(),
         due_date: dueDate || undefined,
-        status,
+        status: nextStatus,
+        progress_percent: progressPercent,
         assigned_to_id: canAssignOthers ? assignee : undefined,
         parent_task_id: parentId,
       });
@@ -118,7 +134,8 @@ export default function AddSubtaskForm({
       project_name: parent?.project === '—' ? undefined : parent?.project,
       assigned_to_id: assignee,
       due_date: dueDate || undefined,
-      status,
+      status: nextStatus,
+      progress_percent: progressPercent,
       parent_task_id: parentId,
     });
     setBusy(false);
@@ -192,7 +209,13 @@ export default function AddSubtaskForm({
               Status
               <select
                 value={status}
-                onChange={(e) => setStatus(e.target.value as Task['status'])}
+                onChange={(e) => {
+                  const next = e.target.value as Task['status'];
+                  setStatus(next);
+                  if (next === 'DONE') setProgress(100);
+                  if (next === 'TODO' && progress === 100) setProgress(0);
+                  if (next === 'IN_PROGRESS' && progress === 0) setProgress(10);
+                }}
                 className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100"
               >
                 <option value="TODO">Pending</option>
@@ -212,6 +235,39 @@ export default function AddSubtaskForm({
               />
             </label>
           </div>
+          <label className="block text-slate-300">
+            Progress %
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={progress}
+                onChange={(e) => {
+                  const next = clampProgress(e.target.value);
+                  setProgress(next);
+                  if (next >= 100) setStatus('DONE');
+                  else if (next > 0 && status === 'TODO') setStatus('IN_PROGRESS');
+                  else if (next === 0 && status === 'DONE') setStatus('TODO');
+                }}
+                className="w-full"
+              />
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={progress}
+                onChange={(e) => {
+                  const next = clampProgress(e.target.value);
+                  setProgress(next);
+                  if (next >= 100) setStatus('DONE');
+                  else if (next > 0 && status === 'TODO') setStatus('IN_PROGRESS');
+                }}
+                className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-slate-100"
+              />
+            </div>
+          </label>
         </div>
         {error && <div className="mt-3 rounded-lg border border-rose-900 bg-rose-950/40 px-3 py-2 text-xs text-rose-300">{error}</div>}
         <div className="mt-4 flex justify-end gap-2">

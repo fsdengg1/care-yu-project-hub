@@ -509,6 +509,7 @@ export default function MyAssignedWorkPage() {
                                         description: item.description || item.task_title || '',
                                         assignedToId: item.assigned_to_id || currentUser.id,
                                         dueDate: item.due_date ? String(item.due_date).slice(0, 10) : '',
+                                        progressPercent: item.progress_percent || 0,
                                         status:
                                           item.current_status === 'DONE' || item.current_status === 'COMPLETED'
                                             ? 'DONE'

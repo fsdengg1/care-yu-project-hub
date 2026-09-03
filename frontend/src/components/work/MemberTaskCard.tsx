@@ -217,6 +217,7 @@ export default function MemberTaskCard({
                     description: assignment.description || assignment.task_title || '',
                     assignedToId: assignment.assigned_to_id,
                     dueDate: assignment.due_date ? String(assignment.due_date).slice(0, 10) : '',
+                    progressPercent: assignment.progress_percent || 0,
                     status:
                       assignment.current_status === 'DONE' || assignment.current_status === 'COMPLETED'
                         ? 'DONE'
@@ -443,6 +444,7 @@ export default function MemberTaskCard({
                 description: assignment.description || assignment.task_title || '',
                 assignedToId: assignment.assigned_to_id,
                 dueDate: assignment.due_date ? String(assignment.due_date).slice(0, 10) : '',
+                progressPercent: assignment.progress_percent || 0,
                 status:
                   assignment.current_status === 'DONE' || assignment.current_status === 'COMPLETED'
                     ? 'DONE'

@@ -20,6 +20,7 @@ export interface CreateTaskPayload {
   lead_id?: string;
   acceptance_status?: 'REQUESTED' | 'ACCEPTED' | 'REJECTED';
   requested_from_task_id?: string;
+  progress_percent?: number;
 }
 
 export const TasksApi = {
