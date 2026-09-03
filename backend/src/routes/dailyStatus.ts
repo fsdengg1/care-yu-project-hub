@@ -20,7 +20,7 @@ import {
   visibleProjects,
 } from '../lib/dailyStatus.js';
 import { formatEmployeeDisplayName } from '../lib/people.js';
-import { updateWorkTask } from '../lib/workTasks.js';
+import { updateWorkTask, setTaskSheetHidden } from '../lib/workTasks.js';
 import {
   getEmailReportScheduleConfig,
   listEmailReportHistory,
@@ -321,6 +321,17 @@ router.patch(
       }
     }
     delete body.work_date;
+
+    if (body.sheet_hidden !== undefined && Object.keys(body).every((key) => key === 'sheet_hidden')) {
+      const hiddenResult = setTaskSheetHidden(req.user!, String(req.params.id), body.sheet_hidden === true);
+      if ('error' in hiddenResult && hiddenResult.error === 'not_found') {
+        return res.status(404).json({ message: 'Task not found.' });
+      }
+      if ('error' in hiddenResult) {
+        return res.status(hiddenResult.status || 403).json({ message: 'You do not have permission to hide this task.' });
+      }
+      return res.json({ task: hiddenResult.task, rows: buildDailyStatusRows(req.user!, { date }) });
+    }
 
     const result = updateWorkTask(req.user!, String(req.params.id), body);
     if ('error' in result && result.error === 'not_found') {

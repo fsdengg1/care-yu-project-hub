@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Filter, ListPlus, Pencil, Search, Trash2 } from 'lucide-react';
+import { Download, EyeOff, Filter, ListPlus, Pencil, Search, Trash2 } from 'lucide-react';
 import {
   DailyStatusPerson,
   DailyStatusRow,
@@ -257,6 +257,20 @@ export default function DailyStatusSheet({
           {!readOnly && selectedIds.length > 0 && (
             <span className="text-[11px] font-semibold text-[#0f172a]">{selectedIds.length} selected</span>
           )}
+          {!readOnly && onHideRow && (
+            <button
+              type="button"
+              disabled={selectedIds.length !== 1}
+              onClick={() => {
+                const row = rows.find((item) => item.id === selectedIds[0]);
+                if (row) onHideRow(row);
+              }}
+              className="inline-flex items-center gap-1 rounded-md border border-[#cbd5e1] px-2 py-1.5 text-[11px] font-bold text-[#0f172a] hover:border-[#0f172a] disabled:opacity-40"
+              title={selectedIds.length === 1 ? 'Hide the selected task only' : 'Select exactly one task to hide'}
+            >
+              <EyeOff className="h-3.5 w-3.5" /> Hide
+            </button>
+          )}
           {!readOnly && (
             <button
               type="button"
@@ -338,7 +352,9 @@ export default function DailyStatusSheet({
                           checked={selectedIds.includes(row.id)}
                           onChange={(event) =>
                             onSelectedIds(
-                              event.target.checked ? [...selectedIds, row.id] : selectedIds.filter((id) => id !== row.id)
+                              event.target.checked
+                                ? [row.id]
+                                : selectedIds.filter((id) => id !== row.id)
                             )
                           }
                           aria-label={`Select ${row.person} task`}

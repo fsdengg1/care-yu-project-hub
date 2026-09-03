@@ -382,6 +382,34 @@ export function createWorkTask(user: User, body: Record<string, unknown>): Creat
   return { task, tasks: [task] };
 }
 
+export function setTaskSheetHidden(
+  user: User,
+  id: string,
+  hidden: boolean
+): { error: string; status?: number } | { task: Task } {
+  const tasks = store.getTasks();
+  const index = tasks.findIndex((item) => item.id === id);
+  if (index === -1) return { error: 'not_found' as const };
+  const current = tasks[index];
+  if (!canViewTask(user, current)) return { error: 'forbidden' as const };
+  const canToggle =
+    current.assigned_to_id === user.id ||
+    current.created_by_id === user.id ||
+    current.assigned_by_id === user.id ||
+    hasPermission(user, 'create:task') ||
+    ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+  if (!canToggle) return { error: 'forbidden' as const, status: 403 };
+  const next: Task = {
+    ...current,
+    sheet_hidden: hidden === true,
+    updated_at: new Date().toISOString(),
+  };
+  const copy = tasks.slice();
+  copy[index] = next;
+  store.saveTasks(copy);
+  return { task: next };
+}
+
 export function updateWorkTask(user: User, id: string, body: Record<string, unknown>) {
   const tasks = store.getTasks();
   const index = tasks.findIndex((item) => item.id === id);
@@ -401,14 +429,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     canExecute || ['CEO', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
   if (!canExecute) {
     if (!canToggleHidden || body.sheet_hidden === undefined) return { error: 'forbidden' as const };
-    const nextHidden: Task = {
-      ...current,
-      sheet_hidden: Boolean(body.sheet_hidden),
-      updated_at: new Date().toISOString(),
-    };
-    tasks[index] = nextHidden;
-    store.saveTasks(tasks);
-    return { task: nextHidden };
+    return setTaskSheetHidden(user, id, body.sheet_hidden === true);
   }
   if (
     current.review_status === 'PENDING_TL_REVIEW' &&
@@ -438,7 +459,7 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     if (body.description !== undefined) next.description = String(body.description);
     if (body.due_date !== undefined) next.due_date = String(body.due_date || '') || undefined;
     if (body.start_date !== undefined) next.start_date = String(body.start_date || '') || undefined;
-    if (body.sheet_hidden !== undefined) next.sheet_hidden = Boolean(body.sheet_hidden);
+    if (body.sheet_hidden !== undefined) next.sheet_hidden = body.sheet_hidden === true;
     if (body.project_name !== undefined || body.project_id !== undefined) {
       const resolved = resolveProjectFromBody(body);
       if (resolved.project) {

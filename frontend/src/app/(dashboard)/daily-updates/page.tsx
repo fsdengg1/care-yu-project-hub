@@ -311,22 +311,29 @@ function DailyWorkUpdatesInner() {
         onEditUpdate={(row) => router.push(`/daily-updates/new?assignment=${encodeURIComponent(row.id)}`)}
         onHideRow={async (row) => {
           setError(null);
-          const result = await DailyStatusApi.updateRow(row.id, { sheet_hidden: true, work_date: workDate });
+          const id = row.id;
+          setRows((prev) => prev.map((item) => (item.id === id ? { ...item, sheetHidden: true } : item)));
+          setSelectedIds((prev) => prev.filter((item) => item !== id));
+          const result = await DailyStatusApi.updateRow(id, { sheet_hidden: true, work_date: workDate });
           if (!result.ok) {
             setError(result.message || 'Unable to hide this task.');
+            await loadSheet(workDate);
             return;
           }
-          setRows(result.data.rows);
-          setNotice('Task hidden from Daily Work Updates on every dashboard.');
+          setRows(result.data.rows.map((item) => (item.id === id ? { ...item, sheetHidden: true } : item)));
+          setNotice('Only that task was hidden. Open Hidden to restore it.');
         }}
         onRestoreRow={async (row) => {
           setError(null);
-          const result = await DailyStatusApi.updateRow(row.id, { sheet_hidden: false, work_date: workDate });
+          const id = row.id;
+          setRows((prev) => prev.map((item) => (item.id === id ? { ...item, sheetHidden: false } : item)));
+          const result = await DailyStatusApi.updateRow(id, { sheet_hidden: false, work_date: workDate });
           if (!result.ok) {
             setError(result.message || 'Unable to restore this task.');
+            await loadSheet(workDate);
             return;
           }
-          setRows(result.data.rows);
+          setRows(result.data.rows.map((item) => (item.id === id ? { ...item, sheetHidden: false } : item)));
           setNotice('Task restored to Daily Work Updates.');
         }}
         onDeleteRow={(row) => setDeleteRow(row)}

@@ -394,7 +394,7 @@ export function buildDailyStatusRows(
         latestUpdateAt: update?.submitted_at || update?.updated_at || task.last_update_at,
         subtasks,
         hasSubtasks: subtasks.length > 0,
-        sheetHidden: Boolean(task.sheet_hidden),
+        sheetHidden: task.sheet_hidden === true,
       } satisfies DailyStatusRow;
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
