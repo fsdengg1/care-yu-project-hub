@@ -42,6 +42,7 @@ const EXECUTION_TEAM = { team_id: 't-execution', team_name: 'Execution Team' };
 const SANJAY_EMAIL = 'sanjay@careyu.ai';
 const ARAVIND_EMAIL = 'aravind@careyu.ai';
 const RAJA_EMAIL = 'raja@careyu.ai';
+const KABITHA_EMAIL = 'kabitha@careyu.ai';
 const REMOVED_DIRECTORY_NAMES = ['sanjay', 'aravind'] as const;
 
 function normalize(value: string) {
@@ -96,13 +97,13 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (email === pmEmail || name === 'arivan') {
     return role('PROJECT_MANAGER', { clearTeam: true });
   }
-  if (email === robotEmail || name === 'aakash' || local === 'aakash') {
+  if (email === robotEmail || local === 'aakash' || personGivenKey(nameRaw) === 'aakash') {
     return role('TEAM_LEAD', ROBOTICS_TEAM);
   }
   if ((name.startsWith('arun') && !name.includes('arivan') && !name.includes('aravind')) || (local.startsWith('arun') && !local.startsWith('arivan') && !local.startsWith('aravind'))) {
     return role('TEAM_LEAD', SOFTWARE_TEAM);
   }
-  if (name.includes('kabitha') || local.includes('kabitha')) {
+  if (name.includes('kabitha') || local.includes('kabitha') || email === KABITHA_EMAIL || personGivenKey(nameRaw) === 'kabitha') {
     return role('EMPLOYEE', SOFTWARE_TEAM);
   }
   if (name.includes('vani') || local.includes('vani')) {
@@ -414,6 +415,8 @@ export async function ensureLiveDirectory() {
 
   users = await ensureEngineeringDirector(users);
   users = deactivateRemovedDirectoryPeople(users);
+  users = await ensureTeamPerson(users, { name: 'Aakash', email: robotLeadEmail(), matchName: 'aakash', exactName: true });
+  users = await ensureTeamPerson(users, { name: 'Kabitha', email: KABITHA_EMAIL, matchName: 'kabitha', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });
   users = await ensureTeamPerson(users, { name: 'FSD Engineer', email: FSD_ENGG1_EMAIL, matchName: 'fsdengg' });
 

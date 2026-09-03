@@ -410,44 +410,75 @@ export function loadMailedOrSnapshotRows(date: string, period: SnapshotPeriod): 
   return snap;
 }
 
+function inferPeriodFromSubject(subject: string): SnapshotPeriod | null {
+  if (/7:15|7\.15\s*pm|evening/i.test(subject)) return 'evening';
+  if (/12:00|12\s*pm|noon|morning/i.test(subject)) return 'morning';
+  return null;
+}
+
+function subjectMentionsReportDate(subject: string, date: string): boolean {
+  if (!subject) return false;
+  if (subject.includes(date)) return true;
+  const display = formatSheetDate(date); // dd-mm-yyyy
+  if (display !== '—' && subject.includes(display)) return true;
+  const [y, m, d] = date.split('-');
+  if (!y || !m || !d) return false;
+  const monthIdx = Number(m) - 1;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const mon = months[monthIdx];
+  if (!mon) return false;
+  const variants = [
+    `${d}-${mon}-${y}`,
+    `${d} ${mon} ${y}`,
+    `${Number(d)} ${mon} ${y}`,
+    `${d}/${m}/${y}`,
+    `${d}-${m}-${y}`,
+  ];
+  return variants.some((value) => subject.includes(value));
+}
+
 function loadRowsFromOutboundMails(date: string, period: SnapshotPeriod): DailyStatusRow[] | null {
   const types = new Set(['DAILY_STATUS_REPORT', 'DAILY_STATUS_REPORT_SCHEDULED', 'DAILY_STATUS_REPORT_TEST']);
-  const displayDate = formatSheetDate(date); // dd-mm-yyyy
-  for (const email of store.getOutboundEmails()) {
-    if (!types.has(String(email.email_type || ''))) continue;
+  const emails = store
+    .getOutboundEmails()
+    .filter((email) => types.has(String(email.email_type || '')))
+    .slice()
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  for (const email of emails) {
+    const subject = String(email.subject || '');
     try {
       const parsed = JSON.parse(email.body || '{}') as {
         date?: string;
-        period?: SnapshotPeriod;
+        period?: SnapshotPeriod | string;
         rows?: DailyStatusRow[];
         slot?: string;
       };
       if (Array.isArray(parsed.rows) && parsed.rows.length) {
-        const periodMatch =
-          parsed.period === period ||
-          (period === 'morning' && parsed.slot === 'noon') ||
-          (period === 'evening' && parsed.slot === 'evening');
-        if (parsed.date === date && periodMatch) return parsed.rows;
+        const parsedDate = parsed.date
+          ? /^\d{4}-\d{2}-\d{2}/.test(parsed.date)
+            ? parsed.date.slice(0, 10)
+            : parseSheetDate(parsed.date)
+          : null;
+        const dateMatch =
+          parsedDate === date ||
+          (!parsedDate && subjectMentionsReportDate(subject, date));
+        if (!dateMatch) continue;
+        const inferredPeriod: SnapshotPeriod | null =
+          parsed.period === 'morning' || parsed.period === 'evening'
+            ? parsed.period
+            : parsed.slot === 'noon'
+              ? 'morning'
+              : parsed.slot === 'evening'
+                ? 'evening'
+                : inferPeriodFromSubject(subject);
+        if (inferredPeriod === period) return parsed.rows;
       }
     } catch {
       /* ignore non-json bodies */
     }
-    const subject = String(email.subject || '');
-    const subjectMentionsDate =
-      subject.includes(date) ||
-      subject.includes(displayDate) ||
-      subject.toLowerCase().includes(
-        new Date(`${date}T00:00:00`)
-          .toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-          .replace(/ /g, '-')
-      );
-    // Morning Status Report / noon vs 7:15 PM evening report
-    const subjectPeriod: SnapshotPeriod | null = /7:15|evening/i.test(subject)
-      ? 'evening'
-      : /morning|12:00|noon/i.test(subject)
-        ? 'morning'
-        : null;
-    if (subjectMentionsDate && subjectPeriod === period) {
+
+    if (subjectMentionsReportDate(subject, date) && inferPeriodFromSubject(subject) === period) {
       try {
         const parsed = JSON.parse(email.body || '{}') as { rows?: DailyStatusRow[] };
         if (Array.isArray(parsed.rows) && parsed.rows.length) return parsed.rows;
@@ -457,6 +488,45 @@ function loadRowsFromOutboundMails(date: string, period: SnapshotPeriod): DailyS
     }
   }
   return null;
+}
+
+/** For a past date: overlay that day's submitted updates onto morning rows as evening state. */
+function eveningRowsFromDayUpdates(date: string, morningRows: DailyStatusRow[]): DailyStatusRow[] | null {
+  const updates = store
+    .getDailyUpdates()
+    .filter((item) => item.work_date === date && item.submission_status === 'SUBMITTED')
+    .slice()
+    .sort((a, b) => (b.submitted_at || b.updated_at || '').localeCompare(a.submitted_at || a.updated_at || ''));
+  if (!updates.length) return null;
+
+  const eveningPreferred = updates.filter((item) => item.period === 'evening');
+  const pool = eveningPreferred.length ? eveningPreferred : updates;
+  let applied = 0;
+  const rows = morningRows.map((row) => {
+    const update =
+      pool.find((item) => item.task_id === row.id || item.assignment_id === row.id) ||
+      pool.find(
+        (item) =>
+          item.user_id === row.personId &&
+          (item.project_id === row.projectId || item.project_name === row.project || item.task_title === row.taskDescription)
+      );
+    if (!update) return { ...row };
+    applied += 1;
+    const status = toSheetStatus(update.work_status || row.status);
+    const hours = Math.max(0, Number(update.hours_worked) || 0);
+    return {
+      ...row,
+      taskDescription: (update.work_completed || row.taskDescription || '').trim() || row.taskDescription,
+      status,
+      progressPercent: Math.max(0, Math.min(100, Number(update.progress_percent) || row.progressPercent || 0)),
+      hoursWorked: hours || row.hoursWorked,
+      loggedHours: hours ? formatLoggedHours(hours) : row.loggedHours,
+      reasonForDelay: (update.blocker || row.reasonForDelay || '—').trim() || '—',
+      workDate: date,
+      latestUpdateAt: update.submitted_at || update.updated_at || row.latestUpdateAt,
+    } satisfies DailyStatusRow;
+  });
+  return applied > 0 ? rows : null;
 }
 
 export function rowsForPeriod(user: User, period: SnapshotPeriod, date = todayIso()): {
@@ -552,12 +622,21 @@ export function compareSnapshots(
   date?: string
 ): { items: CompareItem[]; available: boolean; date: string; message?: string } {
   const resolved = resolveCompareDate(date);
+  const today = todayIso();
   let morningRaw = loadMailedOrSnapshotRows(resolved, 'morning');
   let eveningRaw = loadMailedOrSnapshotRows(resolved, 'evening');
 
   // Today: if evening mail/snapshot is missing, use current sheet as evening (latest updates).
-  if ((!eveningRaw || !eveningRaw.length) && resolved === todayIso()) {
+  if ((!eveningRaw || !eveningRaw.length) && resolved === today) {
     eveningRaw = buildDailyStatusRows(user);
+  }
+  // Previous day: if evening mail/snapshot is missing, rebuild from that day's submitted updates.
+  if ((!eveningRaw || !eveningRaw.length) && resolved < today && morningRaw?.length) {
+    const rebuilt = eveningRowsFromDayUpdates(resolved, morningRaw);
+    if (rebuilt?.length) {
+      eveningRaw = rebuilt;
+      persistDailyStatusSnapshot(resolved, 'evening', rebuilt, user.id);
+    }
   }
   // Today: if morning mail/snapshot is missing but evening exists, do not invent morning from live.
   if (!morningRaw || !morningRaw.length) {
@@ -566,9 +645,9 @@ export function compareSnapshots(
       available: false,
       date: resolved,
       message:
-        resolved === todayIso()
+        resolved === today
           ? 'Today morning mail/snapshot is not available yet. Send or save Morning first, or switch to Previous day.'
-          : 'Morning and evening updates are not yet available for this date.',
+          : 'Previous day morning mail/snapshot is not available.',
     };
   }
   if (!eveningRaw || !eveningRaw.length) {
@@ -576,7 +655,10 @@ export function compareSnapshots(
       items: [],
       available: false,
       date: resolved,
-      message: 'Evening mail/snapshot is not available yet.',
+      message:
+        resolved === today
+          ? 'Evening mail/snapshot is not available yet.'
+          : 'Previous day evening mail/snapshot is not available. Send Evening for that day, or ensure evening updates were submitted.',
     };
   }
 

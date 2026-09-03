@@ -22,6 +22,7 @@ import { startNotificationScheduler } from './lib/reminderJob.js';
 import { startEmailReportScheduler } from './lib/emailReportJob.js';
 import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
 import { ensureLiveDirectory } from './lib/directoryRoles.js';
+import { ensureRobotLeadAccount } from './lib/robotLead.js';
 import { ensureActionItemTasks } from './lib/actionItemSheet.js';
 import emailRouter from './routes/email.js';
 
@@ -131,6 +132,7 @@ async function start() {
     `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
   );
   await ensureLiveDirectory();
+  await ensureRobotLeadAccount();
   ensureActionItemTasks();
   logEmailConfigOnStartup();
   startNotificationScheduler();

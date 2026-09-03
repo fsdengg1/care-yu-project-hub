@@ -278,7 +278,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet {
   width: 100%;
-  min-width: 1808px;
+  min-width: 1832px;
   border-collapse: collapse;
   table-layout: fixed;
   background: #ffffff;
@@ -315,7 +315,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 }
 
 .daily-status-sheet col.col-hours {
-  width: 96px;
+  width: 120px;
 }
 
 .daily-status-sheet col.col-delay {
@@ -360,7 +360,7 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
   text-align: center;
   vertical-align: middle;
   border: 1px solid #d4a017;
-  padding: 10px 8px;
+  padding: 10px 12px;
   white-space: nowrap;
 }
 
@@ -423,12 +423,14 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 }
 
 .daily-status-sheet td.hours-cell {
-  min-width: 96px;
+  min-width: 120px;
   white-space: nowrap;
   text-align: center;
   vertical-align: middle;
   word-break: normal;
   overflow-wrap: normal;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .daily-status-sheet td.delay-cell {
