@@ -104,8 +104,20 @@ export default function CompareView({
             {groups.map((group) =>
               group.rows.map((item, index) => {
                 const progress = progressLabel(item);
-                const morningText = item.morningUpdate || 'No Morning Update Submitted';
-                const eveningText = item.eveningUpdate || item.currentUpdate || 'No Evening Update Submitted';
+                const isCopy = (text?: string) => {
+                  if (!text || !text.trim()) return true;
+                  const cleanText = text.trim().toLowerCase().replace(/\s+/g, ' ');
+                  const cleanDesc = (item.taskDescription || '').trim().toLowerCase().replace(/\s+/g, ' ');
+                  return cleanText === cleanDesc;
+                };
+                const morningText =
+                  item.morningUpdate && !isCopy(item.morningUpdate)
+                    ? item.morningUpdate
+                    : 'No Morning Update Submitted';
+                const eveningText =
+                  item.eveningUpdate && !isCopy(item.eveningUpdate)
+                    ? item.eveningUpdate
+                    : 'No Evening Update Submitted';
                 return (
                   <tr key={item.id}>
                     {index === 0 && (

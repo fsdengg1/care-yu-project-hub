@@ -722,9 +722,20 @@ export function compareSnapshots(
   const items: CompareItem[] = scopedTasks
     .filter((task) => !task.parent_task_id && !task.is_milestone && task.acceptance_status !== 'REJECTED')
     .map((task) => {
+      const isUneditedCopy = (u?: DailyUpdate) => {
+        if (!u || !u.work_completed || !u.work_completed.trim()) return true;
+        const text = u.work_completed.trim().toLowerCase().replace(/\s+/g, ' ');
+        const desc = (task.description || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        const title = (task.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        return text === desc || text === title;
+      };
+
       const taskUpdates = updatesForTask(task, allUpdates);
-      const morningUpdate = taskUpdates.find((u) => u.period === 'morning' || u.update_type === 'MORNING');
-      const eveningUpdate = taskUpdates.find((u) => u.period === 'evening' || u.update_type === 'EVENING');
+      const morningCandidates = taskUpdates.filter((u) => u.period === 'morning' || u.update_type === 'MORNING');
+      const morningUpdate = morningCandidates.find((u) => !isUneditedCopy(u)) || morningCandidates[0];
+
+      const eveningCandidates = taskUpdates.filter((u) => u.period === 'evening' || u.update_type === 'EVENING');
+      const eveningUpdate = eveningCandidates.find((u) => !isUneditedCopy(u)) || eveningCandidates[0];
 
       const assignee = allUsers.find((u) => u.id === task.assigned_to_id);
       const personName = formatEmployeeDisplayName(assignee || task.assigned_to);
@@ -739,8 +750,12 @@ export function compareSnapshots(
 
       const staticTaskDesc = (task.description || task.title || '').trim() || task.title;
 
-      const morningText = morningUpdate?.work_completed?.trim() || 'No Morning Update Submitted';
-      const eveningText = eveningUpdate?.work_completed?.trim() || 'No Evening Update Submitted';
+      const morningText = morningUpdate && !isUneditedCopy(morningUpdate)
+        ? morningUpdate.work_completed.trim()
+        : 'No Morning Update Submitted';
+      const eveningText = eveningUpdate && !isUneditedCopy(eveningUpdate)
+        ? eveningUpdate.work_completed.trim()
+        : 'No Evening Update Submitted';
 
       const morningStatus = toSheetStatus(morningUpdate?.work_status || task.status);
       const eveningStatus = toSheetStatus(eveningUpdate?.work_status || morningUpdate?.work_status || task.status);
