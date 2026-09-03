@@ -385,13 +385,43 @@ export function buildDailyStatusRows(
       const leadLabel = isLeadTask
         ? [lead?.lead_number, task.lead_name || lead?.title].filter(Boolean).join(' • ')
         : '';
+
+      const isUneditedCopyRow = (u?: DailyUpdate) => {
+        if (!u || !u.work_completed || !u.work_completed.trim()) return true;
+        const text = u.work_completed.trim().toLowerCase().replace(/\s+/g, ' ');
+        const desc = (task.description || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        const title = (task.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+        return text === desc || text === title;
+      };
+
+      const taskUpds = updatesForTask(task, updates);
+      const morningCandidates = taskUpds.filter(
+        (u) => u.work_date === workDate && (u.period === 'morning' || u.update_type === 'MORNING')
+      );
+      const morningUpd = morningCandidates.find((u) => !isUneditedCopyRow(u)) || morningCandidates[0];
+
+      const eveningCandidates = taskUpds.filter(
+        (u) => u.work_date === workDate && (u.period === 'evening' || u.update_type === 'EVENING')
+      );
+      const eveningUpd = eveningCandidates.find((u) => !isUneditedCopyRow(u)) || eveningCandidates[0];
+
+      const displayUpdateText =
+        period === 'evening'
+          ? (eveningUpd && !isUneditedCopyRow(eveningUpd) ? eveningUpd.work_completed.trim() : undefined) ||
+            (morningUpd && !isUneditedCopyRow(morningUpd) ? morningUpd.work_completed.trim() : undefined)
+          : period === 'morning'
+          ? (morningUpd && !isUneditedCopyRow(morningUpd) ? morningUpd.work_completed.trim() : undefined)
+          : (update && !isUneditedCopyRow(update) ? update.work_completed.trim() : undefined);
+
+      const rowTaskDesc = displayUpdateText || (task.description || task.title || '').trim() || task.title;
+
       return {
         id: task.id,
         personId: task.assigned_to_id,
         person: formatEmployeeDisplayName(assignee || task.assigned_to),
         projectId: isLeadTask ? undefined : task.project_id,
         project: isLeadTask ? leadLabel || task.lead_name || task.title : project?.name || task.project_name || update?.project_name || '—',
-        taskDescription: (task.description || task.title || '').trim() || task.title,
+        taskDescription: rowTaskDesc,
         dependencyIds: deps,
         dependencies: formatDependencies(deps, allUsers, update?.dependency),
         status,

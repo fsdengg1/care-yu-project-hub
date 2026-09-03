@@ -103,6 +103,7 @@ export default function DailyStatusSheet({
   onDeleteRow,
   onAccept,
   readOnly = false,
+  period,
 }: {
   rows: DailyStatusRow[];
   people: DailyStatusPerson[];
@@ -125,8 +126,9 @@ export default function DailyStatusSheet({
   onHideRow?: (row: DailyStatusRow) => void;
   onRestoreRow?: (row: DailyStatusRow) => void;
   onDeleteRow?: (row: DailyStatusRow) => void;
-  onAccept?: (row: DailyStatusRow) => void;
+  onAccept?: (row: DailyStatusRow) => Promise<void>;
   readOnly?: boolean;
+  period?: 'morning' | 'evening';
 }) {
   const [query, setQuery] = useState('');
   const [chip, setChip] = useState<SheetChip>('all');
@@ -333,7 +335,7 @@ export default function DailyStatusSheet({
               )}
               <th>Person</th>
               <th>Project</th>
-              <th>Task Description</th>
+              <th>{period === 'evening' ? 'Current Update' : 'Task Description'}</th>
               <th>Dependencies</th>
               <th>Status</th>
               <th>Start Date</th>

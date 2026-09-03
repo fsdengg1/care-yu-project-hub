@@ -92,7 +92,7 @@ export default function CompareView({
               <th>Project</th>
               <th>Task Description</th>
               <th>Morning Update</th>
-              <th>Evening Update</th>
+              <th>Current Update</th>
               <th>Status</th>
               <th>On Time / Delay</th>
               <th>Progress</th>

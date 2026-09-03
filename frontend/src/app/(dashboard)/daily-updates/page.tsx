@@ -303,6 +303,7 @@ function DailyWorkUpdatesInner() {
         selectedIds={selectedIds}
         onSelectedIds={setSelectedIds}
         workDate={workDate}
+        period={period}
         onWorkDateChange={changeWorkDate}
         onAddSubtask={canAddTask ? openAddSubtask : undefined}
         onEditSubtask={canAddTask ? openEditSubtask : undefined}
