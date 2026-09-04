@@ -753,22 +753,12 @@ export function compareSnapshots(
   const allUsers = store.getUsers();
   const projects = store.getProjects();
 
+  const morningSnapRows = loadMailedOrSnapshotRows(resolved, 'morning') || [];
+  const eveningSnapRows = loadMailedOrSnapshotRows(resolved, 'evening') || [];
+
   const items: CompareItem[] = scopedTasks
     .filter((task) => !task.parent_task_id && !task.is_milestone && task.acceptance_status !== 'REJECTED')
     .map((task) => {
-      const isUneditedCopy = (u?: DailyUpdate) => {
-        if (!u || !u.work_completed || !u.work_completed.trim()) return true;
-        const text = u.work_completed.trim().toLowerCase().replace(/\s+/g, ' ');
-        const desc = (task.description || '').trim().toLowerCase().replace(/\s+/g, ' ');
-        const title = (task.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
-        return text === desc || text === title;
-      };
-
-      const taskUpdates = updatesForTask(task, allUpdates);
-
-      const eveningCandidates = taskUpdates.filter((u) => u.period === 'evening' || u.update_type === 'EVENING');
-      const eveningUpdate = eveningCandidates.find((u) => !isUneditedCopy(u)) || eveningCandidates[0];
-
       const assignee = allUsers.find((u) => u.id === task.assigned_to_id);
       const personName = formatEmployeeDisplayName(assignee || task.assigned_to);
 
@@ -780,28 +770,54 @@ export function compareSnapshots(
       const project = task.project_id ? projects.find((item) => item.id === task.project_id) : undefined;
       const projectName = isLeadTask ? leadLabel || task.lead_name || task.title : project?.name || task.project_name || '—';
 
-      // Master task description (ALWAYS from Morning master task)
-      const staticTaskDesc = (task.description || task.title || '').trim() || task.title;
+      // 1. MASTER TASK DESCRIPTION (ALWAYS SOURCED FROM MORNING MASTER TASK)
+      // Prefer Morning snapshot / email report row first to avoid overwritten descriptions
+      const morningSnapRow = morningSnapRows.find(
+        (r) => r.id === task.id || (r.personId === task.assigned_to_id && r.project === projectName)
+      );
+      const staticTaskDesc =
+        (morningSnapRow?.taskDescription || '').trim() ||
+        (task.description || task.title || '').trim() ||
+        task.title;
 
-      // Current Updates comes STRICTLY from Evening Update (DO NOT fall back to Morning Update)
-      const currentUpdateText =
-        eveningUpdate && eveningUpdate.work_completed && eveningUpdate.work_completed.trim()
-          ? eveningUpdate.work_completed.trim()
-          : 'No Evening Update Submitted';
+      // 2. ACTUAL EVENING UPDATE (SOURCED FROM DB DAILY UPDATE OR EVENING SNAPSHOT)
+      const taskUpdates = updatesForTask(task, allUpdates);
+      const eveningCandidates = taskUpdates.filter((u) => u.period === 'evening' || u.update_type === 'EVENING');
+      const dbEveningUpd = eveningCandidates[0] || taskUpdates[0];
 
-      const status = toSheetStatus(eveningUpdate?.work_status || task.status);
+      const eveningSnapRow = eveningSnapRows.find(
+        (r) => r.id === task.id || (r.personId === task.assigned_to_id && r.project === projectName)
+      );
 
-      const hoursWorked = Number(eveningUpdate?.hours_worked) || 0;
+      let eveningText: string | undefined;
+      if (dbEveningUpd && dbEveningUpd.work_completed && dbEveningUpd.work_completed.trim()) {
+        eveningText = dbEveningUpd.work_completed.trim();
+      } else if (eveningSnapRow && eveningSnapRow.taskDescription && eveningSnapRow.taskDescription.trim()) {
+        eveningText = eveningSnapRow.taskDescription.trim();
+      }
+
+      // DO NOT USE MORNING UPDATE TEXT AS CURRENT UPDATE
+      const currentUpdateText = eveningText || 'No Evening Update Submitted';
+
+      const status = toSheetStatus(
+        dbEveningUpd?.work_status || eveningSnapRow?.status || task.status
+      );
+
+      const hoursWorked = Math.max(
+        Number(dbEveningUpd?.hours_worked) || 0,
+        Number(eveningSnapRow?.hoursWorked) || 0
+      );
 
       const reasonForDelay = (
-        eveningUpdate?.blocker ||
+        dbEveningUpd?.blocker ||
+        eveningSnapRow?.reasonForDelay ||
         task.blocked_reason ||
         (isOverdue(task, resolved) ? task.remarks || 'No delay' : 'No delay')
       ).trim() || 'No delay';
 
-      const progress = status === 'Completed' ? 100 : (eveningUpdate?.progress_percent ?? task.progress_percent ?? 0);
+      const progress = status === 'Completed' ? 100 : (dbEveningUpd?.progress_percent ?? eveningSnapRow?.progressPercent ?? task.progress_percent ?? 0);
       const onTimeDelay = status === 'Completed' ? 'On Time' : (status === 'Hold' ? 'Hold' : (isOverdue(task, resolved) ? 'Delay' : 'On Time'));
-      const depsText = formatDependencies(dependencyIdsOf(task), allUsers, eveningUpdate?.dependency);
+      const depsText = formatDependencies(dependencyIdsOf(task), allUsers, dbEveningUpd?.dependency || eveningSnapRow?.dependencies);
 
       return {
         id: task.id,
@@ -819,14 +835,6 @@ export function compareSnapshots(
         loggedHours: formatLoggedHours(hoursWorked),
         hoursWorked,
         kinds: [],
-        morningUpdate: undefined,
-        eveningUpdate: currentUpdateText,
-        morningStatus: status,
-        eveningStatus: status,
-        morningDeadline: formatSheetDate(task.due_date),
-        eveningDeadline: formatSheetDate(task.due_date),
-        morningDependencies: depsText,
-        eveningDependencies: depsText,
       };
     })
     .sort((a, b) => a.person.localeCompare(b.person) || a.project.localeCompare(b.project));
