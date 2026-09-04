@@ -371,12 +371,12 @@ html.light .theme-app ::-webkit-scrollbar-thumb:hover {
 
 .daily-status-sheet.daily-status-compare {
   width: 100%;
-  min-width: 0;
+  min-width: 1100px;
   table-layout: fixed;
 }
 
 .daily-status-compare-wrap .daily-status-compare-scroll {
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .daily-status-sheet.daily-status-compare th,

@@ -184,21 +184,25 @@ export interface CompareItem {
   person: string;
   project: string;
   taskDescription: string;
-  morningUpdate?: string;
-  eveningUpdate?: string;
+  dependencies?: string;
+  status: string;
+  startDate?: string;
+  taskDeadline?: string;
   currentUpdate?: string;
-  morningStatus: string;
-  eveningStatus: string;
-  morningDeadline?: string;
-  eveningDeadline?: string;
-  morningDependencies?: string;
-  eveningDependencies?: string;
   onTimeDelay?: string;
   progressPercent?: number;
   reasonForDelay?: string;
   loggedHours?: string;
   hoursWorked?: number;
   kinds: CompareKind[];
+  morningUpdate?: string;
+  eveningUpdate?: string;
+  morningStatus?: string;
+  eveningStatus?: string;
+  morningDeadline?: string;
+  eveningDeadline?: string;
+  morningDependencies?: string;
+  eveningDependencies?: string;
 }
 
 export function inferDefaultEmailPeriod(now = new Date()): SnapshotPeriod {
