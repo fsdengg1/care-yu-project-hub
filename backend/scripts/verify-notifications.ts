@@ -1,4 +1,4 @@
-import { initStore, shutdownStore, store } from '../src/store/db.js';
+import { initStore, runWithoutPersisting, shutdownStore, store } from '../src/store/db.js';
 import { notificationService } from '../src/lib/notificationService.js';
 import {
   canManuallySendEmail,
@@ -19,6 +19,7 @@ function assert(condition: unknown, message: string) {
 
 async function main() {
   await initStore();
+  await runWithoutPersisting(async () => {
   const users = store.getUsers().filter((user) => user.status === 'ACTIVE');
   const pm = resolveResponsibleUser({ roleCode: 'PROJECT_MANAGER' });
   const other = users.find((user) => user.id !== pm?.id);
@@ -129,6 +130,7 @@ async function main() {
     duplicateSkipped: duplicate.skipped,
     deferredStatus: created.notification?.email_status,
     manualDispatch: sent.notification.email_dispatch,
+  });
   });
   await shutdownStore();
 }

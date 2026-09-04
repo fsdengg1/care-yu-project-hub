@@ -440,27 +440,32 @@ export function updateGroupMembers(
   }
 
   for (const id of body.add || []) addParticipant(conversationId, id, 'MEMBER');
+  let removedCount = 0;
   if (body.remove?.length) {
     if (body.remove.includes(conversation.created_by_id)) {
       return { error: 'Cannot remove the group owner. Transfer ownership first.' };
     }
     const rows = store.getConversationParticipants();
     for (const row of rows) {
-      if (row.conversation_id === conversationId && body.remove.includes(row.user_id)) {
+      if (row.conversation_id === conversationId && body.remove.includes(row.user_id) && !row.left_at) {
         row.left_at = new Date().toISOString();
+        removedCount += 1;
       }
     }
     store.saveConversationParticipants(rows);
   }
-  store.appendAudit({
-    user_id: user.id,
-    user_name: user.name,
-    user_role: user.role_name,
-    entity_type: 'CONVERSATION',
-    entity_id: conversationId,
-    action: 'GROUP_MEMBERS_UPDATED',
-    description: `${user.name} updated members of ${conversation.name || 'group'}.`,
-  });
+  const membershipChanged = Boolean(body.transfer_to_user_id) || Boolean((body.add || []).length) || removedCount > 0;
+  if (membershipChanged) {
+    store.appendAudit({
+      user_id: user.id,
+      user_name: user.name,
+      user_role: user.role_name,
+      entity_type: 'CONVERSATION',
+      entity_id: conversationId,
+      action: 'GROUP_MEMBERS_UPDATED',
+      description: `${user.name} updated members of ${conversation.name || 'group'}.`,
+    });
+  }
   return { conversation };
 }
 
@@ -568,6 +573,19 @@ export function postMessage(user: User, conversationId: string, body: PostMessag
       entity_id: conversation.id,
     });
   }
+  const threadLabel =
+    conversation.type === 'GROUP' || conversation.type === 'ANNOUNCEMENT'
+      ? conversation.name || 'a conversation'
+      : 'a conversation';
+  store.appendAudit({
+    user_id: user.id,
+    user_name: user.name,
+    user_role: user.role_name,
+    entity_type: 'CONVERSATION',
+    entity_id: message.id,
+    action: 'MESSAGE_SENT',
+    description: `${user.name} sent a message in ${threadLabel}.`,
+  });
   return { message: decorateMessage(message), conversation };
 }
 

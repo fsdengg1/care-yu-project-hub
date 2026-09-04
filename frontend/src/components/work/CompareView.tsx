@@ -75,33 +75,29 @@ export default function CompareView({
       <div className="daily-status-table-wrap daily-status-compare-scroll">
         <table className="daily-status-sheet daily-status-compare">
           <colgroup>
+            <col style={{ width: '9%' }} />
+            <col style={{ width: '11%' }} />
+            <col style={{ width: '24%' }} />
+            <col style={{ width: '24%' }} />
             <col style={{ width: '8%' }} />
-            <col style={{ width: '9%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '9%' }} />
             <col style={{ width: '7%' }} />
-            <col style={{ width: '6%' }} />
-            <col style={{ width: '6%' }} />
-            <col style={{ width: '18%' }} />
-            <col style={{ width: '6%' }} />
-            <col style={{ width: '4%' }} />
+            <col style={{ width: '7%' }} />
+            <col style={{ width: '7%' }} />
             <col style={{ width: '5%' }} />
-            <col style={{ width: '5%' }} />
+            <col style={{ width: '8%' }} />
           </colgroup>
           <thead>
             <tr>
               <th>Person</th>
               <th>Project</th>
               <th>Task Description</th>
-              <th>Dependencies</th>
+              <th>Current Updates</th>
               <th>Status</th>
               <th>Start Date</th>
               <th>Task Deadline</th>
-              <th>Current Updates</th>
               <th>On Time / Delay</th>
               <th>Progress</th>
               <th>Reason For Delay</th>
-              <th>Logged Hours</th>
             </tr>
           </thead>
           <tbody>
@@ -124,7 +120,7 @@ export default function CompareView({
                       <span className="sheet-text sheet-task-field">{taskDescText}</span>
                     </td>
                     <td className="task-desc-cell">
-                      <span className="sheet-text">{item.dependencies || '—'}</span>
+                      <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{currentText}</span>
                     </td>
                     <td className="status-cell">
                       <StatusPill value={item.status} />
@@ -135,9 +131,6 @@ export default function CompareView({
                     <td className="status-cell">
                       <span className="sheet-text">{item.taskDeadline || '—'}</span>
                     </td>
-                    <td className="task-desc-cell">
-                      <span className="sheet-text sheet-task-field text-[#0f172a] font-medium">{currentText}</span>
-                    </td>
                     <td className={`status-cell ${delayClass(item.onTimeDelay)}`}>{item.onTimeDelay || '—'}</td>
                     <td className="hours-cell">
                       <span className={progress >= 100 ? 'font-bold text-[#166534]' : ''}>{progress}%</span>
@@ -145,7 +138,6 @@ export default function CompareView({
                     <td className="delay-cell">
                       <span className="sheet-text">{item.reasonForDelay || '—'}</span>
                     </td>
-                    <td className="hours-cell">{item.loggedHours || '0h 00m'}</td>
                   </tr>
                 );
               })

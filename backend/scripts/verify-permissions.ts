@@ -1,4 +1,4 @@
-import { initStore, store } from '../src/store/db.js';
+import { initStore, runWithoutPersisting, shutdownStore, store } from '../src/store/db.js';
 import { createAnnouncement, createGroup, deleteConversation, getConversation, getOrCreateDirect, listConversations, postAttachment, postMessage, updateGroupMembers } from '../src/lib/chat.js';
 import { addEntityDocument, getEntityDocumentFile } from '../src/lib/documents.js';
 import {
@@ -45,30 +45,26 @@ function employeeNamed(skipId?: string): User {
 
 await initStore();
 
-if (process.env.CAREYU_LIVE_PERMISSION_TESTS !== '1') {
-  console.error(
-    'Permission checks create real chat, forum, and task records. Refusing to run on the live store.\nSet CAREYU_LIVE_PERMISSION_TESTS=1 only on a disposable database.'
-  );
-  process.exit(1);
-}
+console.info('[verify-permissions] Running in-memory only. Live Postgres will not be modified.');
 
 const snapshot = {
-  audits: store.getAudits(),
-  conversations: store.getConversations(),
-  participants: store.getConversationParticipants(),
-  messages: store.getChatMessages(),
-  documents: store.getEntityDocuments(),
-  tasks: store.getTasks(),
-  notifications: store.getNotifications(),
-  transitions: store.getStageTransitions(),
-  emails: store.getOutboundEmails(),
-  forumPosts: store.getForumPosts(),
-  forumComments: store.getForumComments(),
-  forumReactions: store.getForumReactions(),
-  forumTags: store.getForumTags(),
-  forumLiveMessages: store.getForumLiveMessages(),
+  audits: store.getAudits().slice(),
+  conversations: store.getConversations().slice(),
+  participants: store.getConversationParticipants().slice(),
+  messages: store.getChatMessages().slice(),
+  documents: store.getEntityDocuments().slice(),
+  tasks: store.getTasks().slice(),
+  notifications: store.getNotifications().slice(),
+  transitions: store.getStageTransitions().slice(),
+  emails: store.getOutboundEmails().slice(),
+  forumPosts: store.getForumPosts().slice(),
+  forumComments: store.getForumComments().slice(),
+  forumReactions: store.getForumReactions().slice(),
+  forumTags: store.getForumTags().slice(),
+  forumLiveMessages: store.getForumLiveMessages().slice(),
 };
 
+await runWithoutPersisting(async () => {
 try {
   const ceo = role('CEO');
   const employee = employeeNamed();
@@ -385,9 +381,12 @@ try {
   store.saveForumTags(snapshot.forumTags);
   store.saveForumLiveMessages(snapshot.forumLiveMessages);
 }
+});
 
 const failed = checks.filter((item) => !item.ok);
 console.log(`\n${checks.length - failed.length}/${checks.length} permission checks passed.`);
 if (failed.length) {
   process.exitCode = 1;
 }
+await shutdownStore();
+

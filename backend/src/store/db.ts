@@ -542,7 +542,24 @@ const TEST_ARTIFACT_PATTERNS = [
   'Should be blocked.',
   'Moderator note on locked thread.',
   'Idempotency probe',
+  'Permission Test Group',
+  'conv-1788433476694-sgxu',
 ];
+
+/** Confirmed live artifacts from backend/scripts/verify-permissions.ts on 2026-09-03 11:04:36Z. */
+const PERMISSION_TEST_AUDIT_KEYS = new Set([
+  'log-1788433476677-jnrl',
+  'log-1788433476692-dr5m',
+  'log-1788433476694-0lw9',
+  'log-1788433476694-7172',
+  'log-1788433476694-o1cf',
+  'log-1788433476694-zo8o',
+  'log-1788433476694-7qe8',
+  'log-1788433476695-hxwx',
+  'log-1788433476695-vfq7',
+  'log-1788433476695-lqb2',
+  'log-1788433476695-po8r',
+]);
 
 export function sanitizeAudits(audits: AuditLog[], users: User[], pendingSignups: PendingSignup[] = []): AuditLog[] {
   const validUserIds = new Set([
@@ -552,6 +569,7 @@ export function sanitizeAudits(audits: AuditLog[], users: User[], pendingSignups
 
   return (audits || []).filter((log) => {
     if (!log || !log.user_id || !log.action || !log.description) return false;
+    if (PERMISSION_TEST_AUDIT_KEYS.has(log.id)) return false;
     const text = `${log.description || ''} ${log.entity_name || ''} ${log.entity_id || ''}`;
     if (TEST_ARTIFACT_PATTERNS.some((pattern) => text.includes(pattern))) {
       return false;
@@ -650,6 +668,20 @@ function loadDb(): DbShape {
 function saveDb(db: DbShape) {
   cache = db;
   if (!persistPaused) enqueuePersist(db);
+}
+
+/** Run mutations in memory only, then restore the previous store. Never writes to Postgres. */
+export async function runWithoutPersisting<T>(fn: () => T | Promise<T>): Promise<T> {
+  await writeChain;
+  const snapshot = snapshotDb(loadDb());
+  persistPaused = true;
+  try {
+    return await fn();
+  } finally {
+    cache = snapshot;
+    dirtyCollections.clear();
+    persistPaused = false;
+  }
 }
 
 export async function transact<T>(fn: () => T | Promise<T>): Promise<T> {

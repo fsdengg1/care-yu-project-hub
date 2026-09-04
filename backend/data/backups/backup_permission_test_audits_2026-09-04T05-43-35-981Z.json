@@ -1,0 +1,104 @@
+{
+  "created_at": "2026-09-04T05:43:36.273Z",
+  "rows": [
+    {
+      "record_key": "log-1788433476677-jnrl",
+      "user_name": "Bernard",
+      "action": "CONVERSATION_STARTED",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476676-nobp",
+      "description": "Bernard started a conversation with Kabitha.",
+      "created_at": "2026-09-03T11:04:36.677Z"
+    },
+    {
+      "record_key": "log-1788433476692-dr5m",
+      "user_name": "Bernard",
+      "action": "MESSAGE_SENT",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476676-nobp",
+      "description": "Bernard sent a message in a conversation.",
+      "created_at": "2026-09-03T11:04:36.692Z"
+    },
+    {
+      "record_key": "log-1788433476694-0lw9",
+      "user_name": "Kabitha",
+      "action": "GROUP_CREATED",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-sgxu",
+      "description": "Kabitha created group \"Permission Test Group\".",
+      "created_at": "2026-09-03T11:04:36.694Z"
+    },
+    {
+      "record_key": "log-1788433476694-7172",
+      "user_name": "Raja",
+      "action": "MESSAGE_SENT",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-sgxu",
+      "description": "Raja sent a message in Permission Test Group.",
+      "created_at": "2026-09-03T11:04:36.694Z"
+    },
+    {
+      "record_key": "log-1788433476694-o1cf",
+      "user_name": "Kabitha",
+      "action": "CONVERSATION_STARTED",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-40he",
+      "description": "Kabitha started a conversation with Raja.",
+      "created_at": "2026-09-03T11:04:36.694Z"
+    },
+    {
+      "record_key": "log-1788433476694-zo8o",
+      "user_name": "Kabitha",
+      "action": "MESSAGE_SENT",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476676-nobp",
+      "description": "Kabitha sent a message in a conversation.",
+      "created_at": "2026-09-03T11:04:36.694Z"
+    },
+    {
+      "record_key": "log-1788433476694-7qe8",
+      "user_name": "Bernard",
+      "action": "MESSAGE_SENT",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476676-nobp",
+      "description": "Bernard sent a message in a conversation.",
+      "created_at": "2026-09-03T11:04:36.694Z"
+    },
+    {
+      "record_key": "log-1788433476695-hxwx",
+      "user_name": "Raja",
+      "action": "DOCUMENT_UPLOADED",
+      "entity_type": "DOCUMENT",
+      "entity_id": "edoc-1788433476695-v6oo",
+      "description": "Raja uploaded Project_Status.xlsx to CONVERSATION conv-1788433476694-sgxu.",
+      "created_at": "2026-09-03T11:04:36.695Z"
+    },
+    {
+      "record_key": "log-1788433476695-vfq7",
+      "user_name": "Raja",
+      "action": "MESSAGE_SENT",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-sgxu",
+      "description": "Raja sent a message in Permission Test Group.",
+      "created_at": "2026-09-03T11:04:36.695Z"
+    },
+    {
+      "record_key": "log-1788433476695-lqb2",
+      "user_name": "Kabitha",
+      "action": "GROUP_DELETED",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-sgxu",
+      "description": "Kabitha deleted Permission Test Group.",
+      "created_at": "2026-09-03T11:04:36.695Z"
+    },
+    {
+      "record_key": "log-1788433476695-po8r",
+      "user_name": "Kabitha",
+      "action": "GROUP_MEMBERS_UPDATED",
+      "entity_type": "CONVERSATION",
+      "entity_id": "conv-1788433476694-sgxu",
+      "description": "Kabitha updated members of Permission Test Group.",
+      "created_at": "2026-09-03T11:04:36.695Z"
+    }
+  ]
+}
