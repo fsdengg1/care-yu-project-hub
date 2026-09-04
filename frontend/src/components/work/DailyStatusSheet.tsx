@@ -456,18 +456,27 @@ export default function DailyStatusSheet({
                           <div className="min-w-0 flex-1">
                             {editable ? (
                               <AutoResizeTextarea
-                                key={row.taskDescription}
-                                defaultValue={row.taskDescription}
+                                key={period === 'evening' ? `${row.id}-evening-${row.currentUpdate || ''}` : row.taskDescription}
+                                defaultValue={period === 'evening' ? row.currentUpdate || '' : row.taskDescription}
                                 className="sheet-textarea sheet-task-field"
+                                placeholder={period === 'evening' ? 'Enter evening update' : undefined}
                                 onBlur={(event) => {
                                   const value = event.target.value.trim();
+                                  if (period === 'evening') {
+                                    if (value !== (row.currentUpdate || '').trim()) {
+                                      void onPatch(row.id, { evening_update: value });
+                                    }
+                                    return;
+                                  }
                                   if (value && value !== row.taskDescription) {
                                     void onPatch(row.id, { description: value, title: value.slice(0, 120) });
                                   }
                                 }}
                               />
                             ) : (
-                              <span className="sheet-text sheet-task-field">{row.taskDescription}</span>
+                              <span className="sheet-text sheet-task-field">
+                                {period === 'evening' ? row.currentUpdate || 'No Evening Update Submitted' : row.taskDescription}
+                              </span>
                             )}
                           </div>
                           {onAddSubtask && editable && (

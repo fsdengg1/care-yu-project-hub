@@ -42,6 +42,7 @@ export interface DailyStatusRow {
   loggedHours?: string;
   workDate?: string;
   latestUpdateAt?: string;
+  currentUpdate?: string;
   morningStatus?: DailySheetStatus;
   eveningStatus?: DailySheetStatus;
   subtasks?: DailyStatusSubtask[];

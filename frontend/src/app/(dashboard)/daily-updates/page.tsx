@@ -355,7 +355,7 @@ function DailyWorkUpdatesInner() {
         }}
         onPatch={async (id, body) => {
           setError(null);
-          const result = await DailyStatusApi.updateRow(id, { ...body, work_date: workDate });
+          const result = await DailyStatusApi.updateRow(id, { ...body, work_date: workDate, period });
           if (!result.ok) {
             setError(result.message || 'Unable to save this change.');
             return;
@@ -376,7 +376,7 @@ function DailyWorkUpdatesInner() {
             <div className="flex items-center justify-between gap-3 border-b border-[#e2e8f0] bg-white px-4 py-3">
               <div className="min-w-0">
                 <h2 className="text-sm font-bold text-[#0f172a]">Compare — Morning vs Evening</h2>
-                <p className="text-[11px] text-[#64748b]">Task Description from morning mail · Current Updates from evening mail</p>
+                <p className="text-[11px] text-[#64748b]">Task Description from the morning master task · Current Updates from the Evening Daily Work Update</p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <div className="inline-flex rounded-md border border-[#e2e8f0] bg-[#f8fafc] p-0.5 text-[11px] font-semibold">

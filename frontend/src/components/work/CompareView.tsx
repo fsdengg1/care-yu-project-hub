@@ -67,7 +67,7 @@ export default function CompareView({
     <div className="daily-status-workspace daily-status-compare-wrap min-w-0 overflow-hidden rounded-xl">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[#e2e8f0] px-3 py-2 text-[11px] text-[#64748b]">
         <span>
-          Comparison for <span className="font-semibold text-[#0f172a]">{date}</span> · Morning Master Tasks vs Evening Current Updates
+          Comparison for <span className="font-semibold text-[#0f172a]">{date}</span> · Morning master task vs actual Evening update
         </span>
         <span className="font-semibold text-[#0f172a]">{items.length} rows</span>
       </div>

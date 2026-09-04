@@ -17,6 +17,7 @@ import {
   sendDailyStatusReport,
   SnapshotPeriod,
   upsertLoggedHoursForTask,
+  upsertEveningWorkCompleted,
   visibleProjects,
 } from '../lib/dailyStatus.js';
 import { formatEmployeeDisplayName } from '../lib/people.js';
@@ -290,6 +291,7 @@ router.patch(
   requirePermission('view:daily-updates', 'create:task', 'submit:daily-update'),
   (req: AuthedRequest, res) => {
     const date = readIsoDate(req.query.date || req.body?.work_date);
+    const period = typeof req.body?.period === 'string' && req.body.period ? readPeriod(req.body.period) : undefined;
     const body: Record<string, unknown> = { ...(req.body || {}) };
     if (
       typeof body.status === 'string' &&
@@ -298,12 +300,44 @@ router.patch(
       body.status = fromSheetStatus(body.status);
     }
 
+    const rebuildRows = () => buildDailyStatusRows(req.user!, { date, period });
+
+    const eveningNarrative =
+      typeof body.evening_update === 'string'
+        ? body.evening_update
+        : period === 'evening' && typeof body.description === 'string'
+          ? body.description
+          : undefined;
+    if (eveningNarrative !== undefined) {
+      const eveningResult = upsertEveningWorkCompleted(
+        req.user!,
+        String(req.params.id),
+        String(eveningNarrative),
+        readIsoDate(body.work_date, date)
+      );
+      if (!eveningResult.ok) {
+        return res.status(eveningResult.status || 400).json({
+          message:
+            eveningResult.error === 'forbidden'
+              ? 'You do not have permission to save this evening update.'
+              : eveningResult.error === 'not_found'
+                ? 'Task not found.'
+                : eveningResult.error,
+        });
+      }
+      delete body.evening_update;
+      delete body.description;
+      delete body.title;
+    }
+    delete body.period;
+
     if (body.hours_worked !== undefined) {
       const hoursResult = upsertLoggedHoursForTask(
         req.user!,
         String(req.params.id),
         Number(body.hours_worked),
-        readIsoDate(body.work_date, date)
+        readIsoDate(body.work_date, date),
+        period
       );
       if (!hoursResult.ok) {
         return res.status(hoursResult.status || 400).json({
@@ -318,10 +352,15 @@ router.patch(
       delete body.hours_worked;
       delete body.work_date;
       if (Object.keys(body).length === 0) {
-        return res.json({ update: hoursResult.update, rows: buildDailyStatusRows(req.user!, { date }) });
+        return res.json({ update: hoursResult.update, rows: rebuildRows() });
       }
     }
     delete body.work_date;
+    delete body.evening_update;
+
+    if (Object.keys(body).length === 0) {
+      return res.json({ rows: rebuildRows() });
+    }
 
     if (body.sheet_hidden !== undefined && Object.keys(body).every((key) => key === 'sheet_hidden')) {
       const hiddenResult = setTaskSheetHidden(req.user!, String(req.params.id), body.sheet_hidden === true);
@@ -331,7 +370,7 @@ router.patch(
       if ('error' in hiddenResult) {
         return res.status(hiddenResult.status || 403).json({ message: 'You do not have permission to hide this task.' });
       }
-      return res.json({ task: hiddenResult.task, rows: buildDailyStatusRows(req.user!, { date }) });
+      return res.json({ task: hiddenResult.task, rows: rebuildRows() });
     }
 
     const result = updateWorkTask(req.user!, String(req.params.id), body);
@@ -346,7 +385,7 @@ router.patch(
             : result.error,
       });
     }
-    return res.json({ task: result.task, rows: buildDailyStatusRows(req.user!, { date }) });
+    return res.json({ task: result.task, rows: rebuildRows() });
   }
 );
 
