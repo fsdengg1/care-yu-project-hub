@@ -18,6 +18,7 @@ import StatusDropdown from './StatusDropdown';
 import SheetDateFilter from './SheetDateFilter';
 import RowMoreMenu from './RowMoreMenu';
 import TaskAccessBadges from './TaskAccessBadges';
+import LoggedHoursProgressCell from './LoggedHoursProgressCell';
 
 export type SheetChip = 'all' | 'mine' | 'overdue' | 'critical' | 'due-today' | 'completed' | 'hold' | 'additional' | 'lead' | 'hidden';
 
@@ -589,25 +590,20 @@ export default function DailyStatusSheet({
                     )}
                   </td>
                   <td className="hours-cell">
-                    {editable ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.25}
-                        className="sheet-input sheet-hours-input w-full text-center"
-                        defaultValue={row.hoursWorked ?? 0}
-                        key={`${row.id}-hours-${row.hoursWorked ?? 0}`}
-                        onBlur={(event) => {
-                          const next = Math.max(0, Number(event.target.value) || 0);
-                          if (next !== (row.hoursWorked ?? 0)) {
-                            void onPatch(row.id, { hours_worked: next, work_date: workDate });
-                          }
-                        }}
-                        title="Logged hours (decimal, e.g. 6.5)"
-                      />
-                    ) : (
-                      <span className="sheet-text">{row.loggedHours || '0h 00m'}</span>
-                    )}
+                    <LoggedHoursProgressCell
+                      status={row.status}
+                      progressPercent={row.progressPercent}
+                      hoursWorked={row.hoursWorked}
+                      loggedHours={row.loggedHours}
+                      editable={editable}
+                      onProgressCommit={(percent) =>
+                        void onPatch(row.id, {
+                          progress_percent: percent,
+                          progress_manual_override: true,
+                        })
+                      }
+                      onHoursCommit={(hours) => void onPatch(row.id, { hours_worked: hours, work_date: workDate })}
+                    />
                   </td>
                   <td className="delay-cell">
                     {editable ? (

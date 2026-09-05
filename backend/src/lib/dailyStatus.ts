@@ -95,6 +95,25 @@ export function fromSheetStatus(status: string): Task['status'] {
   return 'TODO';
 }
 
+export function clampProgressPercent(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** In Progress / Hold / Waiting never display 100%. Completed is always 100%. */
+export function progressForSheetStatus(status?: string, value?: unknown): number {
+  const sheet = (['Yet to Start', 'In Progress', 'Waiting', 'Completed', 'Hold'] as DailySheetStatus[]).includes(
+    status as DailySheetStatus
+  )
+    ? (status as DailySheetStatus)
+    : toSheetStatus(status);
+  const stored = clampProgressPercent(value);
+  if (sheet === 'Completed') return 100;
+  if (sheet === 'Yet to Start') return 0;
+  return Math.min(99, stored);
+}
+
 export function formatSheetDate(value?: string): string {
   if (!value) return '—';
   const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
@@ -399,7 +418,10 @@ export function buildDailyStatusRows(
         title: child.title,
         description: child.description || child.title,
         status: toSheetStatus(child.status === 'BLOCKED' ? 'WAITING' : child.status),
-        progressPercent: child.progress_percent || 0,
+        progressPercent: progressForSheetStatus(
+          toSheetStatus(child.status === 'BLOCKED' ? 'WAITING' : child.status),
+          child.progress_percent
+        ),
         deadline: formatSheetDate(child.due_date),
         deadlineIso: child.due_date ? String(child.due_date).slice(0, 10) : undefined,
         assignedTo: formatEmployeeDisplayName(
@@ -450,7 +472,7 @@ export function buildDailyStatusRows(
         isAdditional: Boolean(task.is_additional),
         blocked: task.status === 'BLOCKED' || task.status === ('WAITING' as Task['status']),
         overdue: isOverdue(task, workDate),
-        progressPercent,
+        progressPercent: progressForSheetStatus(status, progressPercent),
         hoursWorked: hoursToday,
         loggedHours: formatLoggedHours(hoursToday),
         workDate: pickUpdateForDate(updatesForTask(task, updates), workDate, period, task.assigned_to_id)?.work_date || workDate,
@@ -646,7 +668,7 @@ function eveningRowsFromDayUpdates(date: string, morningRows: DailyStatusRow[]):
       ...row,
       taskDescription: (update.work_completed || row.taskDescription || '').trim() || row.taskDescription,
       status,
-      progressPercent: Math.max(0, Math.min(100, Number(update.progress_percent) || row.progressPercent || 0)),
+      progressPercent: progressForSheetStatus(status, update.progress_percent ?? row.progressPercent),
       hoursWorked: hours || row.hoursWorked,
       loggedHours: hours ? formatLoggedHours(hours) : row.loggedHours,
       reasonForDelay: (update.blocker || row.reasonForDelay || '—').trim() || '—',
@@ -713,19 +735,6 @@ function delayLabel(row?: DailyStatusRow): string {
   if (row.status === 'Hold') return 'Hold';
   if (row.overdue) return 'Delay';
   return 'On Time';
-}
-
-/** Progress for compare: Completed always 100%, else use stored % / status defaults. */
-function progressFromRow(row?: DailyStatusRow): number {
-  if (!row) return 0;
-  if (row.status === 'Completed') return 100;
-  if (row.status === 'Yet to Start') return 0;
-  const stored = Math.max(0, Math.min(100, Number(row.progressPercent) || 0));
-  if (stored > 0) return stored;
-  if (row.status === 'In Progress') return 50;
-  if (row.status === 'Waiting') return 25;
-  if (row.status === 'Hold') return stored;
-  return stored;
 }
 
 function compareKinds(morning?: DailyStatusRow, evening?: DailyStatusRow): CompareKind[] {
@@ -818,16 +827,10 @@ export function compareSnapshots(
         (task ? delayReason(task, eveningUpd) : morningRow.reasonForDelay) ||
         'No delay'
       ).trim() || 'No delay';
-      const progress =
-        status === 'Completed'
-          ? 100
-          : Math.max(
-              0,
-              Math.min(
-                100,
-                Number(eveningUpd?.progress_percent ?? eveningSnapRow?.progressPercent ?? task?.progress_percent ?? morningRow.progressPercent) || 0
-              )
-            );
+      const progress = progressForSheetStatus(
+        status,
+        eveningUpd?.progress_percent ?? eveningSnapRow?.progressPercent ?? task?.progress_percent ?? morningRow.progressPercent
+      );
       const onTimeDelay =
         status === 'Completed' ? 'On Time' : status === 'Hold' ? 'Hold' : task && isOverdue(task, resolved) ? 'Delay' : 'On Time';
       const depsText = task
@@ -873,7 +876,7 @@ function upsertDailyPeriodRecord(
   taskId: string,
   workDate: string,
   period: SnapshotPeriod,
-  patch: { work_completed?: string; hours_worked?: number }
+  patch: { work_completed?: string; hours_worked?: number; progress_percent?: number }
 ): { ok: true; update: DailyUpdate } | { ok: false; error: string; status?: number } {
   const task = store.getTasks().find((item) => item.id === taskId);
   if (!task) return { ok: false, error: 'not_found', status: 404 };
@@ -921,6 +924,9 @@ function upsertDailyPeriodRecord(
         next.summary = `Logged ${formatLoggedHours(next.hours_worked)} via Daily Work Updates (${period}).`;
       }
     }
+    if (patch.progress_percent !== undefined) {
+      next.progress_percent = Math.max(0, Math.min(100, Number(patch.progress_percent) || 0));
+    }
     if (patch.work_completed !== undefined) {
       next.work_completed = patch.work_completed;
       next.summary = patch.work_completed || next.summary;
@@ -956,7 +962,10 @@ function upsertDailyPeriodRecord(
     task_title: task.title,
     work_date: date,
     work_completed: workCompleted,
-    progress_percent: task.progress_percent ?? 0,
+    progress_percent:
+      patch.progress_percent != null
+        ? Math.max(0, Math.min(100, Number(patch.progress_percent) || 0))
+        : task.progress_percent ?? 0,
     hours_worked: hours,
     work_status: workStatusFromTask(task),
     next_plan: '—',
@@ -985,6 +994,18 @@ export function upsertLoggedHoursForTask(
   period?: SnapshotPeriod
 ) {
   return upsertDailyPeriodRecord(actor, taskId, workDate, period || inferDefaultEmailPeriod(), { hours_worked: hoursWorked });
+}
+
+export function upsertProgressForTask(
+  actor: User,
+  taskId: string,
+  progressPercent: number,
+  workDate = todayIso(),
+  period?: SnapshotPeriod
+) {
+  return upsertDailyPeriodRecord(actor, taskId, workDate, period || inferDefaultEmailPeriod(), {
+    progress_percent: Math.max(0, Math.min(100, Number(progressPercent) || 0)),
+  });
 }
 
 /** Save Evening narrative onto the same task/employee/date. Does not modify the master task. */
@@ -1096,6 +1117,8 @@ export function renderDailyStatusEmailHtml(params: {
           const startDate = escapeHtml(row.startDate || '—').replace(/-/g, '&#8209;');
           const deadline = escapeHtml(row.deadline).replace(/-/g, '&#8209;');
           const hours = escapeHtml(row.loggedHours || formatLoggedHours(row.hoursWorked));
+          const progress = progressForSheetStatus(row.status, row.progressPercent);
+          const progressBar = `<div style="width:100%;height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div style="width:${progress}%;height:100%;background:${progress >= 100 ? '#16a34a' : '#2563eb'};"></div></div><div style="margin-top:4px;font-size:11px;font-weight:700;color:${progress >= 100 ? '#166534' : '#1d4ed8'};">${progress}%</div>`;
           return `<tr>
         ${personTd}
         <td width="140" style="${cell}">${escapeHtml(row.project)}</td>
@@ -1104,7 +1127,7 @@ export function renderDailyStatusEmailHtml(params: {
         <td width="100" style="${statusCell}"><span style="display:inline-block;padding:4px 8px;border-radius:999px;background:${badge.bg};color:${badge.color};font-size:11px;font-weight:700;line-height:1.2;white-space:nowrap;">${statusLabel}</span></td>
         <td width="95" style="${dateCell}">${startDate}</td>
         <td width="95" style="${dateCell}${deadlineStyle}">${deadline}</td>
-        <td width="90" style="${hoursCell}">${hours}</td>
+        <td width="90" style="${hoursCell}">${progressBar}<div style="margin-top:4px;font-size:11px;font-weight:600;">${hours}</div></td>
         <td width="150" style="${delayCell}">${escapeHtml(row.reasonForDelay)}</td>
       </tr>`;
         })
@@ -1176,7 +1199,7 @@ export function renderDailyStatusEmailHtml(params: {
     '',
     ...sorted.map(
       (row) =>
-        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.startDate || '—'} | ${row.deadline} | ${row.loggedHours || formatLoggedHours(row.hoursWorked)} | ${row.reasonForDelay}`
+        `${row.person} | ${row.project} | ${row.taskDescription} | ${row.dependencies} | ${row.status} | ${row.startDate || '—'} | ${row.deadline} | ${progressForSheetStatus(row.status, row.progressPercent)}% ${row.loggedHours || formatLoggedHours(row.hoursWorked)} | ${row.reasonForDelay}`
     ),
     '',
     'Regards,',

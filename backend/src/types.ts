@@ -175,7 +175,8 @@ export interface NotificationItem {
     | 'CLIENT_PROPOSAL'
     | 'CLIENT_LEAD_EMAIL'
     | 'CLIENT_PROJECT_UPDATE'
-    | 'CLIENT_COMMUNICATION';
+    | 'CLIENT_COMMUNICATION'
+    | 'LIVE_DEMO';
   title: string;
   message: string;
   entity_type: string;
@@ -288,6 +289,7 @@ export type LeadStatus =
     | 'COSTING_SUBMITTED'
     | 'COSTING_RETURNED'
     | 'COSTING_REJECTED'
+  | 'LIVE_CASE_DEMONSTRATION'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'ORDER_CONVERTED'
@@ -301,6 +303,7 @@ export type PipelineStage =
   | 'PM_REVIEW'
   | 'FEASIBILITY'
   | 'COSTING'
+  | 'LIVE_DEMO'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'CONVERTED'
@@ -502,6 +505,8 @@ export interface Lead {
 
   feasibility_study?: FeasibilityStudy;
   costing?: CostingRecord;
+  live_demo_gate_exempt?: boolean;
+  live_demo_participant_ids?: string[];
   quotation?: QuotationRecord;
   negotiation_history?: NegotiationEntry[];
 
@@ -588,6 +593,210 @@ export interface CostingRecord {
   pm_return_reason?: string;
 }
 
+export type LiveDemoStatus =
+  | 'NOT_STARTED'
+  | 'WAITING'
+  | 'REQUESTED'
+  | 'REQUEST'
+  | 'PENDING'
+  | 'PENDING_CUSTOMER'
+  | 'PENDING_INTERNAL'
+  | 'PENDING_BOTH'
+  | 'UNDER_REVIEW'
+  | 'APPROVED'
+  | 'ASSIGNED'
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'DEMONSTRATED'
+  | 'CASE_REFERENCE_PENDING'
+  | 'VERIFICATION_PENDING'
+  | 'VERIFIED'
+  | 'COMPLETED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'RESCHEDULED';
+
+export type LiveDemoPendingWith = 'CUSTOMER' | 'INTERNAL' | 'BOTH' | 'NONE';
+
+export type LiveDemoRequestSource =
+  | 'CUSTOMER'
+  | 'BUSINESS_HEAD'
+  | 'ENG_DIRECTOR'
+  | 'SALES_OWNER'
+  | 'PROJECT_MANAGER'
+  | 'OTHER';
+
+export type LiveDemoCustomerDecision =
+  | 'PROCEEDING'
+  | 'INTERNAL_REVIEW'
+  | 'CHANGES_REQUIRED'
+  | 'NOT_PROCEEDING'
+  | 'UNKNOWN';
+
+export type LiveDemoMode = 'ON_SITE' | 'ONLINE' | 'HYBRID';
+
+export type LiveDemoOutcome =
+  | 'SUCCESSFUL'
+  | 'SUCCESSFUL_WITH_FOLLOW_UP'
+  | 'PARTIALLY_SUCCESSFUL'
+  | 'CUSTOMER_REQUESTED_CHANGES'
+  | 'NOT_SUCCESSFUL';
+
+export type LiveDemoReferenceStatus = 'NOT_ENTERED' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
+
+export type LiveDemoFollowUpStatus = 'OPEN' | 'IN_PROGRESS' | 'COMPLETED';
+
+export interface LiveDemoCustomerParticipant {
+  id: string;
+  name: string;
+  designation?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+}
+
+export interface LiveDemoChecklistItem {
+  id: string;
+  label: string;
+  done: boolean;
+}
+
+export interface LiveDemoScheduleHistoryEntry {
+  id: string;
+  old_date?: string;
+  old_time?: string;
+  new_date?: string;
+  new_time?: string;
+  reason: string;
+  changed_by: string;
+  changed_by_id: string;
+  created_at: string;
+}
+
+export interface LiveDemoPendingHistoryEntry {
+  id: string;
+  pending_with: LiveDemoPendingWith;
+  pending_reason: string;
+  next_action?: string;
+  customer_action_required?: string;
+  internal_action_required?: string;
+  action_owner_id?: string;
+  action_owner_name?: string;
+  resolved: boolean;
+  resolution_note?: string;
+  changed_by: string;
+  changed_by_id: string;
+  created_at: string;
+}
+
+export interface LiveDemonstration {
+  id: string;
+  lead_id: string;
+  project_id?: string;
+  status: LiveDemoStatus;
+  request_source?: LiveDemoRequestSource;
+  requested_by_id?: string;
+  requested_by_name?: string;
+  requested_by_role?: string;
+  reason: string;
+  customer_requirement?: string;
+  demonstration_requirements?: string;
+  additional_notes?: string;
+  next_action: string;
+  preferred_date?: string;
+  preferred_time?: string;
+  coordinator_id?: string;
+  coordinator_name?: string;
+  demonstrator_id?: string;
+  demonstrator_name?: string;
+  approved_by?: string;
+  approved_by_id?: string;
+  approved_at?: string;
+  assigned_by?: string;
+  assigned_by_id?: string;
+  assigned_at?: string;
+  scheduled_by?: string;
+  scheduled_by_id?: string;
+  review_message?: string;
+  required_information?: string;
+  pending_with?: LiveDemoPendingWith;
+  pending_reason?: string;
+  customer_action_required?: string;
+  customer_action_owner_id?: string;
+  customer_action_owner_name?: string;
+  internal_action_required?: string;
+  action_owner_id?: string;
+  action_owner_name?: string;
+  pending_since?: string;
+  pending_resolved_at?: string;
+  pending_resolved_by?: string;
+  pending_resolved_by_id?: string;
+  pending_resolution_note?: string;
+  pending_history: LiveDemoPendingHistoryEntry[];
+  status_history?: Array<{
+    id: string;
+    from?: string;
+    to: string;
+    detail?: string;
+    changed_by: string;
+    changed_by_id: string;
+    created_at: string;
+  }>;
+  customer_decision?: LiveDemoCustomerDecision;
+  support_task_ids?: string[];
+  support_user_ids: string[];
+  support_user_names: string[];
+  internal_participant_ids: string[];
+  customer_participants: LiveDemoCustomerParticipant[];
+  scheduled_date?: string;
+  scheduled_time?: string;
+  timezone: string;
+  mode?: LiveDemoMode;
+  location?: string;
+  meeting_link?: string;
+  purpose?: string;
+  scope?: string;
+  checklist: LiveDemoChecklistItem[];
+  started_at?: string;
+  started_by?: string;
+  started_by_id?: string;
+  completed_at?: string;
+  completed_by?: string;
+  completed_by_id?: string;
+  outcome?: LiveDemoOutcome;
+  what_was_demonstrated?: string;
+  customer_feedback?: string;
+  customer_questions?: string;
+  customer_concerns?: string;
+  requested_changes?: string;
+  interest_level?: 'YES' | 'NO' | 'NEEDS_INTERNAL_REVIEW';
+  issues?: string;
+  follow_up_required: boolean;
+  follow_up_details?: string;
+  follow_up_owner_id?: string;
+  follow_up_owner_name?: string;
+  follow_up_date?: string;
+  follow_up_status?: LiveDemoFollowUpStatus;
+  live_case_reference?: string;
+  reference_status: LiveDemoReferenceStatus;
+  verified_by?: string;
+  verified_by_id?: string;
+  verified_at?: string;
+  verification_notes?: string;
+  cancellation_reason?: string;
+  cancelled_at?: string;
+  cancelled_by?: string;
+  cancelled_by_id?: string;
+  schedule_history: LiveDemoScheduleHistoryEntry[];
+  task_id?: string;
+  created_by?: string;
+  created_by_id?: string;
+  created_at: string;
+  updated_by?: string;
+  updated_by_id?: string;
+  updated_at: string;
+}
+
 export interface QuotationRecord {
   quotation_value: number;
   commercial_terms: string;
@@ -626,6 +835,7 @@ export type MyWorkCategory =
   | 'FEASIBILITY_APPROVAL'
   | 'COSTING'
   | 'COSTING_APPROVAL'
+  | 'LIVE_DEMO'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'EXECUTION'
@@ -819,6 +1029,7 @@ export type WorkTaskType = 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
 export interface Task {
   id: string;
   lead_id: string;
+  live_demonstration_id?: string;
   lead_name?: string;
   lead_stage_at_creation?: string;
   customer_name?: string;
@@ -1281,7 +1492,7 @@ export interface EntityDocument {
   uploaded_by: string;
   uploaded_by_id: string;
   uploaded_at: string;
-  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'FEASIBILITY' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
+  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'FEASIBILITY' | 'LIVE_DEMO' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
   entity_id: string;
   created_at: string;
   updated_at: string;

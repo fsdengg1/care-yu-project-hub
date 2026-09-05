@@ -26,7 +26,7 @@ const MALE_GIVEN_NAMES = new Set([
   'raja',
 ]);
 
-const HONORIFIC_RE = /^(mr|mrs|ms|miss|dr)\.?\s+/i;
+const HONORIFIC_RE = /^(mr\.?\s+and\s+mrs\.?|mr|mrs|ms|miss|dr)\.?\s+/i;
 
 function givenName(name: string): string {
   const stripped = name.replace(HONORIFIC_RE, '').trim();
@@ -59,6 +59,7 @@ export function formatEmployeeDisplayName(
   const raw = typeof user === 'string' ? user : user.name || '';
   const name = raw.trim();
   if (!name) return '—';
+  if (/^mr\.?\s+and\s+mrs\.?/i.test(name)) return name;
   const given = givenName(name);
   if (!given) return name;
   return `${titleForGivenName(given)} ${properGiven(given)}`;

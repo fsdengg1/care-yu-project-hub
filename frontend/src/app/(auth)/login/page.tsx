@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Mail } from 'lucide-react';
@@ -14,7 +14,6 @@ import {
   safeReturnPath,
   validateLogin,
   LoginFieldErrors,
-  lookupLoginModeWithApi,
 } from '@/lib/auth';
 import { StorageService } from '@/lib/storage';
 
@@ -27,12 +26,9 @@ export default function LoginPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | undefined>();
   const [loading, setLoading] = useState(false);
+  const submitting = useRef(false);
 
   useEffect(() => {
-    const next = typeof window !== 'undefined' ? safeReturnPath(new URLSearchParams(window.location.search).get('next')) : null;
-    if (StorageService.getAuthToken()) {
-      router.replace(next || '/dashboard');
-    }
     if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mode') === 'invitation') {
       router.replace('/invitation-login');
     }
@@ -40,17 +36,22 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loading) return;
+    if (loading || submitting.current) return;
+    submitting.current = true;
     setFormError(null);
     setErrorCode(undefined);
 
     const errors = validateLogin(email, password);
     setFieldErrors(errors);
-    if (errors.email || errors.password) return;
+    if (errors.email || errors.password) {
+      submitting.current = false;
+      return;
+    }
 
     setLoading(true);
     const result = await loginWithApi(email, password, rememberMe);
     if (!result.ok) {
+      submitting.current = false;
       setLoading(false);
       setFormError(result.error);
       setErrorCode(result.code);
@@ -93,15 +94,6 @@ export default function LoginPage() {
           onChange={(e) => {
             setEmail(e.target.value);
             if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
-          }}
-          onBlur={() => {
-            if (!email.trim()) return;
-            void lookupLoginModeWithApi(email).then((result) => {
-              if (result.loginMode === 'invitation') {
-                setFormError('Your account is awaiting invitation verification.');
-                setErrorCode('ACCOUNT_PENDING');
-              }
-            });
           }}
         />
 

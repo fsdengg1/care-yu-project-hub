@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useMemo } from 'react';
-import { CompareItem, sheetStatusClass } from '@/lib/dailyStatus';
+import { CompareItem, progressForSheetStatus, sheetStatusClass } from '@/lib/dailyStatus';
+import LoggedHoursProgressCell from './LoggedHoursProgressCell';
 
 function delayClass(value?: string) {
   const text = (value || '').toLowerCase();
@@ -19,11 +20,6 @@ function StatusPill({ value }: { value?: string }) {
       {label}
     </span>
   );
-}
-
-function progressLabel(item: CompareItem) {
-  if (item.status === 'Completed' || item.eveningStatus === 'Completed') return 100;
-  return Math.max(0, Math.min(100, Number(item.progressPercent) || 0));
 }
 
 export default function CompareView({
@@ -83,7 +79,7 @@ export default function CompareView({
             <col style={{ width: '7%' }} />
             <col style={{ width: '7%' }} />
             <col style={{ width: '7%' }} />
-            <col style={{ width: '5%' }} />
+            <col style={{ width: '8%' }} />
             <col style={{ width: '8%' }} />
           </colgroup>
           <thead>
@@ -96,14 +92,14 @@ export default function CompareView({
               <th>Start Date</th>
               <th>Task Deadline</th>
               <th>On Time / Delay</th>
-              <th>Progress</th>
+              <th>Logged Hours</th>
               <th>Reason For Delay</th>
             </tr>
           </thead>
           <tbody>
             {groups.map((group) =>
               group.rows.map((item, index) => {
-                const progress = progressLabel(item);
+                const progress = progressForSheetStatus(item.status, item.progressPercent);
                 const taskDescText = item.taskDescription || '—';
                 const currentText = item.currentUpdate || 'No Evening Update Submitted';
                 return (
@@ -133,7 +129,12 @@ export default function CompareView({
                     </td>
                     <td className={`status-cell ${delayClass(item.onTimeDelay)}`}>{item.onTimeDelay || '—'}</td>
                     <td className="hours-cell">
-                      <span className={progress >= 100 ? 'font-bold text-[#166534]' : ''}>{progress}%</span>
+                      <LoggedHoursProgressCell
+                        status={item.status}
+                        progressPercent={progress}
+                        hoursWorked={item.hoursWorked}
+                        loggedHours={item.loggedHours}
+                      />
                     </td>
                     <td className="delay-cell">
                       <span className="sheet-text">{item.reasonForDelay || '—'}</span>

@@ -11,6 +11,7 @@ import {
   Escalation,
   FeasibilityEmployeeAllocation,
   FeasibilityTeamAssignment,
+  LiveDemonstration,
   ForumComment,
   ForumLiveMessage,
   ForumPost,
@@ -64,6 +65,7 @@ interface DbShape {
   leadStatusHistory: LeadStatusHistory[];
   feasibilityTeamAssignments: FeasibilityTeamAssignment[];
   feasibilityEmployeeAllocations: FeasibilityEmployeeAllocation[];
+  liveDemonstrations: LiveDemonstration[];
   projectPhases: ProjectPhase[];
   conversations: Conversation[];
   conversationParticipants: ConversationParticipant[];
@@ -108,6 +110,7 @@ const OPERATIONAL_COLLECTION_KEYS = [
   'leadStatusHistory',
   'feasibilityTeamAssignments',
   'feasibilityEmployeeAllocations',
+  'liveDemonstrations',
   'projectPhases',
   'conversations',
   'conversationParticipants',
@@ -494,6 +497,7 @@ function emptyDb(): DbShape {
     leadStatusHistory: [],
     feasibilityTeamAssignments: [],
     feasibilityEmployeeAllocations: [],
+    liveDemonstrations: [],
     projectPhases: [],
     conversations: [],
     conversationParticipants: [],
@@ -602,6 +606,7 @@ function buildMergedDb(parsed: Partial<DbShape>): DbShape {
     leadStatusHistory: parsed.leadStatusHistory ?? [],
     feasibilityTeamAssignments: parsed.feasibilityTeamAssignments ?? [],
     feasibilityEmployeeAllocations: parsed.feasibilityEmployeeAllocations ?? [],
+    liveDemonstrations: parsed.liveDemonstrations ?? [],
     projectPhases: parsed.projectPhases ?? [],
     conversations: parsed.conversations ?? [],
     conversationParticipants: parsed.conversationParticipants ?? [],
@@ -958,6 +963,15 @@ export const store = {
     const db = loadDb();
     db.feasibilityEmployeeAllocations = feasibilityEmployeeAllocations;
     markDirty('feasibilityEmployeeAllocations');
+    saveDb(db);
+  },
+  getLiveDemonstrations(): LiveDemonstration[] {
+    return loadDb().liveDemonstrations ?? [];
+  },
+  saveLiveDemonstrations(liveDemonstrations: LiveDemonstration[]) {
+    const db = loadDb();
+    db.liveDemonstrations = liveDemonstrations;
+    markDirty('liveDemonstrations');
     saveDb(db);
   },
   getProjectPhases(): ProjectPhase[] {

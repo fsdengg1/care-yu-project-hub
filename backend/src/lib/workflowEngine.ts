@@ -167,6 +167,14 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     approval_pending: false,
     owner_role: 'PROJECT_MANAGER',
   },
+  LIVE_CASE_DEMONSTRATION: {
+    status_label: 'LIVE Case Demonstration',
+    action_required: 'Arrange LIVE Care Yu system demonstration and obtain customer LIVE case reference',
+    previous_action: 'Solution & Costing completed',
+    next_action: 'Schedule and complete LIVE demonstration, then verify LIVE Case Reference',
+    approval_pending: false,
+    owner_role: 'BUSINESS_HEAD',
+  },
   QUOTATION: {
     status_label: 'Quotation',
     action_required: 'Prepare and submit quotation',

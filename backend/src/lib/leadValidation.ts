@@ -80,9 +80,10 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
   FEASIBILITY_RETURNED: ['FEASIBILITY_IN_PROGRESS', 'FEASIBILITY_SUBMITTED'],
   FEASIBILITY_REJECTED: [],
   COSTING_IN_PROGRESS: ['COSTING_SUBMITTED', 'COSTING_RETURNED'],
-  COSTING_SUBMITTED: ['QUOTATION', 'COSTING_RETURNED', 'COSTING_REJECTED'],
+  COSTING_SUBMITTED: ['LIVE_CASE_DEMONSTRATION', 'QUOTATION', 'COSTING_RETURNED', 'COSTING_REJECTED'],
   COSTING_RETURNED: ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED'],
   COSTING_REJECTED: [],
+  LIVE_CASE_DEMONSTRATION: ['QUOTATION', 'CANCELLED', 'LOST'],
   QUOTATION: ['NEGOTIATION', 'LOST'],
   NEGOTIATION: ['ORDER_CONVERTED', 'QUOTATION', 'LOST'],
   ORDER_CONVERTED: [],
@@ -445,6 +446,8 @@ export function sanitizeLeadPatch(body: Record<string, unknown>): Record<string,
     'accepted_by_name',
     'project_id',
     'converted_at',
+    'live_demo_gate_exempt',
+    'live_demo_participant_ids',
   ];
   const next = { ...body };
   for (const key of blocked) {

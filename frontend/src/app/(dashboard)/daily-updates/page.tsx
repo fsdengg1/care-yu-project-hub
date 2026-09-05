@@ -185,7 +185,7 @@ function DailyWorkUpdatesInner() {
     const lines = [
       header.join(','),
       ...visibleRows.map((row) =>
-        [row.person, row.project, row.taskDescription, row.dependencies, row.status, row.startDate || '—', row.deadline, row.loggedHours || '0h 00m', row.reasonForDelay]
+        [row.person, row.project, row.taskDescription, row.dependencies, row.status, row.startDate || '—', row.deadline, `${row.progressPercent ?? 0}% / ${row.loggedHours || '0h 00m'}`, row.reasonForDelay]
           .map((value) => `"${String(value).replace(/"/g, '""')}"`)
           .join(',')
       ),

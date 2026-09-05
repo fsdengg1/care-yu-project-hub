@@ -97,6 +97,16 @@ export function notificationPresentation(item: NotificationItem): NotificationPr
       kind: 'task',
     };
   }
+  if (item.type === 'LIVE_DEMO') {
+    return {
+      heading: 'LIVE Case Demonstration',
+      source: item.title,
+      preview: body,
+      actionLabel: 'View Lead',
+      priority,
+      kind: 'project',
+    };
+  }
   if (item.type === 'STAGE_COMPLETED') {
     const [stagePart, projectPart] = item.title.split(/\s+[–—-]\s+/);
     const who = item.message.match(/^(.*?)\s+completed/i)?.[1];

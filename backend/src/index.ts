@@ -24,6 +24,8 @@ import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
 import { ensureLiveDirectory } from './lib/directoryRoles.js';
 import { ensureRobotLeadAccount } from './lib/robotLead.js';
 import { ensureActionItemTasks } from './lib/actionItemSheet.js';
+import { migrateLiveDemoGate } from './lib/liveDemonstration.js';
+import liveDemonstrationsRouter from './routes/liveDemonstrations.js';
 import emailRouter from './routes/email.js';
 
 const app = express();
@@ -109,6 +111,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/leads', leadsRouter);
+app.use('/api/live-demonstrations', liveDemonstrationsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/escalations', escalationsRouter);
 app.use('/api/projects', projectsRouter);
@@ -140,6 +143,14 @@ async function start() {
 
   const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`Careyu backend listening on 0.0.0.0:${env.port}`);
+    try {
+      const liveDemoMigration = migrateLiveDemoGate();
+      console.log(
+        `[live-demo] gate migration activated=${liveDemoMigration.activated} exempt=${liveDemoMigration.exempt}${liveDemoMigration.backup ? ` backup=${liveDemoMigration.backup}` : ''}`
+      );
+    } catch (error) {
+      console.error('[live-demo] gate migration skipped so login can continue:', error);
+    }
   });
 
   server.on('error', (error: NodeJS.ErrnoException) => {

@@ -13,8 +13,14 @@ export function validateUpload(fileName: string, sizeBytes?: number, mimeType?: 
 
 export function canAccessEntity(user: User, entityType: EntityDocument['entity_type'], entityId: string) {
   if (user.role_code === 'SYSTEM_ADMIN' && entityType !== 'CONVERSATION') return true;
-  if (entityType === 'LEAD' || entityType === 'ADDITIONAL_INPUT' || entityType === 'FEASIBILITY') {
-    const lead = store.getLeads().find((item) => item.id === entityId);
+  if (entityType === 'LEAD' || entityType === 'ADDITIONAL_INPUT' || entityType === 'FEASIBILITY' || entityType === 'LIVE_DEMO') {
+    const lead =
+      entityType === 'LIVE_DEMO'
+        ? store.getLeads().find((item) => {
+            const demo = store.getLiveDemonstrations().find((row) => row.id === entityId);
+            return demo ? item.id === demo.lead_id : item.id === entityId;
+          })
+        : store.getLeads().find((item) => item.id === entityId);
     if (!lead) return false;
     if (['CEO', 'CTO', 'PROJECT_MANAGER', 'BUSINESS_HEAD', 'ENG_DIRECTOR'].includes(user.role_code)) return true;
     return (
@@ -24,6 +30,7 @@ export function canAccessEntity(user: User, entityType: EntityDocument['entity_t
       lead.assigned_member_id === user.id ||
       lead.responsible_user_id === user.id ||
       lead.pm_id === user.id ||
+      Boolean((lead.live_demo_participant_ids || []).includes(user.id)) ||
       Boolean(user.team_id && user.team_id === lead.assigned_team_id) ||
       Boolean(user.team_id && (lead.assigned_team_ids || []).includes(user.team_id))
     );

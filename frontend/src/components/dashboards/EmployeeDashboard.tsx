@@ -8,6 +8,7 @@ import { DailyStatusApi } from '@/lib/dailyStatusApi';
 import { TasksApi } from '@/lib/tasksApi';
 import { formatLongDate } from '@/lib/format';
 import { CheckSquare, Inbox, Plus } from 'lucide-react';
+import LiveDemoWidgets from '@/components/leads/LiveDemoWidgets';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
@@ -202,6 +203,7 @@ export default function EmployeeDashboard({ user }: { user: User }) {
       />
 
       <PendingActionsCard />
+      <LiveDemoWidgets />
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
       {notice && (

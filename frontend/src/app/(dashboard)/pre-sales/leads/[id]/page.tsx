@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { StorageService } from '@/lib/storage';
 import { LeadApi } from '@/lib/leadApi';
 import LeadCyclePanels from '@/components/leads/LeadCyclePanels';
-import ProjectStageFlow from '@/components/leads/ProjectStageFlow';
 import CreateLeadTaskForm from '@/components/work/CreateLeadTaskForm';
 import LeadTasksPanel from '@/components/work/LeadTasksPanel';
 import ConfirmDialog from '@/components/work/ConfirmDialog';
@@ -17,10 +16,12 @@ import { NotificationsApi } from '@/lib/notificationsApi';
 import { TasksApi } from '@/lib/tasksApi';
 import { formatInrCompact, WORKFLOW_ACTION_SUCCESS, workflowActionFromQuery, workflowStatusPresentation } from '@/lib/format';
 import { projectStageFlowSummary } from '@/lib/projectStageFlow';
+import LiveDemonstrationPanel from '@/components/leads/LiveDemonstrationPanel';
+import ProjectStageFlow from '@/components/leads/ProjectStageFlow';
 import { canCreateLead, canCreateLeadTask } from '@/lib/rbac';
 import {
   Lead, LeadActivity, LeadComment, LeadDocument, LeadStatusHistory,
-  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory, EntityDocument, Task
+  FeasibilityTeamAssignment, FeasibilityEmployeeAllocation, Team, User, PriorityLevel, AssignmentType, AssignmentHistory, EntityDocument, Task, LiveDemonstrationPayload
 } from '@/lib/types';
 import {
     ArrowLeft, CheckCircle2, AlertTriangle, Send, Plus, X,
@@ -28,7 +29,7 @@ import {
   Info, Zap
 } from 'lucide-react';
 
-type TabKey = 'overview' | 'customer' | 'requirement' | 'technical' | 'commercial' | 'feasibility' | 'costing' | 'documents' | 'communication' | 'timeline' | 'review';
+type TabKey = 'overview' | 'customer' | 'requirement' | 'technical' | 'commercial' | 'feasibility' | 'costing' | 'live-demo' | 'documents' | 'communication' | 'timeline' | 'review';
 
 export default function LeadDetailPage() {
   const params = useParams();
@@ -46,6 +47,7 @@ export default function LeadDetailPage() {
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [leadTasks, setLeadTasks] = useState<Task[]>([]);
+  const [liveDemo, setLiveDemo] = useState<LiveDemonstrationPayload | null>(null);
   const [showCreateLeadTask, setShowCreateLeadTask] = useState(false);
   const [editingLeadTask, setEditingLeadTask] = useState<Task | null>(null);
   const [deletingLeadTask, setDeletingLeadTask] = useState<Task | null>(null);
@@ -123,6 +125,7 @@ export default function LeadDetailPage() {
       setAllUsers(payload.users?.length ? payload.users : StorageService.getUsers());
       setAssignmentHistory(payload.assignmentHistory || []);
       setLeadTasks(payload.tasks || []);
+      setLiveDemo(payload.liveDemonstration || null);
       return;
     }
     setAllTeams(StorageService.getTeams());
@@ -147,6 +150,7 @@ export default function LeadDetailPage() {
       tab === 'commercial' ||
       tab === 'feasibility' ||
       tab === 'costing' ||
+      tab === 'live-demo' ||
       tab === 'documents' ||
       tab === 'communication' ||
       tab === 'timeline' ||
@@ -460,6 +464,7 @@ export default function LeadDetailPage() {
     { key: 'commercial', label: 'Commercial' },
     { key: 'feasibility', label: `Feasibility Teams (${teamAssignments.length})` },
     { key: 'costing', label: 'Solution & Costing' },
+    { key: 'live-demo', label: 'LIVE Demonstration' },
     { key: 'documents', label: `Documents (${documents.length + additionalDocuments.length})` },
     { key: 'communication', label: `Customer Comm. (${activities.length})` },
     { key: 'timeline', label: 'Activity Timeline' },
@@ -498,6 +503,15 @@ export default function LeadDetailPage() {
                 <Plus className="h-3.5 w-3.5" /> Create Task
               </button>
             )}
+            {canForward && (
+              <button
+                type="button"
+                onClick={() => setShowForwardModal(true)}
+                className="inline-flex items-center gap-1 rounded-lg border border-cyan-700 px-3 py-1.5 text-xs font-bold text-cyan-300 hover:bg-cyan-950"
+              >
+                Forward / Assign
+              </button>
+            )}
             {isCEO && (
               <span className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300">
                 View only
@@ -525,13 +539,19 @@ export default function LeadDetailPage() {
 
       <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} showStage={false} />
 
-      <SmartEmailNotificationPanel entityType="LEAD" entityId={lead.id} />
+      <ProjectStageFlow lead={lead} demo={liveDemo?.demonstration} />
 
-      <ProjectStageFlow
-        lead={lead}
-        canForward={canForward}
-        onForward={() => setShowForwardModal(true)}
-      />
+      {(liveDemo?.available || lead.costing?.status === 'APPROVED' || lead.status === 'LIVE_CASE_DEMONSTRATION') && (
+        <LiveDemonstrationPanel
+          lead={lead}
+          users={allUsers}
+          currentUser={currentUser}
+          payload={liveDemo}
+          onUpdated={loadData}
+        />
+      )}
+
+      <SmartEmailNotificationPanel entityType="LEAD" entityId={lead.id} />
 
       <LeadTasksPanel
         tasks={leadTasks}
@@ -963,6 +983,16 @@ export default function LeadDetailPage() {
         </div>
       )}
 
+      {activeTab === 'live-demo' && (
+        <LiveDemonstrationPanel
+          lead={lead}
+          users={allUsers}
+          currentUser={currentUser}
+          payload={liveDemo}
+          onUpdated={loadData}
+        />
+      )}
+
       {activeTab === 'costing' && (
         <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
           <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-2">Solution & Costing</h3>
@@ -1115,7 +1145,23 @@ export default function LeadDetailPage() {
       {activeTab === 'timeline' && (
         <div className="space-y-4">
           <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
-            <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Assignment History</h3>
+            <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">LIVE Demonstration History</h3>
+          {(liveDemo?.activity || []).length === 0 ? (
+            <p className="text-xs text-slate-500">No LIVE demonstration events yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {(liveDemo?.activity || []).map((item, index) => (
+                <div key={`${item.at}-${index}`} className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                  <div className="font-semibold text-slate-200">{item.label}</div>
+                  {item.detail && <div className="text-[11px] text-slate-400 mt-0.5 wrap-break-word">{item.detail}</div>}
+                  <div className="text-[11px] text-slate-500 font-mono mt-1">{new Date(item.at).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
+          <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Assignment History</h3>
             {assignmentHistory.length === 0 ? (
               <p className="text-xs text-slate-500">No responsibility transfers recorded yet.</p>
             ) : (

@@ -17,6 +17,7 @@ import {
   sendDailyStatusReport,
   SnapshotPeriod,
   upsertLoggedHoursForTask,
+  upsertProgressForTask,
   upsertEveningWorkCompleted,
   visibleProjects,
 } from '../lib/dailyStatus.js';
@@ -384,6 +385,15 @@ router.patch(
             ? 'You do not have permission to update this task.'
             : result.error,
       });
+    }
+    if (body.progress_percent !== undefined || body.status !== undefined) {
+      upsertProgressForTask(
+        req.user!,
+        String(req.params.id),
+        result.task.progress_percent ?? 0,
+        date,
+        period
+      );
     }
     return res.json({ task: result.task, rows: rebuildRows() });
   }

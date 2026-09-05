@@ -173,7 +173,7 @@ export function applyTaskLifecycle(
   if (wantsComplete && isAssignee && reviewer && reviewer.id !== user.id && !next.is_milestone) {
     next.status = 'IN_PROGRESS';
     next.review_status = 'PENDING_TL_REVIEW';
-    next.progress_percent = 100;
+    next.progress_percent = Math.min(99, Math.max(next.progress_percent ?? 90, 1));
     next.pending_action = true;
     next.responsible_user_id = reviewer.id;
     next.responsible_user_name = reviewer.name;
@@ -606,7 +606,10 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
   if (body.progress_percent !== undefined) {
     next.progress_percent = Math.max(0, Math.min(100, Number(body.progress_percent) || 0));
     next.last_update_at = new Date().toISOString();
-    if (next.status === 'TODO' && next.progress_percent > 0) next.status = 'IN_PROGRESS';
+    next.progress_manual_override = true;
+    if (next.progress_percent >= 100) next.status = 'DONE';
+    else if (next.status === 'TODO' && next.progress_percent > 0) next.status = 'IN_PROGRESS';
+    else if (next.status === 'DONE' && next.progress_percent < 100) next.status = 'IN_PROGRESS';
   }
   if (canEditSheetFields && body.depends_on_ids !== undefined) {
     const ids = Array.isArray(body.depends_on_ids)
@@ -646,6 +649,17 @@ export function updateWorkTask(user: User, id: string, body: Record<string, unkn
     reviewAction: String(body.review_action || ''),
     comments: String(body.review_comments || body.comments || ''),
   });
+
+  if (next.status === 'DONE') {
+    next.progress_percent = 100;
+  } else if (next.status === 'TODO' && body.progress_percent === undefined) {
+    next.progress_percent = 0;
+  } else if (next.status === 'IN_PROGRESS' && !(next.progress_percent || 0) && current.status !== 'IN_PROGRESS') {
+    next.progress_percent = 10;
+  }
+  if (next.status !== 'DONE' && (next.progress_percent || 0) >= 100) {
+    next.progress_percent = 99;
+  }
 
   if (next.status === 'BLOCKED' && current.status !== 'BLOCKED') {
     const project = next.project_id ? store.getProjects().find((item) => item.id === next.project_id) : undefined;

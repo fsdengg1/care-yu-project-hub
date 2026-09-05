@@ -101,6 +101,21 @@ export function fromSheetStatus(status: string): 'TODO' | 'IN_PROGRESS' | 'DONE'
   return 'TODO';
 }
 
+export function clampProgressPercent(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+/** In Progress / Hold / Waiting never display 100%. Completed is always 100%. */
+export function progressForSheetStatus(status?: string, value?: unknown): number {
+  const sheet = SHEET_STATUSES.includes(status as DailySheetStatus) ? (status as DailySheetStatus) : toSheetStatus(status);
+  const stored = clampProgressPercent(value);
+  if (sheet === 'Completed') return 100;
+  if (sheet === 'Yet to Start') return 0;
+  return Math.min(99, stored);
+}
+
 export function sheetStatusClass(status: string): string {
   if (status === 'Completed') return 'border-[#86efac] bg-[#dcfce7] text-[#166534]';
   if (status === 'In Progress') return 'border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8]';

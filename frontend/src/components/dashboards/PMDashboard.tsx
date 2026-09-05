@@ -9,6 +9,7 @@ import { ProjectsApi } from '@/lib/projectsApi';
 import { formatLongDate, LEAD_STATUS_LABELS, WORK_STATUS_LABELS } from '@/lib/format';
 import { GanttChartSquare, Scan, ShieldAlert, MessageSquare, Inbox, ArrowRight, FileText, Clock } from 'lucide-react';
 import Link from 'next/link';
+import LiveDemoWidgets from '@/components/leads/LiveDemoWidgets';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadPipelinePanel from '@/components/dashboards/LeadPipelinePanel';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
@@ -121,6 +122,7 @@ export default function PMDashboard({ user }: { user: User }) {
       </div>
 
       <PendingActionsCard />
+      <LiveDemoWidgets />
       <LeadPipelinePanel />
       <LeadWorkflowTimeline />
       <ManagementDashboard user={user} />

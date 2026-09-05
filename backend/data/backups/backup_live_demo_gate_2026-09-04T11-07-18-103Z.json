@@ -1,0 +1,29 @@
+{
+  "created_at": "2026-09-04T11:07:18.104Z",
+  "leads": [
+    {
+      "id": "lead-1788174481220-zvq1",
+      "lead_number": "LD-001",
+      "status": "COSTING_IN_PROGRESS",
+      "pipeline_stage": "COSTING"
+    },
+    {
+      "id": "lead-1788433050597-ef13",
+      "lead_number": "LD-002",
+      "status": "SUBMITTED_TO_PM",
+      "pipeline_stage": "PM_REVIEW"
+    },
+    {
+      "id": "lead-1788444429489-opb5",
+      "lead_number": "LD-003",
+      "status": "SUBMITTED_TO_PM",
+      "pipeline_stage": "PM_REVIEW"
+    },
+    {
+      "id": "lead-1788445213171-7ue1",
+      "lead_number": "LD-004",
+      "status": "SUBMITTED_TO_PM",
+      "pipeline_stage": "PM_REVIEW"
+    }
+  ]
+}

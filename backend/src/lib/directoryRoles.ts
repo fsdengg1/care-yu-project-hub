@@ -24,6 +24,7 @@ type DirectoryPlacement = {
 
 const ROLE_BY_CODE: Record<string, { role_id: string; role_name: string }> = {
   CEO: { role_id: 'r-ceo', role_name: 'CEO' },
+  CTO: { role_id: 'r-cto', role_name: 'CTO' },
   BUSINESS_HEAD: { role_id: 'r-bh', role_name: 'Business Head' },
   ENG_DIRECTOR: { role_id: 'r-ed', role_name: 'Engineering Director' },
   PROJECT_MANAGER: { role_id: 'r-pm', role_name: 'Project Manager' },
@@ -124,8 +125,8 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (name.includes('aravind') || local.includes('aravind') || email === ARAVIND_EMAIL || personGivenKey(nameRaw) === 'aravind') {
     return role('EXECUTION', EXECUTION_TEAM);
   }
-  if (email === RAJA_EMAIL || local === 'raja' || personGivenKey(nameRaw) === 'raja') {
-    return role('EMPLOYEE', SOFTWARE_TEAM);
+  if (email === RAJA_EMAIL || email === 'cto@careyu.ai' || local === 'raja' || local === 'cto' || personGivenKey(nameRaw) === 'raja' || personGivenKey(nameRaw) === 'posu' || name.includes('posu')) {
+    return role('CTO', { clearTeam: true });
   }
   return null;
 }
@@ -293,6 +294,14 @@ export function knownLoginPasswords(emailRaw: string, roleCode?: string): string
     add(env.demoPassword);
     add(env.robotLeadPassword);
   }
+  if (
+    roleCode === 'CTO' ||
+    email === RAJA_EMAIL ||
+    email === 'cto@careyu.ai'
+  ) {
+    add(env.demoPassword);
+    add(env.robotLeadPassword);
+  }
   return [...passwords];
 }
 
@@ -424,7 +433,7 @@ export async function ensureLiveDirectory() {
   users = await ensureTeamPerson(users, { name: 'Arun', email: ARUN_LIVE_EMAIL, matchName: 'arun', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Aakash', email: robotLeadEmail(), matchName: 'aakash', exactName: true });
   users = await ensureTeamPerson(users, { name: 'Kabitha', email: KABITHA_EMAIL, matchName: 'kabitha', exactName: true });
-  users = await ensureTeamPerson(users, { name: 'Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });
+  users = await ensureTeamPerson(users, { name: 'Mr and Mrs Posu Raja', email: RAJA_EMAIL, matchName: 'raja', exactName: true });
   // FSD Engineer stays as a login/report account but is hidden from Daily Work Updates people pickers.
 
   const repaired: User[] = [];
@@ -435,7 +444,8 @@ export async function ensureLiveDirectory() {
       email === 'fsdengg1@careyu.ai' ||
       email === ENGINEERING_DIRECTOR_EMAIL ||
       email === 'engg.director@careyu.ai' ||
-      user.role_code === 'ENG_DIRECTOR';
+      user.role_code === 'ENG_DIRECTOR' ||
+      user.role_code === 'CTO';
     repaired.push(needsLoginRepair ? await withWorkingPassword(user, passwordForEmail(email)) : user);
   }
 

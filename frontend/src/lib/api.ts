@@ -48,18 +48,21 @@ export async function apiRequest<T>(
     });
 
     const payload = await response.json().catch(() => ({}));
+    const contentType = response.headers.get('content-type') || '';
     if (!response.ok) {
+      const emptyBody = !payload || typeof payload !== 'object' || !('message' in payload);
       const proxyDown =
-        !payload.message &&
-        (response.status === 502 ||
-          response.status === 503 ||
-          response.status === 504 ||
-          ((response.headers.get('content-type') || '').includes('text/html') && response.status >= 500));
+        response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504 ||
+        (response.status >= 500 &&
+          emptyBody &&
+          (contentType.includes('text/html') || Object.keys(payload as object).length === 0));
       return {
         ok: false,
         status: response.status,
         message: proxyDown
-          ? 'Unable to reach the server. Please confirm the backend is running on port 4100.'
+          ? 'Unable to reach the server. Start the backend (port 4100), then sign in again.'
           : payload.message || 'Request failed. Please try again.',
         code: typeof payload.code === 'string' ? payload.code : undefined,
         errors: Array.isArray(payload.errors) ? payload.errors : undefined,

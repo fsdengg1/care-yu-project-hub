@@ -37,6 +37,12 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'pre_sales'
   },
   {
+    name: 'LIVE Demonstration',
+    href: '/pre-sales/live-demonstrations',
+    iconName: 'MonitorPlay',
+    category: 'pre_sales'
+  },
+  {
     name: 'Active Projects',
     href: '/projects/active',
     iconName: 'Bot',
