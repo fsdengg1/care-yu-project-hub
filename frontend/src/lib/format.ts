@@ -1,3 +1,5 @@
+import { workflowActionLabel, WorkflowActionLead } from './workflowActionLabel';
+
 export function formatInrCompact(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return '₹ 0';
   if (value >= 10000000) {
@@ -62,9 +64,9 @@ export const PIPELINE_STAGE_LABELS: Record<string, string> = {
   PROJECT_INPUT: 'Project Input',
   PM_REVIEW: 'PM Review',
   FEASIBILITY: 'Feasibility',
-  COSTING: 'Procurement / Costing',
+  COSTING: 'Solution & Costing',
   QUOTATION: 'Quotation',
-  NEGOTIATION: 'Negotiation',
+  NEGOTIATION: 'Submitted to Customer',
   CONVERTED: 'Order Converted',
   REJECTED: 'Rejected',
   CANCELLED: 'Cancelled',
@@ -72,24 +74,24 @@ export const PIPELINE_STAGE_LABELS: Record<string, string> = {
 
 export const LEAD_STATUS_LABELS: Record<string, string> = {
   DRAFT: 'Draft',
-  SUBMITTED_TO_PM: 'Submitted',
-  UNDER_PM_REVIEW: 'Submitted',
-  RETURNED_TO_SALES: 'Returned to Sales',
-  ADDITIONAL_INFORMATION_REQUIRED: 'Returned to Sales',
-  RESUBMITTED_TO_PM: 'Submitted',
-  ACCEPTED_FOR_FEASIBILITY: 'Approved',
-  FEASIBILITY_IN_PROGRESS: 'Feasibility',
-  FEASIBILITY_SUBMITTED: 'Submitted',
-  FEASIBILITY_RETURNED: 'Feasibility Correction',
+  SUBMITTED_TO_PM: 'Submitted to PM for Review',
+  UNDER_PM_REVIEW: 'Submitted to PM for Review',
+  RETURNED_TO_SALES: 'Returned for Clarification',
+  ADDITIONAL_INFORMATION_REQUIRED: 'Returned for Clarification',
+  RESUBMITTED_TO_PM: 'Submitted to PM for Review',
+  ACCEPTED_FOR_FEASIBILITY: 'Submitted to Feasibility Team',
+  FEASIBILITY_IN_PROGRESS: 'Submitted to Feasibility Team',
+  FEASIBILITY_SUBMITTED: 'Submitted to PM for Review',
+  FEASIBILITY_RETURNED: 'Returned for Clarification',
   FEASIBILITY_REJECTED: 'Rejected',
-  COSTING_IN_PROGRESS: 'Procurement',
-  COSTING_SUBMITTED: 'Submitted',
-  COSTING_RETURNED: 'Procurement Revision',
+  COSTING_IN_PROGRESS: 'Submitted to Procurement Review',
+  COSTING_SUBMITTED: 'Submitted to PM for Review',
+  COSTING_RETURNED: 'Returned for Clarification',
   COSTING_REJECTED: 'Rejected',
-  QUOTATION: 'Quotation',
-  NEGOTIATION: 'Negotiation',
-  ORDER_CONVERTED: 'Order Converted',
-  WON: 'Order Converted',
+  QUOTATION: 'Submitted to Business Head for Review',
+  NEGOTIATION: 'Submitted to Customer',
+  ORDER_CONVERTED: 'Approved',
+  WON: 'Approved',
   LOST: 'Lost',
   ON_HOLD: 'On Hold',
   CANCELLED: 'Rejected',
@@ -121,16 +123,16 @@ const REJECTED_STATUSES = new Set(['CANCELLED', 'FEASIBILITY_REJECTED', 'COSTING
 
 export type WorkflowStatusTone = 'draft' | 'submitted' | 'approved' | 'rejected' | 'returned' | 'progress';
 
-export function workflowStatusPresentation(status: string): {
+export function workflowStatusPresentation(status: string, lead?: WorkflowActionLead): {
   label: string;
   tone: WorkflowStatusTone;
   badgeClass: string;
   bannerClass: string;
 } {
-  const label = LEAD_STATUS_LABELS[status] || status.replace(/_/g, ' ');
+  const label = lead ? workflowActionLabel(lead) : LEAD_STATUS_LABELS[status] || status.replace(/_/g, ' ');
   if (SUBMITTED_STATUSES.has(status) || status === 'SUBMITTED') {
     return {
-      label: 'Submitted',
+      label,
       tone: 'submitted',
       badgeClass: 'border-cyan-600 bg-cyan-950 text-cyan-300',
       bannerClass: 'border-cyan-700 bg-cyan-950/50 text-cyan-300',

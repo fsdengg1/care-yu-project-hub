@@ -183,6 +183,42 @@ export const LeadApi = {
     return null;
   },
 
+  async submitQuotationToCustomer(id: string, body: { method: string; submitted_date?: string; remarks?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/quotation/submit-to-customer`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message };
+  },
+
+  async requestQuotationRevision(id: string, reason: string) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/quotation/request-revision`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+    if (result.ok) return { ok: true as const, payload: syncPayload(result.data) };
+    return { ok: false as const, message: result.message };
+  },
+
+  async assignVisitTeam(id: string, userIds: string[]) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/visit/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ user_ids: userIds }),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
+  async scheduleVisit(id: string, body: { scheduled_date?: string; scheduled_time?: string; status?: string }) {
+    const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/visit/schedule`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    if (result.ok) return syncPayload(result.data);
+    return null;
+  },
+
   async negotiation(id: string, body: Record<string, unknown>) {
     const result = await call<LeadWorkflowPayload>(`/api/leads/${id}/negotiation`, {
       method: 'POST',

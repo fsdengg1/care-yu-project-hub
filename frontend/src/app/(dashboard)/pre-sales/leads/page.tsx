@@ -8,6 +8,8 @@ import { Lead, LeadStatus, User } from '@/lib/types';
 import { canCreateLead, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
 import { formatInrCompact, PIPELINE_STAGE_LABELS } from '@/lib/format';
+import { leadPipelineDisplay } from '@/lib/leadPipelineDisplay';
+import { workflowActionLabel } from '@/lib/workflowActionLabel';
 import { 
   Building2, 
   Plus, 
@@ -24,24 +26,24 @@ import {
 
 const STATUS_BADGES: Record<LeadStatus, { label: string; style: string }> = {
   DRAFT: { label: 'Draft', style: 'bg-slate-800 text-slate-300 border-slate-700' },
-  SUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
-  UNDER_PM_REVIEW: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
-  RETURNED_TO_SALES: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  ADDITIONAL_INFORMATION_REQUIRED: { label: 'Returned to Sales', style: 'bg-amber-950 text-amber-300 border-amber-800' },
-  RESUBMITTED_TO_PM: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
-  ACCEPTED_FOR_FEASIBILITY: { label: 'Approved', style: 'bg-emerald-950 text-emerald-300 border-emerald-700' },
-  FEASIBILITY_IN_PROGRESS: { label: 'Feasibility', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
-  FEASIBILITY_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
-  FEASIBILITY_RETURNED: { label: 'Feasibility Correction', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  SUBMITTED_TO_PM: { label: 'Submitted to PM for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  UNDER_PM_REVIEW: { label: 'Submitted to PM for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  RETURNED_TO_SALES: { label: 'Returned for Clarification', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  ADDITIONAL_INFORMATION_REQUIRED: { label: 'Returned for Clarification', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  RESUBMITTED_TO_PM: { label: 'Submitted to PM for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  ACCEPTED_FOR_FEASIBILITY: { label: 'Submitted to Feasibility Team', style: 'bg-emerald-950 text-emerald-300 border-emerald-700' },
+  FEASIBILITY_IN_PROGRESS: { label: 'Submitted to Feasibility Team', style: 'bg-indigo-950 text-indigo-300 border-indigo-800' },
+  FEASIBILITY_SUBMITTED: { label: 'Submitted to PM for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  FEASIBILITY_RETURNED: { label: 'Returned for Clarification', style: 'bg-amber-950 text-amber-300 border-amber-800' },
   FEASIBILITY_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' },
-  COSTING_IN_PROGRESS: { label: 'Procurement', style: 'bg-violet-950 text-violet-300 border-violet-800' },
-  COSTING_SUBMITTED: { label: 'Submitted', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
-  COSTING_RETURNED: { label: 'Procurement Revision', style: 'bg-amber-950 text-amber-300 border-amber-800' },
+  COSTING_IN_PROGRESS: { label: 'Submitted to Procurement Review', style: 'bg-violet-950 text-violet-300 border-violet-800' },
+  COSTING_SUBMITTED: { label: 'Submitted to PM for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-700' },
+  COSTING_RETURNED: { label: 'Returned for Clarification', style: 'bg-amber-950 text-amber-300 border-amber-800' },
   COSTING_REJECTED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' },
-  QUOTATION: { label: 'Quotation', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
-  NEGOTIATION: { label: 'Negotiation', style: 'bg-orange-950 text-orange-300 border-orange-800' },
-  ORDER_CONVERTED: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
-  WON: { label: 'Order Converted', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  QUOTATION: { label: 'Submitted to Business Head for Review', style: 'bg-cyan-950 text-cyan-300 border-cyan-800' },
+  NEGOTIATION: { label: 'Submitted to Customer', style: 'bg-orange-950 text-orange-300 border-orange-800' },
+  ORDER_CONVERTED: { label: 'Approved', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
+  WON: { label: 'Approved', style: 'bg-emerald-950 text-emerald-300 border-emerald-800' },
   LOST: { label: 'Lost', style: 'bg-rose-950 text-rose-300 border-rose-800' },
   ON_HOLD: { label: 'On Hold', style: 'bg-slate-800 text-slate-400 border-slate-700' },
   CANCELLED: { label: 'Rejected', style: 'bg-rose-950 text-rose-300 border-rose-700' }
@@ -309,8 +311,8 @@ export default function LeadsListPage() {
           >
             <option value="ALL">All Statuses</option>
             <option value="DRAFT">Draft</option>
-            <option value="SUBMITTED_TO_PM">Submitted</option>
-            <option value="RETURNED_TO_SALES">Returned to Sales</option>
+            <option value="SUBMITTED_TO_PM">Submitted to PM for Review</option>
+            <option value="RETURNED_TO_SALES">Returned for Clarification</option>
             <option value="ACCEPTED_FOR_FEASIBILITY">Approved</option>
             <option value="CANCELLED">Rejected</option>
           </select>
@@ -364,6 +366,8 @@ export default function LeadsListPage() {
               ) : (
                 visibleLeads.map(lead => {
                   const statusInfo = STATUS_BADGES[lead.status] || { label: lead.status, style: 'bg-slate-800 text-slate-300' };
+                  const pipeline = leadPipelineDisplay(lead);
+                  const statusLabel = workflowActionLabel(lead);
 
                   return (
                     <tr key={lead.id} className="hover:bg-slate-800/40 transition-colors">
@@ -373,7 +377,11 @@ export default function LeadsListPage() {
                           <td className="p-3 text-slate-100">{lead.customer_name}</td>
                           <td className="p-3 font-semibold text-slate-200">{lead.title}</td>
                           <td className="p-3">{formatInrCompact(lead.expected_value ?? 0)}</td>
-                          <td className="p-3">{PIPELINE_STAGE_LABELS[lead.pipeline_stage || ''] || lead.status}</td>
+                          <td className="p-3 max-w-[12rem]">
+                            <span title={workflowActionLabel(lead)} className="inline-block whitespace-normal break-words">
+                              {workflowActionLabel(lead)}
+                            </span>
+                          </td>
                           <td className="p-3 text-slate-400">{lead.sales_owner}</td>
                         </>
                       ) : (
@@ -381,6 +389,7 @@ export default function LeadsListPage() {
                       <td className="p-3">
                         <div className="font-bold text-slate-100">{lead.title}</div>
                         <div className="text-[11px] text-slate-400">{lead.customer_name} • <span className="text-slate-500">{lead.customer_type}</span></div>
+                        {pipeline.quotation && <div className="text-[11px] text-cyan-400">{pipeline.quotation} · {pipeline.stage}</div>}
                       </td>
                       <td className="p-3 text-slate-300 font-medium">{lead.business_vertical}</td>
                       <td className="p-3 text-slate-400">{lead.sales_owner}</td>
@@ -393,9 +402,9 @@ export default function LeadsListPage() {
                           {lead.priority}
                         </span>
                       </td>
-                      <td className="p-3">
-                        <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${statusInfo.style}`}>
-                          {statusInfo.label}
+                      <td className="p-3 max-w-[12rem]">
+                        <span title={statusLabel} className={`inline-block max-w-full whitespace-normal break-words px-2.5 py-0.5 rounded text-[10px] font-bold border ${statusInfo.style}`}>
+                          {statusLabel}
                         </span>
                       </td>
                       <td className="p-3 text-slate-400 font-mono text-[11px]">

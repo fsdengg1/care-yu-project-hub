@@ -6,9 +6,10 @@ import { StorageService } from '@/lib/storage';
 import { canCreateLead } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User } from '@/lib/types';
+import { BusinessVertical, CustomerType, LeadCustomField, PriorityLevel, User, VisitRequirement } from '@/lib/types';
 import AdditionalFieldRow from '@/components/leads/AdditionalFieldRow';
 import FormSection from '@/components/leads/FormSection';
+import VisitRequirementSection from '@/components/leads/VisitRequirementSection';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import SubmitLeadModal from '@/components/leads/SubmitLeadModal';
 import { validateLeadForm, numericAmount } from '@/lib/leadValidation';
@@ -98,6 +99,23 @@ function CreateLeadForm() {
     commercial_remarks: '',
     additional_notes: '',
     required_documents: '',
+    visit_requirement: 'NONE',
+    visit_site_name: '',
+    visit_site_address: '',
+    visit_city: '',
+    visit_state: '',
+    visit_country: '',
+    visit_contact_name: '',
+    visit_contact_phone: '',
+    visit_contact_email: '',
+    visit_preferred_date: '',
+    visit_preferred_time: '',
+    visit_remarks: '',
+    visit_visitor_name: '',
+    visit_visitor_designation: '',
+    visit_visitor_count: '',
+    visit_purpose: '',
+    visit_special_requirements: '',
   });
 
   const isEdit = Boolean(leadId);
@@ -172,6 +190,23 @@ function CreateLeadForm() {
           commercial_remarks: lead.commercial_remarks || '',
           additional_notes: lead.additional_notes || '',
           required_documents: lead.required_documents || '',
+          visit_requirement: lead.visit_requirement || 'NONE',
+          visit_site_name: lead.visit_site_name || '',
+          visit_site_address: lead.visit_site_address || '',
+          visit_city: lead.visit_city || '',
+          visit_state: lead.visit_state || '',
+          visit_country: lead.visit_country || '',
+          visit_contact_name: lead.visit_contact_name || '',
+          visit_contact_phone: lead.visit_contact_phone || '',
+          visit_contact_email: lead.visit_contact_email || '',
+          visit_preferred_date: (lead.visit_preferred_date || '').slice(0, 10),
+          visit_preferred_time: lead.visit_preferred_time || '',
+          visit_remarks: lead.visit_remarks || '',
+          visit_visitor_name: lead.visit_visitor_name || '',
+          visit_visitor_designation: lead.visit_visitor_designation || '',
+          visit_visitor_count: lead.visit_visitor_count || '',
+          visit_purpose: lead.visit_purpose || '',
+          visit_special_requirements: lead.visit_special_requirements || '',
         }));
       })();
     }
@@ -237,6 +272,23 @@ function CreateLeadForm() {
       additional_notes: formData.additional_notes,
       required_documents: formData.required_documents,
       custom_fields: customFields.filter((field) => field.name.trim() || field.value.trim()),
+      visit_requirement: (formData.visit_requirement || 'NONE') as VisitRequirement,
+      visit_site_name: formData.visit_site_name,
+      visit_site_address: formData.visit_site_address,
+      visit_city: formData.visit_city,
+      visit_state: formData.visit_state,
+      visit_country: formData.visit_country,
+      visit_contact_name: formData.visit_contact_name,
+      visit_contact_phone: formData.visit_contact_phone,
+      visit_contact_email: formData.visit_contact_email,
+      visit_preferred_date: formData.visit_preferred_date,
+      visit_preferred_time: formData.visit_preferred_time,
+      visit_remarks: formData.visit_remarks,
+      visit_visitor_name: formData.visit_visitor_name,
+      visit_visitor_designation: formData.visit_visitor_designation,
+      visit_visitor_count: formData.visit_visitor_count,
+      visit_purpose: formData.visit_purpose,
+      visit_special_requirements: formData.visit_special_requirements,
     };
   };
 
@@ -289,6 +341,10 @@ function CreateLeadForm() {
     setMissing(Object.keys(result.errors));
     if (result.list.length) {
       setValidationError(result.list[0].message);
+      const first = result.list[0].field;
+      window.setTimeout(() => {
+        document.getElementsByName(first)[0]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
       return false;
     }
     setValidationError(null);
@@ -465,14 +521,14 @@ function CreateLeadForm() {
             </div>
             <div className="md:col-span-2">
               <label className="mb-1 block font-semibold text-slate-300">Lead Title *</label>
-              <input type="text" required value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Vision inspection cell" className={fieldClass(missing.includes('title') || Boolean(fieldErrors.title))} />
+              <input type="text" required name="title" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} placeholder="e.g. Vision inspection cell" className={fieldClass(missing.includes('title') || Boolean(fieldErrors.title))} />
               {fieldError('title')}
             </div>
           </div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Customer Name *</label>
-              <input type="text" required value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Customer company name" className={fieldClass(missing.includes('customer_name') || Boolean(fieldErrors.customer_name))} />
+              <input type="text" required name="customer_name" value={formData.customer_name} onChange={(e) => setFormData({ ...formData, customer_name: e.target.value })} placeholder="e.g. Customer company name" className={fieldClass(missing.includes('customer_name') || Boolean(fieldErrors.customer_name))} />
               {fieldError('customer_name')}
             </div>
             <div>
@@ -743,8 +799,63 @@ function CreateLeadForm() {
             </div>
           </details>
         </FormSection>
+
+        <FormSection title="Section D — Customer Requested Visit">
+          <VisitRequirementSection
+            formData={{
+              visit_requirement: (formData.visit_requirement || 'NONE') as VisitRequirement,
+              visit_site_name: formData.visit_site_name,
+              visit_site_address: formData.visit_site_address,
+              visit_city: formData.visit_city,
+              visit_state: formData.visit_state,
+              visit_country: formData.visit_country,
+              visit_contact_name: formData.visit_contact_name,
+              visit_contact_phone: formData.visit_contact_phone,
+              visit_contact_email: formData.visit_contact_email,
+              visit_preferred_date: formData.visit_preferred_date,
+              visit_preferred_time: formData.visit_preferred_time,
+              visit_remarks: formData.visit_remarks,
+              visit_visitor_name: formData.visit_visitor_name,
+              visit_visitor_designation: formData.visit_visitor_designation,
+              visit_visitor_count: formData.visit_visitor_count,
+              visit_purpose: formData.visit_purpose,
+              visit_special_requirements: formData.visit_special_requirements,
+            }}
+            customerName={formData.customer_name}
+            onChange={(patch) => setFormData((current) => ({ ...current, ...patch }))}
+            missing={missing}
+            fieldErrors={fieldErrors}
+            fieldError={fieldError}
+          />
+        </FormSection>
         </fieldset>
       </form>
+
+      {canEdit && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
+          <div className="flex flex-col items-center gap-3">
+            <button
+              type="button"
+              disabled={busy || !canEdit}
+              onClick={() => void handleSaveDraft()}
+              className="flex w-full max-w-xs items-center justify-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-4 py-2.5 text-xs font-medium text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-50"
+            >
+              <Save className="h-4 w-4 text-slate-400" /> Save Draft
+            </button>
+            <button
+              type="button"
+              disabled={busy || !canEdit}
+              onClick={() => {
+                if (validateForSubmit()) setConfirmSubmit(true);
+              }}
+              className="flex w-full max-w-xs items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all hover:bg-cyan-500 disabled:opacity-50"
+              data-demo="submit-to-pm-bottom"
+            >
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {busy ? 'Submitting…' : 'Submit to PM'}
+            </button>
+          </div>
+        </div>
+      )}
 
       <SubmitLeadModal open={confirmSubmit} busy={busy} onCancel={() => setConfirmSubmit(false)} onConfirm={() => void handleSubmit()} />
     </div>

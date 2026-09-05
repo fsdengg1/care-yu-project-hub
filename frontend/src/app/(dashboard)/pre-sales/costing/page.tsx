@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { Calculator } from 'lucide-react';
 import { Lead } from '@/lib/types';
-import { formatInrCompact, PIPELINE_STAGE_LABELS, LEAD_STATUS_LABELS } from '@/lib/format';
+import { formatInrCompact } from '@/lib/format';
+import { workflowActionLabel } from '@/lib/workflowActionLabel';
 import { StorageService } from '@/lib/storage';
 import { isCeoViewOnly } from '@/lib/rbac';
 import { LeadApi } from '@/lib/leadApi';
@@ -71,7 +72,7 @@ export default function CostingPage() {
                   <td className="p-3">{lead.customer_name}</td>
                   <td className="p-3 text-slate-100">{lead.title}</td>
                   <td className="p-3">{formatInrCompact(lead.expected_value ?? lead.costing?.total_estimated_cost ?? 0)}</td>
-                  <td className="p-3">{LEAD_STATUS_LABELS[lead.status] || PIPELINE_STAGE_LABELS[lead.pipeline_stage || ''] || lead.status}</td>
+                  <td className="p-3">{workflowActionLabel(lead)}</td>
                 </tr>
               ))
             )}

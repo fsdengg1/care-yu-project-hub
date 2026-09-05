@@ -3,11 +3,13 @@
 import React, { useState } from 'react';
 import { LeadApi } from '@/lib/leadApi';
 import { canPerformPmOperations, canPrepareCosting, canPrepareFeasibility, canPrepareQuotation, isCeoViewOnly, userIsOnLeadTeam } from '@/lib/rbac';
-import { CostingRecord, FeasibilityStudy, Lead, Team, User } from '@/lib/types';
-import { formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS } from '@/lib/format';
+import { CostingRecord, FeasibilityStudy, FeasibilityTeamAssignment, Lead, Team, User } from '@/lib/types';
+import { formatDateTime, formatInrCompact, WorkflowActionKind, WORKFLOW_ACTION_SUCCESS } from '@/lib/format';
 import EntityDocumentUpload from '@/components/documents/EntityDocumentUpload';
 import { WorkflowActionFeedback } from '@/components/leads/WorkflowStatusBanner';
 import AutoGrowTextarea, { AUTO_GROW_COMPACT_HEIGHT, AUTO_GROW_DEFAULT_HEIGHT } from '@/components/ui/AutoGrowTextarea';
+import VisitManagementPanel from '@/components/leads/VisitManagementPanel';
+import { QuotationSubmissionMethod } from '@/lib/types';
 import {
   AlertTriangle, Check, CheckCircle2, RotateCcw, Send, Calculator, FileText, Handshake, Building2
 } from 'lucide-react';
@@ -17,6 +19,7 @@ interface Props {
   currentUser: User;
   teams: Team[];
   users: User[];
+  assignments?: FeasibilityTeamAssignment[];
   onUpdated: (feedback?: WorkflowActionFeedback) => void;
 }
 
@@ -49,7 +52,7 @@ const emptyCost = (lead: Lead): CostingRecord => ({
   status: lead.costing?.status || 'DRAFT',
 });
 
-export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpdated }: Props) {
+export default function LeadCyclePanels({ lead, currentUser, teams, users, assignments = [], onUpdated }: Props) {
   const isPM = canPerformPmOperations(currentUser);
   const canQuote = canPrepareQuotation(currentUser, lead);
   const quotationOwnerName = lead.created_by || lead.sales_owner || 'Lead creator';
@@ -61,6 +64,17 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
     || (currentUser.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director');
   const isAssignedWorker = userIsOnLeadTeam(currentUser, lead);
   const isAssignedTL = isAssignedWorker && (currentUser.role_code === 'TEAM_LEAD' || lead.assigned_team_lead_id === currentUser.id);
+  const myAssignment = assignments.find(
+    (item) =>
+      item.lead_id === lead.id &&
+      item.status !== 'CANCELLED' &&
+      (item.team_lead_id === currentUser.id || (Boolean(currentUser.team_id) && item.team_id === currentUser.team_id))
+  );
+  const tlAwaitingReview = myAssignment
+    ? myAssignment.status === 'PENDING_TEAM_LEAD_REVIEW' || myAssignment.status === 'CLARIFICATION_REQUIRED'
+    : lead.status === 'ACCEPTED_FOR_FEASIBILITY';
+  const tlAcceptedAt = myAssignment?.updated_at || lead.last_action_at;
+  const tlAcceptedBy = myAssignment?.team_lead_name || currentUser.name;
   const canFeasibility = canPrepareFeasibility(currentUser) && (
     isAssignedWorker ||
     isAssignedTL ||
@@ -89,6 +103,10 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
   const [costingGrowReset, setCostingGrowReset] = useState(0);
   const [quoteGrowReset, setQuoteGrowReset] = useState(0);
   const [negoGrowReset, setNegoGrowReset] = useState(0);
+  const [submitMethod, setSubmitMethod] = useState<QuotationSubmissionMethod>('WHATSAPP');
+  const [submitRemarks, setSubmitRemarks] = useState('');
+  const [revisionReason, setRevisionReason] = useState('');
+  const [viewingRevision, setViewingRevision] = useState<number | null>(null);
   const [quote, setQuote] = useState({
     quotation_value: String(lead.quotation?.quotation_value || lead.expected_value || ''),
     commercial_terms: lead.quotation?.commercial_terms || '',
@@ -204,6 +222,8 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
       {error && (
         <div className="rounded-xl border border-rose-800 bg-rose-950/70 p-3 text-rose-300">{error}</div>
       )}
+
+      <VisitManagementPanel lead={lead} currentUser={currentUser} users={users} onUpdated={onUpdated} />
 
       {isPM && ['SUBMITTED_TO_PM', 'UNDER_PM_REVIEW', 'RESUBMITTED_TO_PM'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-blue-800/80 bg-blue-950/40 p-5">
@@ -337,15 +357,25 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {isAssignedTL && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS'].includes(lead.status) && Boolean(lead.assigned_team_id || (lead.assigned_team_ids || []).length) && (
+      {isAssignedTL && Boolean(lead.assigned_team_id || (lead.assigned_team_ids || []).length) && ['ACCEPTED_FOR_FEASIBILITY', 'FEASIBILITY_IN_PROGRESS'].includes(lead.status) && (Boolean(myAssignment) || lead.status === 'ACCEPTED_FOR_FEASIBILITY') && (
         <div className="space-y-3 rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-5">
           <div className="font-bold text-cyan-300">Team Lead Review</div>
-          <p className="text-slate-300">Review requirements, scope, documents, timeline, and PM instructions. Accept to start feasibility, or return to the PM.</p>
-          <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Comments (required if returning to PM)" className="form-control" />
-          <div className="flex flex-wrap gap-2">
-            <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'accept', returnReason))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500">Accept Project</button>
-            <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500">Return to PM</button>
-          </div>
+          {tlAwaitingReview ? (
+            <>
+              <p className="text-slate-300">Review requirements, scope, documents, timeline, and PM instructions. Accept to start feasibility, or return to the PM.</p>
+              <textarea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)} placeholder="Comments (required if returning to PM)" className="form-control" />
+              <div className="flex flex-wrap gap-2">
+                <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'accept', returnReason))} className="rounded-lg bg-emerald-600 px-4 py-2 font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">Accept Project</button>
+                <button disabled={busy} onClick={() => run(() => LeadApi.teamIntake(lead.id, 'return', returnReason))} className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50">Return to PM</button>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-lg border border-emerald-800 bg-emerald-950/40 p-3 text-emerald-200">
+              <div className="font-bold">✓ Project Accepted</div>
+              <div className="mt-1 text-xs text-emerald-100/90">Accepted by: {tlAcceptedBy}</div>
+              <div className="text-xs text-emerald-100/90">Accepted on: {formatDateTime(tlAcceptedAt)}</div>
+            </div>
+          )}
         </div>
       )}
 
@@ -503,41 +533,150 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
 
       {canQuote && ['QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
-            <Building2 className="h-4 w-4 text-cyan-400" /> Quotation — {lead.lead_number}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
+            <span className="flex items-center gap-2">
+              <Building2 className="h-4 w-4 text-cyan-400" /> Quotation — {lead.lead_number} {lead.quotation?.revision_label || 'R0'}
+            </span>
+            <span className="text-[11px] font-semibold text-cyan-300">
+              {lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER' || lead.status === 'NEGOTIATION'
+                ? 'Submitted to Customer'
+                : lead.quotation?.workflow_status === 'REVISION_IN_PROGRESS'
+                  ? 'Revision in Progress'
+                  : 'Pending with Internal Team'}
+            </span>
           </div>
           {approvedFeasibility && <p className="text-[11px] text-slate-400">Approved feasibility and costing are available on this same lead record.</p>}
+          {viewingRevision != null ? (
+            <p className="text-[11px] text-amber-300">Viewing previous revision R{viewingRevision} in read-only mode.</p>
+          ) : null}
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Quotation value</label>
-              <input value={quote.quotation_value} onChange={(e) => setQuote({ ...quote, quotation_value: e.target.value })} className="form-control" />
+              <input value={quote.quotation_value} readOnly={viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER'} onChange={(e) => setQuote({ ...quote, quotation_value: e.target.value })} className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Validity</label>
-              <input value={quote.validity} onChange={(e) => setQuote({ ...quote, validity: e.target.value })} placeholder="e.g. 30 days" className="form-control" />
+              <input value={quote.validity} readOnly={viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER'} onChange={(e) => setQuote({ ...quote, validity: e.target.value })} placeholder="e.g. 30 days" className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Payment terms</label>
-              <input value={quote.payment_terms} onChange={(e) => setQuote({ ...quote, payment_terms: e.target.value })} className="form-control" />
+              <input value={quote.payment_terms} readOnly={viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER'} onChange={(e) => setQuote({ ...quote, payment_terms: e.target.value })} className="form-control" />
             </div>
             <div>
               <label className="mb-1 block font-semibold text-slate-300">Delivery terms</label>
-              <input value={quote.delivery_terms} onChange={(e) => setQuote({ ...quote, delivery_terms: e.target.value })} className="form-control" />
+              <input value={quote.delivery_terms} readOnly={viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER'} onChange={(e) => setQuote({ ...quote, delivery_terms: e.target.value })} className="form-control" />
             </div>
           </div>
-          {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }), 2, false, quoteGrowReset)}
-          <input value={quote.document_name} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="form-control" />
-          {lead.status === 'QUOTATION' && (
+          {field('Commercial terms', quote.commercial_terms, (v) => setQuote({ ...quote, commercial_terms: v }), 2, viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER', quoteGrowReset)}
+          <input value={quote.document_name} readOnly={viewingRevision != null || lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER'} onChange={(e) => setQuote({ ...quote, document_name: e.target.value })} placeholder="Quotation document name" className="form-control" />
+          {lead.status === 'QUOTATION' && viewingRevision == null && lead.quotation?.workflow_status !== 'SUBMITTED_TO_CUSTOMER' && (
             <div className="space-y-2">
               <p className="text-[11px] text-slate-400">
-                Send Quotation emails the customer at {lead.customer_email || 'the recorded customer address'} (client email). Internal PMS users are notified on their dashboard and only receive Outlook mail if someone clicks Send Email Notification.
+                Save the quotation first. After you actually send it to the customer (email, WhatsApp, or other), click Submitted to Customer. Creating a quotation does not mark it submitted.
               </p>
-              <div className="flex gap-2">
               <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, false), undefined, undefined, bumpQuoteGrowReset)} className="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-slate-200">Save Quotation</button>
-              <button disabled={busy} onClick={() => run(() => LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, true), undefined, undefined, bumpQuoteGrowReset)} className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"><Send className="h-4 w-4" /> Send Quotation</button>
-              </div>
             </div>
           )}
+          {canQuote && viewingRevision == null && lead.quotation?.workflow_status !== 'SUBMITTED_TO_CUSTOMER' && ['QUOTATION', 'NEGOTIATION'].includes(lead.status) && (
+            <div className="space-y-2 rounded-lg border border-cyan-900 bg-slate-950/70 p-3">
+              <div className="font-semibold text-slate-200">Submitted to Customer</div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                <select value={submitMethod} onChange={(e) => setSubmitMethod(e.target.value as QuotationSubmissionMethod)} className="form-control">
+                  <option value="EMAIL">Email</option>
+                  <option value="WHATSAPP">WhatsApp</option>
+                  <option value="EMAIL_AND_WHATSAPP">Email + WhatsApp</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <input value={submitRemarks} onChange={(e) => setSubmitRemarks(e.target.value)} placeholder="Customer communication remarks" className="form-control md:col-span-2" />
+              </div>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const saved = await LeadApi.saveQuotation(lead.id, { ...quote, quotation_value: Number(quote.quotation_value) || 0 }, false);
+                    if (!saved) return { ok: false, message: 'Save the quotation before marking it submitted to the customer.' };
+                    const result = await LeadApi.submitQuotationToCustomer(lead.id, { method: submitMethod, remarks: submitRemarks });
+                    if (!result.ok) return result;
+                    return result.payload;
+                  }, 'Unable to mark quotation as submitted.')
+                }
+                className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-bold text-white hover:bg-cyan-500"
+              >
+                <Send className="h-4 w-4" /> Submitted to Customer
+              </button>
+            </div>
+          )}
+          {canQuote && (lead.quotation?.workflow_status === 'SUBMITTED_TO_CUSTOMER' || lead.status === 'NEGOTIATION') && viewingRevision == null && (
+            <div className="space-y-2 rounded-lg border border-amber-900 bg-amber-950/20 p-3">
+              <div className="font-semibold text-amber-200">Customer Requested Revision</div>
+              <input value={revisionReason} onChange={(e) => setRevisionReason(e.target.value)} placeholder="Reason — e.g. customer requested changes in rack dimensions" className="form-control" />
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const result = await LeadApi.requestQuotationRevision(lead.id, revisionReason);
+                    if (!result.ok) return result;
+                    setRevisionReason('');
+                    return result.payload;
+                  }, 'Unable to create the next quotation revision.')
+                }
+                className="rounded-lg bg-amber-600 px-4 py-2 font-bold text-slate-950 hover:bg-amber-500"
+              >
+                Customer Requested Revision
+              </button>
+            </div>
+          )}
+          <div className="space-y-2">
+            <div className="text-sm font-bold text-slate-100">Quotation Revision History</div>
+            {(lead.quotation_revisions || []).length === 0 && <p className="text-slate-500">No submitted revisions yet. The first saved quotation is {lead.lead_number} R0.</p>}
+            {(lead.quotation_revisions || [])
+              .slice()
+              .sort((a, b) => a.revision - b.revision)
+              .map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  onClick={() => {
+                    setViewingRevision(item.revision);
+                    setQuote({
+                      quotation_value: String(item.quotation.quotation_value || ''),
+                      commercial_terms: item.quotation.commercial_terms || '',
+                      validity: item.quotation.validity || '',
+                      payment_terms: item.quotation.payment_terms || '',
+                      delivery_terms: item.quotation.delivery_terms || '',
+                      document_name: item.quotation.document_name || '',
+                    });
+                  }}
+                  className="w-full rounded border border-slate-800 bg-slate-950 p-3 text-left text-slate-300 hover:border-cyan-800"
+                >
+                  <div className="flex justify-between">
+                    <span className="font-bold text-slate-100">{lead.lead_number} {item.revision_label}</span>
+                    <span className="text-[11px] text-cyan-300">{item.status.replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="text-[11px] text-slate-500">Created: {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}{item.submitted_by ? ` · Submitted By: ${item.submitted_by}` : ''}</div>
+                  {item.reason && <div className="mt-1 text-slate-400">Reason: {item.reason}</div>}
+                </button>
+              ))}
+            {viewingRevision != null && (
+              <button
+                type="button"
+                onClick={() => {
+                  setViewingRevision(null);
+                  setQuote({
+                    quotation_value: String(lead.quotation?.quotation_value || lead.expected_value || ''),
+                    commercial_terms: lead.quotation?.commercial_terms || '',
+                    validity: lead.quotation?.validity || '',
+                    payment_terms: lead.quotation?.payment_terms || '',
+                    delivery_terms: lead.quotation?.delivery_terms || '',
+                    document_name: lead.quotation?.document_name || '',
+                  });
+                }}
+                className="text-cyan-400 hover:underline"
+              >
+                Back to current revision
+              </button>
+            )}
+          </div>
         </div>
       )}
 

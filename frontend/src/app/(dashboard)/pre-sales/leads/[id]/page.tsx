@@ -465,7 +465,7 @@ export default function LeadDetailPage() {
     { key: 'timeline', label: 'Activity Timeline' },
     { key: 'review', label: 'PM Review' },
   ];
-  const leadStage = workflowStatusPresentation(lead.status);
+  const leadStage = workflowStatusPresentation(lead.status, lead);
 
   return (
     <div className="space-y-5 max-w-6xl mx-auto pb-16 text-xs">
@@ -486,18 +486,6 @@ export default function LeadDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {canCreateLeadWork && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingLeadTask(null);
-                  setShowCreateLeadTask(true);
-                }}
-                className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-cyan-500"
-              >
-                <Plus className="h-3.5 w-3.5" /> Create Task
-              </button>
-            )}
             {canForward && (
               <button
                 type="button"
@@ -532,7 +520,7 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      <WorkflowStatusBanner status={lead.status} feedback={workflowFeedback} error={actionError} showStage={false} />
+      <WorkflowStatusBanner status={lead.status} lead={lead} feedback={workflowFeedback} error={actionError} showStage={false} />
 
       <ProjectStageFlow
         lead={lead}
@@ -544,13 +532,8 @@ export default function LeadDetailPage() {
 
       <LeadTasksPanel
         tasks={leadTasks}
-        canCreate={canCreateLeadWork}
         currentUser={currentUser}
         busyId={leadTaskBusy}
-        onCreate={() => {
-          setEditingLeadTask(null);
-          setShowCreateLeadTask(true);
-        }}
         onEdit={(task) => {
           setEditingLeadTask(task);
           setShowCreateLeadTask(true);
@@ -650,7 +633,7 @@ export default function LeadDetailPage() {
         </div>
       )}
 
-      <LeadCyclePanels lead={lead} currentUser={currentUser} teams={allTeams} users={allUsers} onUpdated={handleWorkflowUpdated} />
+      <LeadCyclePanels lead={lead} currentUser={currentUser} teams={allTeams} users={allUsers} assignments={teamAssignments} onUpdated={handleWorkflowUpdated} />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-800 overflow-x-auto pb-0.5">
@@ -748,13 +731,27 @@ export default function LeadDetailPage() {
                 </div>
               </div>
             )}
-            <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 space-y-2">
-              <h4 className="font-bold text-slate-200 text-xs border-b border-slate-800 pb-2">Lead Info</h4>
-              <div className="space-y-1.5 text-slate-300">
-                <div>Vertical: <span className="font-semibold text-cyan-400">{lead.business_vertical}</span></div>
-                <div>Sales Owner: <span className="font-medium text-slate-200">{lead.sales_owner}</span></div>
-                <div>Priority: <span className="font-semibold text-amber-400">{lead.priority}</span></div>
+            <div className="space-y-3">
+              <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 space-y-2">
+                <h4 className="font-bold text-slate-200 text-xs border-b border-slate-800 pb-2">Lead Info</h4>
+                <div className="space-y-1.5 text-slate-300">
+                  <div>Vertical: <span className="font-semibold text-cyan-400">{lead.business_vertical}</span></div>
+                  <div>Sales Owner: <span className="font-medium text-slate-200">{lead.sales_owner}</span></div>
+                  <div>Priority: <span className="font-semibold text-amber-400">{lead.priority}</span></div>
+                </div>
               </div>
+              {canCreateLeadWork && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingLeadTask(null);
+                    setShowCreateLeadTask(true);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1 rounded-lg bg-cyan-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-cyan-500"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Create Task
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -980,7 +977,7 @@ export default function LeadDetailPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-slate-300">
                 <div>Status: <span className="font-bold text-slate-100">{lead.costing.status}</span></div>
                 <div>Total: <span className="font-bold text-emerald-400">{formatInrCompact(lead.costing.total_estimated_cost)}</span></div>
-                <div>Stage: <span className={`rounded border px-2 py-0.5 font-bold ${workflowStatusPresentation(lead.status).badgeClass}`}>{workflowStatusPresentation(lead.status).label}</span></div>
+                <div>Stage: <span className={`rounded border px-2 py-0.5 font-bold ${workflowStatusPresentation(lead.status, lead).badgeClass}`}>{workflowStatusPresentation(lead.status, lead).label}</span></div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-slate-300">
                 <div>BOM / components: <span className="text-slate-100">{lead.costing.bom_components || '—'}</span></div>
@@ -1143,6 +1140,28 @@ export default function LeadDetailPage() {
                 ))}
               </div>
             )}
+          </div>
+          <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
+          <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Visit & Quotation Activity</h3>
+          {!(lead.visit_activity || []).length && !(lead.quotation_revisions || []).length ? (
+            <p className="text-xs text-slate-500">Visit assignments and quotation submissions will appear here.</p>
+          ) : (
+            <div className="space-y-3">
+              {(lead.visit_activity || []).map((item) => (
+                <div key={item.id} className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                  <div className="font-semibold text-slate-200">{item.detail}</div>
+                  <div className="text-[11px] text-slate-500">{item.actor} · {new Date(item.at).toLocaleString()}</div>
+                </div>
+              ))}
+              {(lead.quotation_revisions || []).map((item) => (
+                <div key={item.id} className="p-3 bg-slate-950/60 border border-slate-800 rounded-lg">
+                  <div className="font-semibold text-slate-200">{lead.lead_number} {item.revision_label} — {item.status.replace(/_/g, ' ')}</div>
+                  {item.reason && <div className="text-[11px] text-slate-400">{item.reason}</div>}
+                  <div className="text-[11px] text-slate-500">{item.created_by || item.submitted_by} · {new Date(item.created_at).toLocaleString()}</div>
+                </div>
+              ))}
+            </div>
+          )}
           </div>
           <div className="bg-slate-900/90 p-5 rounded-xl border border-slate-800 space-y-4">
           <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Status Transition History</h3>

@@ -7,7 +7,6 @@ import {
   OrgNode,
   buildOrganizationTree,
   formatAccessCaption,
-  hasTeamDescendant,
 } from './orgHierarchy';
 import { directoryStatus } from '@/lib/usersApi';
 
@@ -109,7 +108,7 @@ function PersonCard({
     <button
       type="button"
       onClick={onClick}
-      className={`w-full max-w-[148px] rounded-lg px-2 py-2 text-center text-white shadow-sm transition ${tone} ${
+      className={`w-full max-w-[168px] rounded-lg px-2 py-2 text-center text-white shadow-sm transition ${tone} ${
         selected ? 'ring-2 ring-amber-300 ring-offset-1' : 'hover:brightness-110'
       }`}
     >
@@ -146,7 +145,9 @@ function TeamCard({
       }`}
     >
       <div className="mx-auto mb-1.5 flex h-7 w-7 items-center justify-center rounded-md bg-white/15">{style.icon}</div>
-      <div className="min-h-[28px] text-[10px] font-bold leading-tight">{team.name}</div>
+      <div className="min-h-[28px] text-[10px] font-bold leading-tight">
+        {team.code === 'ROBOTICS' ? 'Robotics & Solutions Team' : team.name}
+      </div>
       <div className="mt-1.5 border-t border-white/25 pt-1.5 text-[8px] font-semibold uppercase tracking-wide text-white/90">
         {subtitle}
       </div>
@@ -172,8 +173,6 @@ function PersonBranch({
   const user = users.find((item) => item.id === node.userId);
   const people = node.children.filter((child) => child.kind === 'person');
   const teamNodes = node.children.filter((child) => child.kind === 'team');
-  const staff = people.filter((child) => !hasTeamDescendant(child));
-  const operators = people.filter((child) => hasTeamDescendant(child));
 
   return (
     <div className="flex w-full flex-col items-center">
@@ -190,10 +189,10 @@ function PersonBranch({
         />
       )}
 
-      {staff.length > 0 && (
-        <div className="w-full max-w-[560px]">
-          <BranchGroup count={staff.length}>
-            {staff.map((child) => (
+      {people.length > 0 && (
+        <div className="w-full">
+          <BranchGroup count={people.length}>
+            {people.map((child) => (
               <PersonBranch
                 key={child.id}
                 node={child}
@@ -207,20 +206,6 @@ function PersonBranch({
           </BranchGroup>
         </div>
       )}
-
-      {operators.length > 0 && <Stem />}
-
-      {operators.map((child) => (
-        <PersonBranch
-          key={child.id}
-          node={child}
-          users={users}
-          teams={teams}
-          selectedId={selectedId}
-          onSelectPerson={onSelectPerson}
-          onSelectTeam={onSelectTeam}
-        />
-      ))}
 
       {teamNodes.length > 0 && (
         <div className="w-full">
@@ -281,7 +266,7 @@ export default function OrgChart({ users, teams, roles = [], selectedId, onSelec
         1. Organizational Hierarchy & Access Scope
       </div>
 
-      <div className="border-x border-b border-slate-200 bg-[#F7FAFD] px-3 py-4">
+      <div className="overflow-x-auto border-x border-b border-slate-200 bg-[#F7FAFD] px-3 py-4">
         <div className="flex flex-col items-center gap-6">
           {tree.map((root) => (
             <PersonBranch
@@ -295,6 +280,16 @@ export default function OrgChart({ users, teams, roles = [], selectedId, onSelec
             />
           ))}
         </div>
+      </div>
+
+      <div className="rounded-b-2xl border border-t-0 border-slate-200 bg-[#0B1F3A] px-4 py-3 text-white">
+        <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-cyan-200">Access Summary</div>
+        <ul className="mt-2 space-y-1 text-[11px] leading-snug text-slate-100">
+          <li><span className="font-semibold">CEO:</span> Monitor All Dashboards.</li>
+          <li><span className="font-semibold">CTO:</span> Monitor Software Team Only.</li>
+          <li><span className="font-semibold">Business Head &amp; Engineering Director:</span> Monitor PM + 5 Teams.</li>
+          <li><span className="font-semibold">Project Manager:</span> Monitor &amp; Manage 5 Teams.</li>
+        </ul>
       </div>
     </div>
   );

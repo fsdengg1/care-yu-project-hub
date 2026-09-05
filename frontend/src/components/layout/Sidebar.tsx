@@ -27,6 +27,7 @@ import {
   ChevronRight,
   Mail,
   Menu,
+  BarChart3,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -51,6 +52,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
   MessageSquare: <MessageSquare className="h-4 w-4 shrink-0" />,
   Settings: <Settings className="h-4 w-4 shrink-0" />,
   Mail: <Mail className="h-4 w-4 shrink-0" />,
+  BarChart3: <BarChart3 className="h-4 w-4 shrink-0" />,
 };
 
 export default function Sidebar({ user }: SidebarProps) {

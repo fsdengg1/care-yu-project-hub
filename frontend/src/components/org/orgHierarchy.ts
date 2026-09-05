@@ -146,7 +146,24 @@ export function formatAccessCaption(scope: string): string {
   return `(Access: ${scope.replace(/^Monitor(?: & Manage)? /, '')})`;
 }
 
-function roleRank(roleCode: string, roles: Role[]): number {
+const TEAM_CHART_ORDER = ['SOFTWARE', 'VISION', 'ROBOTICS', 'PROCUREMENT', 'EXECUTION'];
+const CEO_REPORT_ORDER = ['CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR'];
+
+export function chartDisplayName(user: User): string {
+  const name = user.name.trim();
+  if (user.role_code === 'CEO' && /bernard/i.test(name)) return 'Bernard Hamilton';
+  if (user.role_code === 'CTO' && !/ilaya/i.test(name)) return 'IlayaRaja';
+  if (user.role_code === 'BUSINESS_HEAD' && /shradha|sharadha/i.test(name)) return 'Sharadha Patil';
+  return name;
+}
+
+function sortTeams(teams: Team[]): Team[] {
+  return [...teams].sort((a, b) => {
+    const left = TEAM_CHART_ORDER.indexOf(a.code);
+    const right = TEAM_CHART_ORDER.indexOf(b.code);
+    return (left === -1 ? 99 : left) - (right === -1 ? 99 : right) || a.name.localeCompare(b.name);
+  });
+}
   const index = roles.findIndex((role) => role.code === roleCode);
   return index === -1 ? 999 : index;
 }
@@ -163,29 +180,8 @@ function teamLeadOf(team: Team, users: User[]): User | undefined {
   return users.find((user) => user.id === team.team_lead_id) || users.find((user) => user.team_id === team.id && user.role_code === 'TEAM_LEAD');
 }
 
-function majorityManagerId(members: User[]): string | undefined {
-  const counts = new Map<string, number>();
-  members.forEach((member) => {
-    if (!member.reporting_manager_id) return;
-    counts.set(member.reporting_manager_id, (counts.get(member.reporting_manager_id) || 0) + 1);
-  });
-  let best: string | undefined;
-  let bestCount = 0;
-  counts.forEach((count, id) => {
-    if (count > bestCount) {
-      best = id;
-      bestCount = count;
-    }
-  });
-  return best;
-}
-
-function managerIdForTeam(team: Team, users: User[]): string | undefined {
-  const pm = users.find((user) => user.role_code === 'PROJECT_MANAGER' && user.status !== 'INACTIVE');
-  if (pm) return pm.id;
-  const lead = teamLeadOf(team, users);
-  if (lead?.reporting_manager_id) return lead.reporting_manager_id;
-  return majorityManagerId(users.filter((user) => user.team_id === team.id));
+function managerIdForTeam(_team: Team, users: User[]): string | undefined {
+  return users.find((user) => user.role_code === 'PROJECT_MANAGER' && user.status !== 'INACTIVE')?.id;
 }
 
 export function getDirectReports(userId: string, users: User[]): User[] {
@@ -215,6 +211,9 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
   const visiting = new Set<string>();
 
   const comparePeople = (a: User, b: User) => {
+    const left = CEO_REPORT_ORDER.includes(a.role_code) ? CEO_REPORT_ORDER.indexOf(a.role_code) : 99;
+    const right = CEO_REPORT_ORDER.includes(b.role_code) ? CEO_REPORT_ORDER.indexOf(b.role_code) : 99;
+    if (left !== right) return left - right;
     const rank = roleRank(a.role_code, roles) - roleRank(b.role_code, roles);
     return rank !== 0 ? rank : a.name.localeCompare(b.name);
   };
@@ -225,7 +224,6 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
       return directory.find((item) => item.role_code === 'CEO')?.id;
     }
     if (user.role_code === 'PROJECT_MANAGER') {
-      if (user.reporting_manager_id && directoryIds.has(user.reporting_manager_id)) return user.reporting_manager_id;
       return directory.find((item) => item.role_code === 'BUSINESS_HEAD')?.id
         || directory.find((item) => item.role_code === 'CEO')?.id;
     }
@@ -245,7 +243,9 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
   }
 
   function teamsReportingTo(managerId: string): Team[] {
-    return activeTeams.filter((team) => !attachedTeams.has(team.id) && managerIdForTeam(team, directory) === managerId);
+    const manager = directory.find((user) => user.id === managerId);
+    if (manager?.role_code !== 'PROJECT_MANAGER') return [];
+    return sortTeams(activeTeams.filter((team) => !attachedTeams.has(team.id) && managerIdForTeam(team, directory) === managerId));
   }
 
   function peopleReportingTo(managerId: string): User[] {
@@ -256,7 +256,7 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
     return {
       id: `person-${user.id}`,
       kind: 'person',
-      title: user.name,
+      title: chartDisplayName(user),
       subtitle: user.role_name,
       userId: user.id,
       roleCode: user.role_code,
@@ -313,15 +313,19 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
     return {
       id: `person-${user.id}`,
       kind: 'person',
-      title: user.name,
+      title: chartDisplayName(user),
       subtitle: user.role_name,
       userId: user.id,
       roleCode: user.role_code,
       reportingContextId: user.reporting_manager_id,
-      access: getAccessScope(user.role_code, childTeams[0]?.title.replace(/ Team$/, '') || user.team_name, {
-        teamCount: user.role_code === 'PROJECT_MANAGER' ? descendantTeams || functionalTeamCount : functionalTeamCount,
-        hasProjectManager,
-      }),
+      access: getAccessScope(
+        user.role_code,
+        user.role_code === 'CTO' ? 'Software Team' : user.team_name,
+        {
+          teamCount: user.role_code === 'PROJECT_MANAGER' ? descendantTeams || functionalTeamCount : functionalTeamCount,
+          hasProjectManager,
+        }
+      ),
       children,
     };
   }
@@ -336,7 +340,7 @@ export function buildOrganizationTree(users: User[], teams: Team[], roles: Role[
           return [node, ...node.children.filter((child) => child.kind === 'person').flatMap(collect)];
         })
         .find((node) => node.roleCode === 'PROJECT_MANAGER') || forest[0];
-    leftover.forEach((team) => {
+    sortTeams(leftover).forEach((team) => {
       attachedTeams.add(team.id);
       host?.children.push(makeTeamNode(team));
     });

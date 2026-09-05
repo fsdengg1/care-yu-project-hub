@@ -6,7 +6,8 @@ import { ArrowRight, Building2, FolderKanban, Inbox, Plus } from 'lucide-react';
 import { Lead } from '@/lib/types';
 import { LeadApi } from '@/lib/leadApi';
 import { canCreateLead } from '@/lib/rbac';
-import { LEAD_STATUS_LABELS, PIPELINE_STAGE_LABELS } from '@/lib/format';
+import { leadPipelineDisplay } from '@/lib/leadPipelineDisplay';
+import { workflowActionLabel } from '@/lib/workflowActionLabel';
 import { useAuth } from '@/components/auth/AuthProvider';
 
 export default function LeadPipelinePanel({ title = 'Lead pipeline' }: { title?: string }) {
@@ -63,18 +64,23 @@ export default function LeadPipelinePanel({ title = 'Lead pipeline' }: { title?:
         </div>
       ) : (
         <div className="divide-y divide-slate-800/60">
-          {openLeads.slice(0, 8).map((lead) => (
+          {openLeads.slice(0, 8).map((lead) => {
+            const pipeline = leadPipelineDisplay(lead);
+            return (
             <Link key={lead.id} href={`/pre-sales/leads/${lead.id}`} className="flex items-center justify-between py-3 hover:bg-slate-800/30">
               <div>
                 <span className="mr-2 font-mono font-bold text-cyan-400">{lead.lead_number}</span>
                 <span className="font-semibold text-slate-100">{lead.title}</span>
                 <div className="text-[11px] text-slate-400">
-                  {lead.customer_name} · {LEAD_STATUS_LABELS[lead.status] || PIPELINE_STAGE_LABELS[lead.pipeline_stage || ''] || lead.status}
+                  {lead.customer_name}
+                  {pipeline.quotation ? ` · ${pipeline.quotation}` : ''}
+                  {` · ${workflowActionLabel(lead)}`}
                 </div>
               </div>
               <ArrowRight className="h-3.5 w-3.5 text-slate-500" />
             </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

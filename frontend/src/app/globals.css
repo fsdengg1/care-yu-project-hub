@@ -771,3 +771,12 @@ html.light .theme-app .form-control:-webkit-autofill:focus {
   background: rgba(100, 116, 139, 0.18);
   color: #cbd5e1;
 }
+
+.theme-app :is(a, button, [role="button"], summary, select, label[for], input[type="button"], input[type="submit"], input[type="reset"], input[type="checkbox"], input[type="radio"], input[type="file"]):not(:disabled):not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+.theme-app :is(button, input, select, textarea, a):disabled,
+.theme-app [aria-disabled="true"] {
+  cursor: not-allowed;
+}

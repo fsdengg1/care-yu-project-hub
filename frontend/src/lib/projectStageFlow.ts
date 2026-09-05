@@ -10,10 +10,10 @@ export type ProjectStageFlowKey =
 
 export const PROJECT_STAGE_FLOW: Array<{ key: ProjectStageFlowKey; label: string }> = [
   { key: 'lead', label: 'Lead' },
-  { key: 'feasibility', label: 'Feasibility Study' },
+  { key: 'feasibility', label: 'Pre-Sales' },
   { key: 'costing', label: 'Solution & Costing' },
-  { key: 'procurement', label: 'Procurement' },
-  { key: 'po', label: 'PO Conversion' },
+  { key: 'procurement', label: 'Quotation' },
+  { key: 'po', label: 'Submitted to Customer' },
   { key: 'project', label: 'Project' },
 ];
 
@@ -22,13 +22,24 @@ function pipelineOf(lead: Pick<Lead, 'status' | 'pipeline_stage'>): PipelineStag
 }
 
 /** Visual index of the highlighted stage in the 6-step flow. */
-export function projectStageFlowIndex(lead: Pick<Lead, 'status' | 'pipeline_stage'>): number {
+export function projectStageFlowIndex(lead: Pick<Lead, 'status' | 'pipeline_stage' | 'quotation'>): number {
   const status = lead.status;
   const pipeline = pipelineOf(lead);
+  const qStatus = lead.quotation?.workflow_status;
 
   if (status === 'ORDER_CONVERTED' || status === 'WON' || pipeline === 'CONVERTED') return 5;
-  if (status === 'QUOTATION' || status === 'NEGOTIATION' || pipeline === 'QUOTATION' || pipeline === 'NEGOTIATION') {
+  if (
+    qStatus === 'SUBMITTED_TO_CUSTOMER' ||
+    qStatus === 'CUSTOMER_REVIEW' ||
+    qStatus === 'REVISION_REQUESTED' ||
+    qStatus === 'REVISION_IN_PROGRESS' ||
+    status === 'NEGOTIATION' ||
+    pipeline === 'NEGOTIATION'
+  ) {
     return 4;
+  }
+  if (status === 'QUOTATION' || pipeline === 'QUOTATION' || qStatus === 'PENDING_INTERNAL') {
+    return 3;
   }
   if (
     status === 'COSTING_IN_PROGRESS' ||
@@ -37,7 +48,7 @@ export function projectStageFlowIndex(lead: Pick<Lead, 'status' | 'pipeline_stag
     status === 'COSTING_REJECTED' ||
     pipeline === 'COSTING'
   ) {
-    return 3;
+    return 2;
   }
   if (
     status === 'ACCEPTED_FOR_FEASIBILITY' ||
@@ -65,13 +76,15 @@ export interface ProjectStageFlowNode {
 export function projectStageFlowNodes(lead: Lead): ProjectStageFlowNode[] {
   const current = projectStageFlowIndex(lead);
   const closed = lead.status === 'LOST' || lead.status === 'CANCELLED' || lead.status === 'FEASIBILITY_REJECTED' || lead.status === 'COSTING_REJECTED';
+  const revision = lead.quotation?.revision_label || `R${lead.quotation?.revision ?? 0}`;
+  const qStatus = lead.quotation?.workflow_status;
 
   const dates: Array<string | undefined> = [
     lead.submitted_at || lead.created_at,
     lead.feasibility_study?.pm_approved_at || lead.feasibility_study?.submitted_at,
     lead.feasibility_study?.pm_approved_at || lead.costing?.submitted_at,
-    lead.costing?.pm_approved_at || lead.costing?.submitted_at,
-    lead.quotation?.sent_at,
+    lead.quotation?.created_at || lead.costing?.pm_approved_at,
+    lead.quotation?.submitted_to_customer_at || lead.quotation?.sent_at,
     lead.converted_at,
   ];
 
@@ -85,11 +98,27 @@ export function projectStageFlowNodes(lead: Lead): ProjectStageFlowNode[] {
       state === 'completed'
         ? 'Completed'
         : state === 'current'
-          ? 'Current Stage'
+          ? qStatus === 'REVISION_REQUESTED' && index === 4
+            ? 'Revision Requested'
+            : qStatus === 'REVISION_IN_PROGRESS' && index === 4
+              ? 'Revision in Progress'
+              : qStatus === 'SUBMITTED_TO_CUSTOMER' && index === 4
+                ? 'Submitted to Customer'
+                : index === 3 && state === 'current'
+                  ? 'Pending with Internal Team'
+                  : 'Current Stage'
           : 'Pending';
+
+    const label =
+      index === 3 && lead.quotation
+        ? `Quotation — ${revision}`
+        : index === 4 && (qStatus === 'REVISION_REQUESTED' || qStatus === 'REVISION_IN_PROGRESS')
+          ? 'Revision Requested'
+          : step.label;
 
     return {
       ...step,
+      label,
       state,
       caption,
       date: state === 'completed' ? dates[index] : undefined,

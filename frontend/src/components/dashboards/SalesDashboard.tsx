@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { User } from '@/lib/types';
 import { LeadApi, BusinessHeadDashboard } from '@/lib/leadApi';
 import { DailyUpdatesApi } from '@/lib/dailyUpdatesApi';
-import { formatInrCompact, LEAD_STATUS_LABELS } from '@/lib/format';
+import { formatInrCompact } from '@/lib/format';
+import { workflowActionLabel } from '@/lib/workflowActionLabel';
 import { canCreateLead } from '@/lib/rbac';
 import { Building2, Plus, Inbox, ArrowRight } from 'lucide-react';
 import { DailyUpdateSummary } from '@/lib/types';
@@ -117,7 +118,7 @@ export default function SalesDashboard({ user }: { user: User }) {
                 <div>
                   <span className="mr-2 font-mono font-bold text-cyan-400">{lead.lead_number}</span>
                   <span className="font-semibold text-slate-100">{lead.title}</span>
-                  <div className="text-[11px] text-slate-400">{lead.customer_name} · {LEAD_STATUS_LABELS[lead.status] || lead.status}</div>
+                  <div className="text-[11px] text-slate-400">{lead.customer_name} · {workflowActionLabel(lead)}</div>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-slate-300">{formatInrCompact(lead.expected_value ?? 0)}</span>

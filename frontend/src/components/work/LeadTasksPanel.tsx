@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { Task, User } from '@/lib/types';
 import { toSheetStatus, sheetStatusClass } from '@/lib/dailyStatus';
 import { canCreateLeadTask } from '@/lib/rbac';
@@ -26,53 +26,25 @@ function canManageLeadTask(user: User | null, task: Task) {
 
 export default function LeadTasksPanel({
   tasks,
-  canCreate,
   currentUser,
   busyId,
-  onCreate,
   onEdit,
   onDelete,
 }: {
   tasks: Task[];
-  canCreate: boolean;
   currentUser: User | null;
   busyId?: string | null;
-  onCreate: () => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
 }) {
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/90 p-5">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-bold text-slate-100">Lead Tasks</h2>
-          <p className="text-[11px] text-slate-400">Work created against this lead. Completing a task does not change the lead stage.</p>
-        </div>
-        {canCreate && (
-          <button
-            type="button"
-            onClick={onCreate}
-            className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500"
-          >
-            <Plus className="h-3 w-3" /> Create Task
-          </button>
-        )}
+      <div className="mb-3">
+        <h2 className="text-sm font-bold text-slate-100">Lead Tasks</h2>
+        <p className="text-[11px] text-slate-400">Work created against this lead. Completing a task does not change the lead stage.</p>
       </div>
       {tasks.length === 0 ? (
-        <div className="space-y-3">
-          <p className="py-6 text-center text-xs text-slate-500">No tasks have been created for this lead yet.</p>
-          {canCreate && (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                onClick={onCreate}
-                className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500"
-              >
-                <Plus className="h-3 w-3" /> Create Task
-              </button>
-            </div>
-          )}
-        </div>
+        <p className="py-6 text-center text-xs text-slate-500">No tasks have been created for this lead yet.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-left text-xs">
@@ -145,17 +117,6 @@ export default function LeadTasksPanel({
               })}
             </tbody>
           </table>
-          {canCreate && (
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                onClick={onCreate}
-                className="inline-flex items-center gap-1 rounded-lg bg-cyan-600 px-3 py-1.5 font-bold text-white hover:bg-cyan-500"
-              >
-                <Plus className="h-3 w-3" /> Create Task
-              </button>
-            </div>
-          )}
         </div>
       )}
     </section>

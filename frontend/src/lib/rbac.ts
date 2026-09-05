@@ -19,6 +19,13 @@ export const NAVIGATION_ITEMS: NavItem[] = [
     category: 'main'
   },
   {
+    name: 'Executive Overview',
+    href: '/executive-overview',
+    iconName: 'BarChart3',
+    category: 'main',
+    allowedRoles: ['CEO', 'CTO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'PROJECT_MANAGER', 'SYSTEM_ADMIN']
+  },
+  {
     name: 'Leads & Pipeline',
     href: '/pre-sales/leads',
     iconName: 'Building2',
@@ -147,6 +154,11 @@ export function isCeoViewOnly(user: User | null | undefined): boolean {
   return user?.role_code === 'CEO';
 }
 
+export function canAccessExecutiveOverview(user: User | null | undefined): boolean {
+  if (!user) return false;
+  return ['CEO', 'BUSINESS_HEAD', 'ENG_DIRECTOR', 'CTO', 'PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code);
+}
+
 export function canCreateLead(user: User | null | undefined): boolean {
   if (!user) return false;
   return user.role_code === 'BUSINESS_HEAD' || user.role_code === 'ENG_DIRECTOR';
@@ -244,6 +256,7 @@ export function canPrepareFeasibility(user: User | null | undefined): boolean {
 export function userIsOnLeadTeam(user: User | null | undefined, lead: Lead | null | undefined): boolean {
   if (!user || !lead) return false;
   if (lead.assigned_team_lead_id === user.id || lead.assigned_member_id === user.id) return true;
+  if ((lead.visit_assigned_user_ids || []).includes(user.id)) return true;
   return Boolean(
     user.team_id &&
       (user.team_id === lead.assigned_team_id || (lead.assigned_team_ids || []).includes(user.team_id))

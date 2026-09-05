@@ -25,6 +25,7 @@ import {
 import { assertAllowedTransition, LeadWorkflowError, leadOwnerId, PM_REVIEW_STATUSES } from './leadValidation.js';
 import { dispatchHandover, procurementUsers } from './lifecycleNotify.js';
 import { applyLeadWorkflowContext, workflowContextForStatus } from './workflowEngine.js';
+import { CAREYU_OFFICE_ADDRESS } from './company.js';
 
 export function parseMoney(raw: unknown): number {
   const numeric = Number(String(raw ?? '').replace(/[₹,\s]/g, ''));
@@ -75,12 +76,28 @@ export function stageFromStatus(status: LeadStatus): PipelineStage {
 }
 
 /** Visual lead-pipeline stage label. Independent of any task status. */
-export function leadPipelineStageLabel(lead: Pick<Lead, 'status' | 'pipeline_stage'>): string {
+export function leadPipelineStageLabel(
+  lead: Pick<Lead, 'status' | 'pipeline_stage' | 'quotation' | 'quotation_revisions'>
+): string {
   const status = lead.status;
   const pipeline = lead.pipeline_stage || '';
   if (status === 'ORDER_CONVERTED' || status === 'WON' || pipeline === 'CONVERTED') return 'Project';
-  if (status === 'QUOTATION' || status === 'NEGOTIATION' || pipeline === 'QUOTATION' || pipeline === 'NEGOTIATION') {
-    return 'PO Conversion';
+  const quotation = lead.quotation;
+  const revision = quotation?.revision_label || `R${quotation?.revision ?? 0}`;
+  const qStatus = quotation?.workflow_status;
+  if (qStatus === 'REVISION_REQUESTED' || qStatus === 'REVISION_IN_PROGRESS') {
+    return `Quotation — ${revision} · ${qStatus === 'REVISION_REQUESTED' ? 'Revision Requested' : 'Revision in Progress'}`;
+  }
+  if (
+    qStatus === 'SUBMITTED_TO_CUSTOMER' ||
+    qStatus === 'CUSTOMER_REVIEW' ||
+    status === 'NEGOTIATION' ||
+    pipeline === 'NEGOTIATION'
+  ) {
+    return `Quotation — ${revision} · Submitted to Customer`;
+  }
+  if (status === 'QUOTATION' || pipeline === 'QUOTATION' || qStatus === 'PENDING_INTERNAL') {
+    return `Quotation — ${revision} · Pending with Internal Team`;
   }
   if (
     status === 'COSTING_IN_PROGRESS' ||
@@ -89,7 +106,7 @@ export function leadPipelineStageLabel(lead: Pick<Lead, 'status' | 'pipeline_sta
     status === 'COSTING_REJECTED' ||
     pipeline === 'COSTING'
   ) {
-    return 'Procurement';
+    return 'Solution & Costing';
   }
   if (
     status === 'ACCEPTED_FOR_FEASIBILITY' ||
@@ -148,8 +165,32 @@ export function hydrateLead(lead: Lead): Lead {
     ...(aligned.assigned_team_name ? [aligned.assigned_team_name] : []),
     ...assignmentTeams.map((item) => item.team_name),
   ].filter(Boolean))];
+  const visit = {
+    visit_requirement: aligned.visit_requirement || 'NONE',
+    visit_status: aligned.visit_status || (aligned.visit_requirement && aligned.visit_requirement !== 'NONE' ? 'PENDING_PM_ASSIGNMENT' : 'NOT_REQUIRED'),
+    visit_office_address: aligned.visit_office_address || CAREYU_OFFICE_ADDRESS,
+    visit_assigned_user_ids: aligned.visit_assigned_user_ids || [],
+    visit_assigned_user_names: aligned.visit_assigned_user_names || [],
+    visit_activity: aligned.visit_activity || [],
+  };
+  let quotation = aligned.quotation;
+  if (quotation) {
+    const revision = quotation.revision ?? 0;
+    const submitted = Boolean(quotation.submitted_to_customer_at || quotation.sent_at);
+    quotation = emptyQuotation({
+      ...quotation,
+      revision,
+      revision_label: quotation.revision_label || `R${revision}`,
+      workflow_status:
+        quotation.workflow_status ||
+        (submitted ? 'SUBMITTED_TO_CUSTOMER' : aligned.status === 'QUOTATION' ? 'PENDING_INTERNAL' : 'DRAFT'),
+    });
+  }
   return applyLeadWorkflowContext({
     ...aligned,
+    ...visit,
+    quotation,
+    quotation_revisions: aligned.quotation_revisions || [],
     pipeline_stage: stageFromStatus(aligned.status) || aligned.pipeline_stage,
     current_owner_id: ownerId,
     current_owner_name: ownerName,
@@ -325,6 +366,7 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   if (user.role_code === 'PROJECT_MANAGER' && lead.pm_id === user.id) return true;
   if (user.role_code === 'ENG_DIRECTOR' && lead.business_vertical === 'Engineering Director') return true;
   if (userIsOnAssignedLeadTeam(user, lead)) return true;
+  if ((lead.visit_assigned_user_ids || []).includes(user.id)) return true;
   if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'COSTING_REJECTED'].includes(lead.status)) {
     return true;
   }
@@ -614,6 +656,15 @@ export function reviewLeadTeamIntake(
   }
   const note = (comments || '').trim();
   const now = new Date().toISOString();
+
+  if (action === 'accept') {
+    if (assignment && !['PENDING_TEAM_LEAD_REVIEW', 'CLARIFICATION_REQUIRED'].includes(assignment.status)) {
+      throw new LeadWorkflowError('This project has already been accepted for the current review cycle.', 400);
+    }
+    if (!assignment && lead.status === 'FEASIBILITY_IN_PROGRESS') {
+      throw new LeadWorkflowError('This project has already been accepted for the current review cycle.', 400);
+    }
+  }
 
   if (action === 'return') {
     if (!note) throw new LeadWorkflowError('Comments are required when returning a project to the Project Manager.', 400);
@@ -1277,34 +1328,38 @@ export function appendNegotiation(lead: Lead, user: User, body: Partial<Negotiat
 }
 
 export function emptyQuotation(partial: Partial<QuotationRecord> = {}): QuotationRecord {
+  const revision = partial.revision ?? 0;
   return {
     quotation_value: 0,
     commercial_terms: '',
     validity: '',
     payment_terms: '',
     delivery_terms: '',
+    revision,
+    revision_label: partial.revision_label || `R${revision}`,
+    workflow_status: partial.workflow_status || 'PENDING_INTERNAL',
     ...partial,
   };
 }
 
 const ACTIVITY_CAPTIONS: Record<string, string> = {
   DRAFT: 'Lead created',
-  SUBMITTED_TO_PM: 'Forwarded to Project Manager',
+  SUBMITTED_TO_PM: 'Lead submitted to PM for review',
   UNDER_PM_REVIEW: 'PM started review',
-  RETURNED_TO_SALES: 'Returned to sales',
-  ADDITIONAL_INFORMATION_REQUIRED: 'PM requested more information',
-  RESUBMITTED_TO_PM: 'Resubmitted to Project Manager',
-  ACCEPTED_FOR_FEASIBILITY: 'PM accepted for feasibility',
-  FEASIBILITY_IN_PROGRESS: 'Team accepted — feasibility in progress',
-  FEASIBILITY_SUBMITTED: 'Feasibility submitted to PM',
-  FEASIBILITY_RETURNED: 'Feasibility returned to the team',
+  RETURNED_TO_SALES: 'Returned for clarification',
+  ADDITIONAL_INFORMATION_REQUIRED: 'Returned for clarification',
+  RESUBMITTED_TO_PM: 'Resubmitted to PM for review',
+  ACCEPTED_FOR_FEASIBILITY: 'Submitted to feasibility team',
+  FEASIBILITY_IN_PROGRESS: 'Submitted to feasibility team',
+  FEASIBILITY_SUBMITTED: 'Feasibility submitted to PM for review',
+  FEASIBILITY_RETURNED: 'Returned for clarification',
   FEASIBILITY_REJECTED: 'Feasibility rejected',
   COSTING_IN_PROGRESS: 'Sent to procurement / costing',
-  COSTING_SUBMITTED: 'Costing submitted to PM',
+  COSTING_SUBMITTED: 'Costing submitted to PM for review',
   COSTING_RETURNED: 'Costing returned for revision',
   COSTING_REJECTED: 'Costing rejected',
   QUOTATION: 'Quotation prepared',
-  NEGOTIATION: 'Moved to negotiation',
+  NEGOTIATION: 'Quotation submitted to customer',
   ORDER_CONVERTED: 'Order converted',
   LOST: 'Lead lost',
   CANCELLED: 'Lead cancelled',
@@ -1317,12 +1372,13 @@ export type LeadWorkflowEvent = {
   lead_number: string;
   customer_name: string;
   title: string;
+  project_title?: string;
   actor: string;
   status: string;
   href: string;
 };
 
-export function buildLeadActivityFeed(user: User, limit = 40): LeadWorkflowEvent[] {
+export function buildLeadActivityFeed(user: User, limit = 120): LeadWorkflowEvent[] {
   const leads = store.getLeads().map(hydrateLead).filter((lead) => {
     if (['CEO', 'CTO', 'SYSTEM_ADMIN'].includes(user.role_code)) return true;
     return canOwnLead(user, lead);
@@ -1338,6 +1394,7 @@ export function buildLeadActivityFeed(user: User, limit = 40): LeadWorkflowEvent
       lead_number: lead.lead_number,
       customer_name: lead.customer_name,
       title: 'Lead created',
+      project_title: lead.title,
       actor: lead.created_by || lead.sales_owner,
       status: 'DRAFT',
       href: `/pre-sales/leads/${lead.id}`,
@@ -1355,6 +1412,7 @@ export function buildLeadActivityFeed(user: User, limit = 40): LeadWorkflowEvent
       lead_number: lead.lead_number,
       customer_name: lead.customer_name,
       title: ACTIVITY_CAPTIONS[item.new_status] || item.new_status.replace(/_/g, ' '),
+      project_title: lead.title,
       actor: item.changed_by,
       status: item.new_status,
       href: `/pre-sales/leads/${lead.id}`,

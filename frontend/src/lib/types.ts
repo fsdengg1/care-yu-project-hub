@@ -482,6 +482,35 @@ export interface Lead {
   feasibility_return_reason?: string;
   costing_return_reason?: string;
 
+  visit_requirement?: VisitRequirement;
+  visit_status?: VisitStatus;
+  visit_site_name?: string;
+  visit_site_address?: string;
+  visit_city?: string;
+  visit_state?: string;
+  visit_country?: string;
+  visit_contact_name?: string;
+  visit_contact_phone?: string;
+  visit_contact_email?: string;
+  visit_preferred_date?: string;
+  visit_preferred_time?: string;
+  visit_remarks?: string;
+  visit_visitor_name?: string;
+  visit_visitor_designation?: string;
+  visit_visitor_count?: string;
+  visit_purpose?: string;
+  visit_special_requirements?: string;
+  visit_office_address?: string;
+  visit_assigned_user_ids?: string[];
+  visit_assigned_user_names?: string[];
+  visit_assigned_by?: string;
+  visit_assigned_by_id?: string;
+  visit_assigned_at?: string;
+  visit_scheduled_date?: string;
+  visit_scheduled_time?: string;
+  visit_activity?: VisitActivity[];
+  quotation_revisions?: QuotationRevision[];
+
   feasibility_study?: FeasibilityStudy;
   costing?: CostingRecord;
   quotation?: QuotationRecord;
@@ -570,6 +599,36 @@ export interface CostingRecord {
   pm_return_reason?: string;
 }
 
+export type VisitRequirement = 'NONE' | 'CUSTOMER_SITE' | 'CAREYU_OFFICE';
+
+export type VisitStatus =
+  | 'NOT_REQUIRED'
+  | 'PENDING_PM_ASSIGNMENT'
+  | 'TEAM_ASSIGNED'
+  | 'SCHEDULED'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'RESCHEDULED';
+
+export interface VisitActivity {
+  id: string;
+  at: string;
+  actor: string;
+  actor_id: string;
+  action: string;
+  detail: string;
+}
+
+export type QuotationWorkflowStatus =
+  | 'DRAFT'
+  | 'PENDING_INTERNAL'
+  | 'SUBMITTED_TO_CUSTOMER'
+  | 'CUSTOMER_REVIEW'
+  | 'REVISION_REQUESTED'
+  | 'REVISION_IN_PROGRESS';
+
+export type QuotationSubmissionMethod = 'EMAIL' | 'WHATSAPP' | 'EMAIL_AND_WHATSAPP' | 'OTHER';
+
 export interface QuotationRecord {
   quotation_value: number;
   commercial_terms: string;
@@ -581,6 +640,36 @@ export interface QuotationRecord {
   sent_by?: string;
   sent_by_id?: string;
   revised_value?: number;
+  revision?: number;
+  revision_label?: string;
+  revision_id?: string;
+  workflow_status?: QuotationWorkflowStatus;
+  submission_method?: QuotationSubmissionMethod;
+  submission_remarks?: string;
+  submitted_to_customer_at?: string;
+  submitted_to_customer_by?: string;
+  submitted_to_customer_by_id?: string;
+  revision_reason?: string;
+  created_at?: string;
+  created_by?: string;
+  created_by_id?: string;
+}
+
+export interface QuotationRevision {
+  id: string;
+  revision: number;
+  revision_label: string;
+  quotation: QuotationRecord;
+  created_at: string;
+  created_by?: string;
+  created_by_id?: string;
+  status: QuotationWorkflowStatus;
+  submitted_at?: string;
+  submitted_by?: string;
+  submitted_by_id?: string;
+  submission_method?: QuotationSubmissionMethod;
+  remarks?: string;
+  reason?: string;
 }
 
 export interface NegotiationEntry {

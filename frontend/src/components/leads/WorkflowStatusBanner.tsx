@@ -2,10 +2,10 @@
 
 import React from 'react';
 import { AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Lead } from '@/lib/types';
 import {
   WorkflowActionKind,
   WORKFLOW_ACTION_SUCCESS,
-  WORKFLOW_STAGE_FOR_ACTION,
   workflowStatusPresentation,
 } from '@/lib/format';
 
@@ -17,6 +17,7 @@ export interface WorkflowActionFeedback {
 
 interface Props {
   status: string;
+  lead?: Lead;
   feedback?: WorkflowActionFeedback | null;
   error?: string | null;
   showStage?: boolean;
@@ -34,9 +35,9 @@ const FEEDBACK_ICON: Record<WorkflowActionKind, React.ReactNode> = {
   reject: <XCircle className="h-5 w-5 shrink-0 text-rose-300" />,
 };
 
-export default function WorkflowStatusBanner({ status, feedback, error, showStage = true }: Props) {
-  const current = workflowStatusPresentation(status);
-  const displayedStage = feedback ? WORKFLOW_STAGE_FOR_ACTION[feedback.kind] : current.label;
+export default function WorkflowStatusBanner({ status, lead, feedback, error, showStage = true }: Props) {
+  const current = workflowStatusPresentation(status, lead);
+  const displayedStage = current.label;
   const previous = feedback?.previousStatus ? workflowStatusPresentation(feedback.previousStatus) : null;
   const highlight = Boolean(feedback);
 

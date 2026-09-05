@@ -56,15 +56,15 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'BUSINESS_HEAD',
   },
   SUBMITTED_TO_PM: {
-    status_label: 'Submitted to PM',
-    action_required: 'Review Project',
+    status_label: 'Submitted to PM for Review',
+    action_required: 'Review lead and visit requirement',
     previous_action: 'Submitted to PM',
-    next_action: 'Approve, send back, or cancel',
+    next_action: 'Review, assign visit team if required, then continue',
     approval_pending: true,
     owner_role: 'PROJECT_MANAGER',
   },
   UNDER_PM_REVIEW: {
-    status_label: 'PM Review',
+    status_label: 'Submitted to PM for Review',
     action_required: 'Review Project',
     previous_action: 'Submitted to PM',
     next_action: 'Approve, send back, or cancel',
@@ -72,7 +72,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   RETURNED_TO_SALES: {
-    status_label: 'Correction Required',
+    status_label: 'Returned for Clarification',
     action_required: 'Correct project input and resubmit',
     previous_action: 'PM sent back for correction',
     next_action: 'Resubmit to PM',
@@ -80,7 +80,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'BUSINESS_HEAD',
   },
   ADDITIONAL_INFORMATION_REQUIRED: {
-    status_label: 'Correction Required',
+    status_label: 'Returned for Clarification',
     action_required: 'Provide additional information and resubmit',
     previous_action: 'PM requested more information',
     next_action: 'Resubmit to PM',
@@ -88,7 +88,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'BUSINESS_HEAD',
   },
   RESUBMITTED_TO_PM: {
-    status_label: 'Submitted to PM',
+    status_label: 'Submitted to PM for Review',
     action_required: 'Review resubmitted project',
     previous_action: 'Resubmitted to PM',
     next_action: 'Approve, send back, or cancel',
@@ -96,7 +96,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   ACCEPTED_FOR_FEASIBILITY: {
-    status_label: 'PM Approved — Ready for Assignment',
+    status_label: 'Submitted to Feasibility Team',
     action_required: 'Assign Team Lead or Team Member',
     previous_action: 'PM approved project',
     next_action: 'Assign to Team Lead / Team Member',
@@ -104,7 +104,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   FEASIBILITY_IN_PROGRESS: {
-    status_label: 'Feasibility In Progress',
+    status_label: 'Submitted to Feasibility Team',
     action_required: 'Complete and submit feasibility',
     previous_action: 'Assigned to team',
     next_action: 'Submit feasibility to PM',
@@ -112,7 +112,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'TEAM_LEAD',
   },
   FEASIBILITY_SUBMITTED: {
-    status_label: 'Feasibility Submitted – Pending PM Review',
+    status_label: 'Submitted to PM for Review',
     action_required: 'Review Feasibility',
     previous_action: 'Feasibility submitted',
     next_action: 'Approve, send back, or reject',
@@ -120,7 +120,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   FEASIBILITY_RETURNED: {
-    status_label: 'Feasibility Correction Required',
+    status_label: 'Returned for Clarification',
     action_required: 'Correct feasibility and resubmit',
     previous_action: 'PM returned feasibility',
     next_action: 'Resubmit Feasibility',
@@ -136,7 +136,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   COSTING_IN_PROGRESS: {
-    status_label: 'Procurement Pending',
+    status_label: 'Submitted to Procurement Review',
     action_required: 'Complete procurement and submit for PM review',
     previous_action: 'Feasibility approved',
     next_action: 'Submit procurement to PM',
@@ -144,7 +144,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROCUREMENT',
   },
   COSTING_SUBMITTED: {
-    status_label: 'Procurement Submitted – Pending PM Review',
+    status_label: 'Submitted to PM for Review',
     action_required: 'Review procurement',
     previous_action: 'Procurement submitted',
     next_action: 'Approve, send back, or reject',
@@ -152,7 +152,7 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   COSTING_RETURNED: {
-    status_label: 'Procurement Correction Required',
+    status_label: 'Returned for Clarification',
     action_required: 'Revise procurement and resubmit',
     previous_action: 'PM returned procurement',
     next_action: 'Resubmit procurement',
@@ -168,18 +168,18 @@ const BY_STATUS: Record<LeadStatus, LeadWorkflowContext> = {
     owner_role: 'PROJECT_MANAGER',
   },
   QUOTATION: {
-    status_label: 'Quotation',
-    action_required: 'Prepare and submit quotation',
-    previous_action: 'Procurement approved',
-    next_action: 'Submit quotation',
+    status_label: 'Submitted to Business Head for Review',
+    action_required: 'Prepare quotation, then mark Submitted to Customer after sending it',
+    previous_action: 'Costing approved',
+    next_action: 'Submitted to Customer',
     approval_pending: false,
     owner_role: 'BUSINESS_HEAD',
   },
   NEGOTIATION: {
-    status_label: 'Negotiation In Progress',
-    action_required: 'Complete customer negotiation',
-    previous_action: 'Quotation submitted',
-    next_action: 'Complete negotiation and convert order',
+    status_label: 'Submitted to Customer',
+    action_required: 'Customer review — follow up or record a revision',
+    previous_action: 'Quotation submitted to customer',
+    next_action: 'Customer review, revision, or convert order',
     approval_pending: false,
     owner_role: 'BUSINESS_HEAD',
   },
@@ -233,16 +233,34 @@ export function applyLeadWorkflowContext(lead: Lead, previousStatus?: LeadStatus
   const ctx = workflowContextForStatus(lead.status);
   const previous = previousStatus ? workflowContextForStatus(previousStatus) : undefined;
   const awaitingTeamAccept = lead.status === 'ACCEPTED_FOR_FEASIBILITY' && Boolean(lead.assigned_team_lead_id || lead.assigned_member_id);
+  const qStatus = lead.quotation?.workflow_status;
+  const revision = lead.quotation?.revision_label || 'R0';
+  let nextAction = awaitingTeamAccept ? 'Accept project or return to PM' : ctx.next_action;
+  let actionRequired = awaitingTeamAccept
+    ? 'Review requirements and accept the project'
+    : ctx.action_required;
+  if (qStatus === 'REVISION_IN_PROGRESS' || qStatus === 'REVISION_REQUESTED') {
+    actionRequired = `Revise quotation ${revision}`;
+    nextAction = 'Complete revision and click Submitted to Customer';
+  } else if (qStatus === 'SUBMITTED_TO_CUSTOMER' || qStatus === 'CUSTOMER_REVIEW') {
+    actionRequired = 'Customer review';
+    nextAction = 'Record customer revision or convert the order';
+  } else if (lead.status === 'QUOTATION') {
+    actionRequired = 'Prepare quotation — pending with internal team';
+    nextAction = 'After sending to the customer, click Submitted to Customer';
+  }
+  if (lead.status === 'FEASIBILITY_SUBMITTED' && (previousStatus === 'FEASIBILITY_RETURNED' || lead.previous_status === 'FEASIBILITY_RETURNED')) {
+    actionRequired = 'Review clarification from feasibility team';
+    nextAction = 'Approve, send back, or reject';
+  }
   return {
     ...lead,
     previous_status: previousStatus || lead.previous_status,
     previous_action: previous?.action_required || lead.previous_action || ctx.previous_action,
-    next_action: awaitingTeamAccept ? 'Accept project or return to PM' : ctx.next_action,
-    action_required: awaitingTeamAccept
-      ? 'Review requirements and accept the project'
-      : ctx.action_required,
+    next_action: nextAction,
+    action_required: actionRequired,
     approval_pending: awaitingTeamAccept ? true : ctx.approval_pending,
-    due_date: lead.due_date || lead.customer_target_date || lead.expected_project_timeline,
+    due_date: lead.due_date || lead.customer_target_date || lead.expected_project_timeline || lead.visit_preferred_date,
     pending_action: ctx.approval_pending || awaitingTeamAccept || lead.pending_action !== false,
   };
 }

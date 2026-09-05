@@ -389,6 +389,42 @@ export function validateLeadPayload(body: Record<string, unknown>, options: { su
     push(errors, 'customer_target_date', 'Enter a valid date.');
   }
 
+  const visitRequirement = asString(body.visit_requirement || 'NONE');
+  if (submit && visitRequirement && !['NONE', 'CUSTOMER_SITE', 'CAREYU_OFFICE'].includes(visitRequirement)) {
+    push(errors, 'visit_requirement', 'Select a valid visit requirement.');
+  }
+  if (submit && visitRequirement === 'CUSTOMER_SITE') {
+    for (const [field, label] of [
+      ['visit_site_name', 'Customer Site / Plant Name'],
+      ['visit_site_address', 'Customer Site Address'],
+      ['visit_city', 'City'],
+      ['visit_state', 'State'],
+      ['visit_country', 'Country'],
+      ['visit_contact_name', 'Site Contact Person Name'],
+    ] as const) {
+      if (!asString(body[field])) push(errors, field, `${label} is required.`);
+    }
+    if (!asString(body.visit_preferred_date)) push(errors, 'visit_preferred_date', 'Customer preferred visit date is required.');
+    const visitPhone = asString(body.visit_contact_phone);
+    if (!visitPhone) push(errors, 'visit_contact_phone', 'Site contact phone is required.');
+    else if (!isValidPhone(visitPhone)) push(errors, 'visit_contact_phone', 'Phone number must contain exactly 10 digits and start with 6, 7, 8, or 9.');
+    const visitEmail = asString(body.visit_contact_email);
+    if (!visitEmail) push(errors, 'visit_contact_email', 'Site contact email is required.');
+    else if (!isValidEmail(visitEmail)) push(errors, 'visit_contact_email', 'Enter a valid email address.');
+  }
+  if (submit && visitRequirement === 'CAREYU_OFFICE') {
+    if (!asString(body.visit_visitor_name)) push(errors, 'visit_visitor_name', 'Visitor name is required.');
+    if (!asString(body.visit_visitor_designation)) push(errors, 'visit_visitor_designation', 'Visitor designation is required.');
+    if (!asString(body.visit_preferred_date)) push(errors, 'visit_preferred_date', 'Customer preferred visit date is required.');
+    if (!asString(body.visit_purpose)) push(errors, 'visit_purpose', 'Purpose of visit is required.');
+    const count = parseStrictNumber(body.visit_visitor_count, { min: 1, integer: true, allowEmpty: false });
+    if (!count.ok) push(errors, 'visit_visitor_count', 'Enter the number of visitors.');
+  }
+  const visitDate = asString(body.visit_preferred_date);
+  if (visitDate && !isValidIsoDate(visitDate)) {
+    push(errors, 'visit_preferred_date', 'Enter a valid preferred visit date.');
+  }
+
   if (body.status != null && body.status !== '' && body.status !== 'DRAFT' && body.status !== 'SUBMITTED_TO_PM') {
     push(errors, 'status', 'Status cannot be set directly. Use the workflow actions.');
   }
@@ -445,6 +481,16 @@ export function sanitizeLeadPatch(body: Record<string, unknown>): Record<string,
     'accepted_by_name',
     'project_id',
     'converted_at',
+    'visit_assigned_user_ids',
+    'visit_assigned_user_names',
+    'visit_assigned_by',
+    'visit_assigned_by_id',
+    'visit_assigned_at',
+    'visit_status',
+    'visit_scheduled_date',
+    'visit_scheduled_time',
+    'visit_activity',
+    'quotation_revisions',
   ];
   const next = { ...body };
   for (const key of blocked) {

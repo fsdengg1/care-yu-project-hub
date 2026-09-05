@@ -125,7 +125,7 @@ export function resolveDirectoryRole(emailRaw: string, nameRaw = ''): DirectoryP
   if (name.includes('aravind') || local.includes('aravind') || email === ARAVIND_EMAIL || personGivenKey(nameRaw) === 'aravind') {
     return role('EXECUTION', EXECUTION_TEAM);
   }
-  if (email === RAJA_EMAIL || email === 'cto@careyu.ai' || local === 'raja' || local === 'cto' || personGivenKey(nameRaw) === 'raja' || personGivenKey(nameRaw) === 'posu' || name.includes('posu')) {
+  if (email === RAJA_EMAIL || email === 'cto@careyu.ai' || local === 'raja' || local === 'cto' || personGivenKey(nameRaw) === 'raja' || personGivenKey(nameRaw) === 'posu' || name.includes('posu') || name.includes('ilaya')) {
     return role('CTO', { clearTeam: true });
   }
   return null;

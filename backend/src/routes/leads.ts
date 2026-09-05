@@ -58,6 +58,9 @@ import { documentNamesForLead, emitLeadWorkflow, emitWorkflowEvent } from '../li
 import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
 import { canAccessEntity } from '../lib/documents.js';
 import { notificationService } from '../lib/notificationService.js';
+import { CAREYU_OFFICE_ADDRESS } from '../lib/company.js';
+import { assignVisitTeam, updateVisitSchedule } from '../lib/customerVisit.js';
+import { prepareWorkingQuotation, requestQuotationRevision, submitQuotationToCustomer } from '../lib/quotationCycle.js';
 import {
   isCurrentResponsible,
   NOT_RESPONSIBLE_MESSAGE,
@@ -184,6 +187,13 @@ function submitExistingLead(lead: Lead, user: User, body: Record<string, unknown
       validation.normalized.expected_value != null
         ? String(validation.normalized.expected_value)
         : lead.estimated_opportunity_value,
+    visit_office_address: CAREYU_OFFICE_ADDRESS,
+    visit_status:
+      (body.visit_requirement || lead.visit_requirement || 'NONE') === 'NONE'
+        ? 'NOT_REQUIRED'
+        : lead.visit_assigned_user_ids?.length
+          ? lead.visit_status
+          : 'PENDING_PM_ASSIGNMENT',
   });
   const updated = transitionLead(withFields, next, user, 'Submitted to PM for review', {
     submitted_at: now,
@@ -369,6 +379,25 @@ router.post('/', requireAuth, requirePermission('create:lead'), async (req: Auth
     required_solution: body.required_solution,
     project_description: body.project_description,
     custom_fields: Array.isArray(body.custom_fields) ? body.custom_fields : [],
+    visit_requirement: body.visit_requirement || 'NONE',
+    visit_status: body.visit_requirement && body.visit_requirement !== 'NONE' ? 'PENDING_PM_ASSIGNMENT' : 'NOT_REQUIRED',
+    visit_site_name: body.visit_site_name,
+    visit_site_address: body.visit_site_address,
+    visit_city: body.visit_city,
+    visit_state: body.visit_state,
+    visit_country: body.visit_country,
+    visit_contact_name: body.visit_contact_name,
+    visit_contact_phone: body.visit_contact_phone,
+    visit_contact_email: body.visit_contact_email,
+    visit_preferred_date: body.visit_preferred_date,
+    visit_preferred_time: body.visit_preferred_time,
+    visit_remarks: body.visit_remarks,
+    visit_visitor_name: body.visit_visitor_name,
+    visit_visitor_designation: body.visit_visitor_designation,
+    visit_visitor_count: body.visit_visitor_count,
+    visit_purpose: body.visit_purpose,
+    visit_special_requirements: body.visit_special_requirements,
+    visit_office_address: CAREYU_OFFICE_ADDRESS,
     created_at: now,
     updated_at: now,
     submitted_at: undefined,
@@ -1033,54 +1062,132 @@ router.post(
     }
     const send = Boolean(req.body?.send);
     const incoming = { ...(lead.quotation || emptyQuotation()), ...(req.body?.quotation || {}) } as QuotationRecord;
-    const quotation = emptyQuotation({
+    const quotation = prepareWorkingQuotation(lead, {
       ...incoming,
       quotation_value: parseMoney(incoming.quotation_value),
-      sent_at: send ? new Date().toISOString() : incoming.sent_at,
-      sent_by: send ? user.name : incoming.sent_by,
-      sent_by_id: send ? user.id : incoming.sent_by_id,
-    });
-    const nextStatus: LeadStatus = send ? 'NEGOTIATION' : 'QUOTATION';
-    const updated = transitionLead(lead, nextStatus, user, send ? 'Quotation sent to customer' : 'Quotation saved', {
+    }, user);
+    if (quotation.workflow_status === 'SUBMITTED_TO_CUSTOMER' || quotation.workflow_status === 'CUSTOMER_REVIEW') {
+      return res.status(400).json({
+        message: 'This quotation version is already submitted. Use Customer Requested Revision to create the next revision.',
+      });
+    }
+    const updated = transitionLead(lead, 'QUOTATION', user, 'Quotation saved', {
       quotation,
       expected_value: quotation.quotation_value || lead.expected_value,
       estimated_opportunity_value: String(quotation.quotation_value || lead.estimated_opportunity_value || ''),
     });
-    audit(
-      user,
-      updated,
-      send ? 'QUOTATION_SENT' : 'QUOTATION_SAVED',
-      `${user.name} ${send ? 'sent' : 'saved'} quotation for ${lead.lead_number}.`
-    );
-    if (send) {
+    audit(user, updated, 'QUOTATION_SAVED', `${user.name} saved quotation ${quotation.revision_label} for ${lead.lead_number}.`);
+    if (send && updated.customer_email) {
+      await notificationService.notifyClientEmail({
+        actor: user,
+        entityType: 'LEAD',
+        entityId: updated.id,
+        entityName: updated.title,
+        customerName: updated.customer_name,
+        customerEmail: updated.customer_email,
+        customerContact: updated.customer_contact,
+        type: 'CLIENT_PROPOSAL',
+        subject: `Proposal – ${updated.title}`,
+        intro: `${user.name} has sent a commercial proposal for ${updated.title}.`,
+        details: [
+          ['Quotation value', String(quotation.quotation_value || '')],
+          ['Validity', quotation.validity || ''],
+          ['Payment terms', quotation.payment_terms || ''],
+          ['Revision', quotation.revision_label || 'R0'],
+        ],
+        eventKey: `CLIENT_PROPOSAL:${updated.id}:${quotation.revision_label || 'R0'}:${Date.now()}`,
+      });
+    }
+    return res.json(payloadFor(updated));
+  }
+);
+
+router.post(
+  '/:id/visit/assign',
+  requireAuth,
+  requirePermission('assign:lead', 'review:lead', 'edit:lead'),
+  (req: AuthedRequest, res) => {
+    try {
+      const user = req.user!;
+      const lead = findLead(paramId(req));
+      if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+      if (!['PROJECT_MANAGER', 'SYSTEM_ADMIN'].includes(user.role_code)) {
+        return forbidden(res, 'Only the Project Manager can assign the CareYu visit team.');
+      }
+      const ids = Array.isArray(req.body?.user_ids) ? req.body.user_ids.map((id: unknown) => String(id)) : [];
+      const members = store.getUsers().filter((item) => item.status === 'ACTIVE' && ids.includes(item.id));
+      const updated = assignVisitTeam(hydrateLead(lead), user, members);
+      return res.json(payloadFor(updated));
+    } catch (error) {
+      return workflowError(res, error);
+    }
+  }
+);
+
+router.post(
+  '/:id/visit/schedule',
+  requireAuth,
+  requirePermission('assign:lead', 'review:lead', 'edit:lead'),
+  (req: AuthedRequest, res) => {
+    try {
+      const user = req.user!;
+      const lead = findLead(paramId(req));
+      if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+      const updated = updateVisitSchedule(hydrateLead(lead), user, {
+        scheduled_date: req.body?.scheduled_date,
+        scheduled_time: req.body?.scheduled_time,
+        status: req.body?.status,
+      });
+      return res.json(payloadFor(updated));
+    } catch (error) {
+      return workflowError(res, error);
+    }
+  }
+);
+
+router.post(
+  '/:id/quotation/submit-to-customer',
+  requireAuth,
+  requirePermission('create:quotation', 'edit:lead', 'create:lead'),
+  (req: AuthedRequest, res) => {
+    try {
+      const user = req.user!;
+      const lead = findLead(paramId(req));
+      if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+      if (!canPrepareQuotation(user, lead) && !canHandleLeadCommercial(user, lead)) return forbidden(res);
+      const updated = submitQuotationToCustomer(hydrateLead(lead), user, {
+        method: req.body?.method,
+        submitted_date: req.body?.submitted_date,
+        remarks: req.body?.remarks,
+      });
       emitLeadWorkflow({
         event: 'QUOTATION_SUBMITTED',
         lead: updated,
         actor: user,
-        message: `${user.name} submitted the quotation. Negotiation can now begin.`,
+        message: `${user.name} submitted ${updated.quotation?.revision_label || 'R0'} to the customer.`,
       });
-      if (updated.customer_email) {
-        await notificationService.notifyClientEmail({
-          actor: user,
-          entityType: 'LEAD',
-          entityId: updated.id,
-          entityName: updated.title,
-          customerName: updated.customer_name,
-          customerEmail: updated.customer_email,
-          customerContact: updated.customer_contact,
-          type: 'CLIENT_PROPOSAL',
-          subject: `Proposal – ${updated.title}`,
-          intro: `${user.name} has sent a commercial proposal for ${updated.title}.`,
-          details: [
-            ['Quotation value', String(quotation.quotation_value || '')],
-            ['Validity', quotation.validity || ''],
-            ['Payment terms', quotation.payment_terms || ''],
-          ],
-          eventKey: `CLIENT_PROPOSAL:${updated.id}:${quotation.sent_at || Date.now()}`,
-        });
-      }
+      return res.json(payloadFor(updated));
+    } catch (error) {
+      return workflowError(res, error);
     }
-    return res.json(payloadFor(updated));
+  }
+);
+
+router.post(
+  '/:id/quotation/request-revision',
+  requireAuth,
+  requirePermission('create:quotation', 'edit:lead', 'create:lead'),
+  (req: AuthedRequest, res) => {
+    try {
+      const user = req.user!;
+      const lead = findLead(paramId(req));
+      if (!lead) return res.status(404).json({ message: 'Lead not found.' });
+      if (!canHandleLeadCommercial(user, lead) && user.role_code !== 'SYSTEM_ADMIN') return forbidden(res);
+      const updated = requestQuotationRevision(hydrateLead(lead), user, String(req.body?.reason || ''));
+      return res.json(payloadFor(updated));
+    } catch (error) {
+      return workflowError(res, error);
+    }
   }
 );
 
