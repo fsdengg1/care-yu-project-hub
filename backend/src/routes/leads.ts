@@ -55,7 +55,6 @@ import {
 } from '../lib/leadValidation.js';
 import { transact } from '../store/db.js';
 import { documentNamesForLead, emitLeadWorkflow, emitWorkflowEvent } from '../lib/workflowEngine.js';
-import { activateAfterCostingApproved, assertProcurementAllowed, findDemoByLead, liveDemoActivity, publicDemoPayload } from '../lib/liveDemonstration.js';
 import { fileTypeError, isAllowedFileType, MAX_FILE_SIZE } from '../config/files.js';
 import { canAccessEntity } from '../lib/documents.js';
 import { notificationService } from '../lib/notificationService.js';
@@ -96,10 +95,6 @@ function payloadFor(lead: Lead) {
       .getAssignmentHistory()
       .filter((item) => item.entity_type === 'LEAD' && item.entity_id === hydrated.id),
     tasks: store.getTasks().filter((item) => item.lead_id === hydrated.id && item.task_type === 'LEAD_TASK'),
-    liveDemonstration: {
-      ...publicDemoPayload(hydrated),
-      activity: liveDemoActivity(findDemoByLead(hydrated.id)),
-    },
   };
 }
 
@@ -1004,17 +999,16 @@ router.post(
       pm_approved_by: user.name,
       pm_approved_at: new Date().toISOString(),
     });
-    let updated = transitionLead(lead, 'LIVE_CASE_DEMONSTRATION', user, 'Costing approved', {
+    let updated = transitionLead(lead, 'QUOTATION', user, 'Costing approved', {
       costing: record,
       expected_value: record.total_estimated_cost || lead.expected_value,
     });
-    updated = handLeadToBusinessHead(updated, user, 'Costing approved — LIVE Case Demonstration required');
-    updated = activateAfterCostingApproved(updated, user);
+    updated = handLeadToBusinessHead(updated, user, 'Costing approved — ready for quotation');
     emitLeadWorkflow({
       event: 'PROCUREMENT_APPROVED',
       lead: updated,
       actor: user,
-      message: `Solution & Costing approved for "${lead.title}". Arrange the customer LIVE Care Yu demonstration before Procurement.`,
+      message: `Procurement approved for "${lead.title}". Prepare the customer quotation.`,
     });
     audit(user, updated, 'COSTING_APPROVED', `${user.name} approved costing for ${lead.lead_number}.`);
     return res.json(payloadFor(updated));
@@ -1030,13 +1024,7 @@ router.post(
     const lead = findLead(paramId(req));
     if (!lead) return res.status(404).json({ message: 'Lead not found.' });
     if (lead.status !== 'QUOTATION' && lead.status !== 'NEGOTIATION') {
-      return res.status(400).json({ message: 'Quotation can be prepared only after LIVE Case Demonstration is completed.' });
-    }
-    try {
-      assertProcurementAllowed(lead);
-    } catch (error) {
-      if (error instanceof LeadWorkflowError) return res.status(error.status).json({ message: error.message });
-      throw error;
+      return res.status(400).json({ message: 'Quotation can be prepared only after costing is approved.' });
     }
     if (!canPrepareQuotation(user, lead)) {
       return res.status(403).json({
@@ -1112,12 +1100,6 @@ router.post(
     }
     const action = (req.body?.action || 'UPDATE') as 'UPDATE' | 'REVISED_QUOTATION' | 'CONVERT' | 'LOST';
     if (action === 'CONVERT') {
-      try {
-        assertProcurementAllowed(lead);
-      } catch (error) {
-        if (error instanceof LeadWorkflowError) return res.status(error.status).json({ message: error.message });
-        throw error;
-      }
       const working =
         lead.status === 'NEGOTIATION' ? lead : transitionLead(lead, 'NEGOTIATION', user, 'Moved to negotiation');
       const withHistory = appendNegotiation(working, user, { ...req.body, action: 'CONVERT' });
@@ -1151,12 +1133,6 @@ router.post('/:id/convert', requireAuth, requirePermission('convert:lead', 'crea
   }
   if (!['NEGOTIATION', 'QUOTATION'].includes(lead.status)) {
     return res.status(400).json({ message: 'Only quoted opportunities can be converted to an order.' });
-  }
-  try {
-    assertProcurementAllowed(lead);
-  } catch (error) {
-    if (error instanceof LeadWorkflowError) return res.status(error.status).json({ message: error.message });
-    throw error;
   }
   const result = convertLeadToProject(lead, user);
   notifyOrderConverted(user, result.lead, result.project);

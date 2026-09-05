@@ -56,8 +56,6 @@ export function stageFromStatus(status: LeadStatus): PipelineStage {
     case 'COSTING_RETURNED':
     case 'COSTING_REJECTED':
       return 'COSTING';
-    case 'LIVE_CASE_DEMONSTRATION':
-      return 'LIVE_DEMO';
     case 'QUOTATION':
       return 'QUOTATION';
     case 'NEGOTIATION':
@@ -81,9 +79,9 @@ export function leadPipelineStageLabel(lead: Pick<Lead, 'status' | 'pipeline_sta
   const status = lead.status;
   const pipeline = lead.pipeline_stage || '';
   if (status === 'ORDER_CONVERTED' || status === 'WON' || pipeline === 'CONVERTED') return 'Project';
-  if (status === 'NEGOTIATION' || pipeline === 'NEGOTIATION') return 'PO Conversion';
-  if (status === 'QUOTATION' || pipeline === 'QUOTATION') return 'Procurement';
-  if (status === 'LIVE_CASE_DEMONSTRATION' || pipeline === 'LIVE_DEMO') return 'Live Case Demonstration';
+  if (status === 'QUOTATION' || status === 'NEGOTIATION' || pipeline === 'QUOTATION' || pipeline === 'NEGOTIATION') {
+    return 'PO Conversion';
+  }
   if (
     status === 'COSTING_IN_PROGRESS' ||
     status === 'COSTING_SUBMITTED' ||
@@ -91,7 +89,7 @@ export function leadPipelineStageLabel(lead: Pick<Lead, 'status' | 'pipeline_sta
     status === 'COSTING_REJECTED' ||
     pipeline === 'COSTING'
   ) {
-    return 'Solution & Costing';
+    return 'Procurement';
   }
   if (
     status === 'ACCEPTED_FOR_FEASIBILITY' ||
@@ -330,7 +328,6 @@ export function canOwnLead(user: User, lead: Lead): boolean {
   if (isProcurementUser(user) && ['COSTING_IN_PROGRESS', 'COSTING_SUBMITTED', 'COSTING_RETURNED', 'COSTING_REJECTED'].includes(lead.status)) {
     return true;
   }
-  if ((lead.live_demo_participant_ids || []).includes(user.id)) return true;
   return false;
 }
 
@@ -821,9 +818,6 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
       }
     }
     if (canHandleLeadCommercial(user, lead)) {
-      if (lead.status === 'LIVE_CASE_DEMONSTRATION') {
-        add(lead, 'LIVE_DEMO', lead.next_action || 'Capture the customer LIVE demonstration request before Procurement.');
-      }
       if (lead.status === 'QUOTATION') {
         add(lead, 'QUOTATION', 'Approved costing is ready. Prepare and send the quotation.');
       }
@@ -849,9 +843,6 @@ export function buildMyWork(user: User): { items: MyWorkItem[]; groups: Record<s
       }
       if (lead.status === 'COSTING_SUBMITTED' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
         add(lead, 'COSTING_APPROVAL', 'Review submitted costing and approve or return for revision.');
-      }
-      if (lead.status === 'LIVE_CASE_DEMONSTRATION' && (isOwner || lead.pm_id === user.id || user.role_code === 'SYSTEM_ADMIN')) {
-        add(lead, 'LIVE_DEMO', lead.next_action || 'Review, assign or schedule the customer LIVE demonstration.');
       }
     }
 
@@ -1312,7 +1303,6 @@ const ACTIVITY_CAPTIONS: Record<string, string> = {
   COSTING_SUBMITTED: 'Costing submitted to PM',
   COSTING_RETURNED: 'Costing returned for revision',
   COSTING_REJECTED: 'Costing rejected',
-  LIVE_CASE_DEMONSTRATION: 'LIVE Case Demonstration required',
   QUOTATION: 'Quotation prepared',
   NEGOTIATION: 'Moved to negotiation',
   ORDER_CONVERTED: 'Order converted',

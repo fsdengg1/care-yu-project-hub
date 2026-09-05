@@ -153,8 +153,7 @@ export interface NotificationItem {
     | 'CLIENT_PROPOSAL'
     | 'CLIENT_LEAD_EMAIL'
     | 'CLIENT_PROJECT_UPDATE'
-    | 'CLIENT_COMMUNICATION'
-    | 'LIVE_DEMO';
+    | 'CLIENT_COMMUNICATION';
   title: string;
   message: string;
   entity_type: string;
@@ -271,7 +270,6 @@ export type LeadStatus =
     | 'COSTING_SUBMITTED'
     | 'COSTING_RETURNED'
     | 'COSTING_REJECTED'
-  | 'LIVE_CASE_DEMONSTRATION'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'ORDER_CONVERTED'
@@ -285,7 +283,6 @@ export type PipelineStage =
   | 'PM_REVIEW'
   | 'FEASIBILITY'
   | 'COSTING'
-  | 'LIVE_DEMO'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'CONVERTED'
@@ -487,8 +484,6 @@ export interface Lead {
 
   feasibility_study?: FeasibilityStudy;
   costing?: CostingRecord;
-  live_demo_gate_exempt?: boolean;
-  live_demo_participant_ids?: string[];
   quotation?: QuotationRecord;
   negotiation_history?: NegotiationEntry[];
 
@@ -553,165 +548,6 @@ export interface FeasibilityStudy {
   pm_return_reason?: string;
 }
 
-export type LiveDemoStatus =
-  | 'NOT_STARTED'
-  | 'WAITING'
-  | 'REQUESTED'
-  | 'REQUEST'
-  | 'PENDING'
-  | 'PENDING_CUSTOMER'
-  | 'PENDING_INTERNAL'
-  | 'PENDING_BOTH'
-  | 'UNDER_REVIEW'
-  | 'APPROVED'
-  | 'ASSIGNED'
-  | 'SCHEDULED'
-  | 'IN_PROGRESS'
-  | 'DEMONSTRATED'
-  | 'CASE_REFERENCE_PENDING'
-  | 'VERIFICATION_PENDING'
-  | 'VERIFIED'
-  | 'COMPLETED'
-  | 'REJECTED'
-  | 'CANCELLED'
-  | 'RESCHEDULED';
-
-export interface LiveDemoCustomerParticipant {
-  id: string;
-  name: string;
-  designation?: string;
-  company?: string;
-  email?: string;
-  phone?: string;
-}
-
-export interface LiveDemoChecklistItem {
-  id: string;
-  label: string;
-  done: boolean;
-}
-
-export interface LiveDemoScheduleHistoryEntry {
-  id: string;
-  old_date?: string;
-  old_time?: string;
-  new_date?: string;
-  new_time?: string;
-  reason: string;
-  changed_by: string;
-  changed_by_id: string;
-  created_at: string;
-}
-
-export interface LiveDemonstration {
-  id: string;
-  lead_id: string;
-  status: LiveDemoStatus;
-  request_source?: string;
-  requested_by_id?: string;
-  requested_by_name?: string;
-  requested_by_role?: string;
-  reason: string;
-  customer_requirement?: string;
-  demonstration_requirements?: string;
-  additional_notes?: string;
-  next_action: string;
-  preferred_date?: string;
-  preferred_time?: string;
-  coordinator_id?: string;
-  coordinator_name?: string;
-  demonstrator_id?: string;
-  demonstrator_name?: string;
-  approved_by?: string;
-  approved_at?: string;
-  assigned_by?: string;
-  assigned_at?: string;
-  review_message?: string;
-  required_information?: string;
-  customer_decision?: string;
-  pending_with?: 'CUSTOMER' | 'INTERNAL' | 'BOTH' | 'NONE';
-  pending_reason?: string;
-  customer_action_required?: string;
-  customer_action_owner_id?: string;
-  customer_action_owner_name?: string;
-  internal_action_required?: string;
-  action_owner_id?: string;
-  action_owner_name?: string;
-  pending_since?: string;
-  pending_resolved_at?: string;
-  pending_resolution_note?: string;
-  pending_history?: Array<{
-    id: string;
-    pending_with: string;
-    pending_reason: string;
-    resolved: boolean;
-    resolution_note?: string;
-    created_at: string;
-  }>;
-  status_history?: Array<{
-    id: string;
-    from?: string;
-    to: string;
-    detail?: string;
-    changed_by: string;
-    created_at: string;
-  }>;
-  support_user_ids: string[];
-  support_user_names: string[];
-  customer_participants: LiveDemoCustomerParticipant[];
-  scheduled_date?: string;
-  scheduled_time?: string;
-  timezone: string;
-  mode?: 'ON_SITE' | 'ONLINE' | 'HYBRID';
-  location?: string;
-  meeting_link?: string;
-  purpose?: string;
-  scope?: string;
-  checklist: LiveDemoChecklistItem[];
-  started_at?: string;
-  started_by?: string;
-  completed_at?: string;
-  completed_by?: string;
-  outcome?: string;
-  what_was_demonstrated?: string;
-  customer_feedback?: string;
-  customer_questions?: string;
-  customer_concerns?: string;
-  requested_changes?: string;
-  interest_level?: 'YES' | 'NO' | 'NEEDS_INTERNAL_REVIEW';
-  issues?: string;
-  follow_up_required: boolean;
-  follow_up_details?: string;
-  follow_up_owner_id?: string;
-  follow_up_owner_name?: string;
-  follow_up_date?: string;
-  follow_up_status?: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED';
-  live_case_reference?: string;
-  reference_status: 'NOT_ENTERED' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'REJECTED';
-  verified_by?: string;
-  verified_at?: string;
-  cancellation_reason?: string;
-  schedule_history: LiveDemoScheduleHistoryEntry[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface LiveDemonstrationPayload {
-  available: boolean;
-  procurement_locked: boolean;
-  solution_costing_completed: boolean;
-  live_demo_completed: boolean;
-  live_case_reference: string | null;
-  live_case_reference_verified: boolean;
-  demonstration: LiveDemonstration | null;
-  activity?: Array<{ at: string; label: string; detail?: string }>;
-  can_schedule?: boolean;
-  can_create?: boolean;
-  can_review?: boolean;
-  can_assign?: boolean;
-  lead?: Lead;
-}
-
 export interface CostingRecord {
   bom_components: string;
   vendor_requirements: string;
@@ -772,7 +608,6 @@ export type MyWorkCategory =
   | 'FEASIBILITY_APPROVAL'
   | 'COSTING'
   | 'COSTING_APPROVAL'
-  | 'LIVE_DEMO'
   | 'QUOTATION'
   | 'NEGOTIATION'
   | 'EXECUTION'
@@ -813,7 +648,6 @@ export interface LeadWorkflowPayload {
   additionalDocuments?: EntityDocument[];
   assignmentHistory?: AssignmentHistory[];
   tasks?: Task[];
-  liveDemonstration?: LiveDemonstrationPayload;
 }
 
 // ============================================================
@@ -985,7 +819,6 @@ export type WorkTaskType = 'PROJECT_TASK' | 'NON_PROJECT_TASK' | 'LEAD_TASK';
 export interface Task {
   id: string;
   lead_id: string;
-  live_demonstration_id?: string;
   lead_name?: string;
   lead_stage_at_creation?: string;
   customer_name?: string;
@@ -1581,7 +1414,7 @@ export interface EntityDocument {
   uploaded_by: string;
   uploaded_by_id: string;
   uploaded_at: string;
-  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'FEASIBILITY' | 'LIVE_DEMO' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
+  entity_type: 'LEAD' | 'PROJECT' | 'TASK' | 'ADDITIONAL_INPUT' | 'FEASIBILITY' | 'CONVERSATION' | 'FORUM_POST' | 'FORUM_COMMENT';
   entity_id: string;
   created_at: string;
   updated_at: string;

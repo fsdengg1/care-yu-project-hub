@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { env } from './config/env.js';
-import { initStore, isStoreInitialized, shutdownStore } from './store/db.js';
+import { initStore, isStoreInitialized, shutdownStore, store } from './store/db.js';
 import authRouter from './routes/auth.js';
 import masterRouter from './routes/master.js';
 import dashboardRouter from './routes/dashboard.js';
@@ -24,8 +24,6 @@ import { logEmailConfigOnStartup } from './lib/emailDiagnostics.js';
 import { ensureLiveDirectory } from './lib/directoryRoles.js';
 import { ensureRobotLeadAccount } from './lib/robotLead.js';
 import { ensureActionItemTasks } from './lib/actionItemSheet.js';
-import { migrateLiveDemoGate } from './lib/liveDemonstration.js';
-import liveDemonstrationsRouter from './routes/liveDemonstrations.js';
 import emailRouter from './routes/email.js';
 
 const app = express();
@@ -111,7 +109,6 @@ app.use('/api/auth', authRouter);
 app.use('/api/email', emailRouter);
 app.use('/api/dashboard', dashboardRouter);
 app.use('/api/leads', leadsRouter);
-app.use('/api/live-demonstrations', liveDemonstrationsRouter);
 app.use('/api/notifications', notificationsRouter);
 app.use('/api/escalations', escalationsRouter);
 app.use('/api/projects', projectsRouter);
@@ -134,6 +131,14 @@ async function start() {
   console.log(
     `Store ready (source=${storeInfo.source}, users=${storeInfo.counts.users}, pendingSignups=${storeInfo.counts.pendingSignups ?? 0}, leads=${storeInfo.counts.leads}, projects=${storeInfo.counts.projects})`
   );
+  const leads = store.getLeads();
+  const retired = leads.map((lead) => {
+    if (String(lead.status) !== 'LIVE_CASE_DEMONSTRATION' && String(lead.pipeline_stage) !== 'LIVE_DEMO') return lead;
+    return { ...lead, status: 'QUOTATION' as const, pipeline_stage: 'QUOTATION' as const };
+  });
+  if (retired.some((lead, index) => lead !== leads[index])) {
+    store.saveLeads(retired);
+  }
   await ensureLiveDirectory();
   await ensureRobotLeadAccount();
   ensureActionItemTasks();
@@ -143,14 +148,6 @@ async function start() {
 
   const server = app.listen(env.port, '0.0.0.0', () => {
     console.log(`Careyu backend listening on 0.0.0.0:${env.port}`);
-    try {
-      const liveDemoMigration = migrateLiveDemoGate();
-      console.log(
-        `[live-demo] gate migration activated=${liveDemoMigration.activated} exempt=${liveDemoMigration.exempt}${liveDemoMigration.backup ? ` backup=${liveDemoMigration.backup}` : ''}`
-      );
-    } catch (error) {
-      console.error('[live-demo] gate migration skipped so login can continue:', error);
-    }
   });
 
   server.on('error', (error: NodeJS.ErrnoException) => {

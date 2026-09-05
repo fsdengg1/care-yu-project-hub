@@ -26,7 +26,6 @@ export type CollectionName =
   | 'leadStatusHistory'
   | 'feasibilityTeamAssignments'
   | 'feasibilityEmployeeAllocations'
-  | 'liveDemonstrations'
   | 'projectPhases'
   | 'conversations'
   | 'conversationParticipants'
@@ -62,7 +61,6 @@ export const COLLECTION_NAMES: CollectionName[] = [
   'leadStatusHistory',
   'feasibilityTeamAssignments',
   'feasibilityEmployeeAllocations',
-  'liveDemonstrations',
   'projectPhases',
   'conversations',
   'conversationParticipants',

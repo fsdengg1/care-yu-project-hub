@@ -9,7 +9,6 @@ import { formatInrCompact, LEAD_STATUS_LABELS } from '@/lib/format';
 import { canCreateLead } from '@/lib/rbac';
 import { Building2, Plus, Inbox, ArrowRight } from 'lucide-react';
 import { DailyUpdateSummary } from '@/lib/types';
-import LiveDemoWidgets from '@/components/leads/LiveDemoWidgets';
 import PendingActionsCard from '@/components/work/PendingActionsCard';
 import LeadWorkflowTimeline from '@/components/dashboards/LeadWorkflowTimeline';
 import ProjectGanttPanel from '@/components/planning/ProjectGanttPanel';
@@ -53,7 +52,6 @@ export default function SalesDashboard({ user }: { user: User }) {
       </div>
 
       <PendingActionsCard />
-      <LiveDemoWidgets />
       <LeadWorkflowTimeline />
       <ProjectGanttPanel user={user} />
 

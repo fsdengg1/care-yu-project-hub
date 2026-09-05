@@ -31,8 +31,6 @@ export function resolvePipelineStage(lead: Lead): PipelineStage {
     case 'COSTING_SUBMITTED':
     case 'COSTING_RETURNED':
       return 'COSTING';
-    case 'LIVE_CASE_DEMONSTRATION':
-      return 'LIVE_DEMO';
     case 'QUOTATION':
       return 'QUOTATION';
     case 'NEGOTIATION':

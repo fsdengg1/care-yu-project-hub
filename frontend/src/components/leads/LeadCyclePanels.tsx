@@ -428,7 +428,7 @@ export default function LeadCyclePanels({ lead, currentUser, teams, users, onUpd
         </div>
       )}
 
-      {canViewCosting && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED', 'COSTING_SUBMITTED', 'LIVE_CASE_DEMONSTRATION', 'QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
+      {canViewCosting && ['COSTING_IN_PROGRESS', 'COSTING_RETURNED', 'COSTING_SUBMITTED', 'QUOTATION', 'NEGOTIATION', 'ORDER_CONVERTED'].includes(lead.status) && (
         <div className="space-y-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5">
           <div className="flex items-center gap-2 border-b border-slate-800 pb-2 text-sm font-bold text-slate-100">
             <Calculator className="h-4 w-4 text-cyan-400" /> Solution & Costing
